@@ -1,132 +1,132 @@
-// Grammer for the core prelude types.
-//
-// We use double colons "::" to represent the type constraint on the core symbols.
-//   e.g., "Bool :: Type 0" indicates "Bool" has type "Type 0"
-// Functions use "->" to separate arguments from result.
-//   e.g., "f :: Bool -> Bool -> Bool"indicates "f" is a binary operation on Booleans.
-//
-// Single colons ":" are used for for scoping variables to be used in subsequent arguments.
-//   "f :: n : Integer -> Signed n -> Signed n"
-// This  indicates "f" is a function that takes an integer argument "n", and returns a function
-// that takes "n"-bit signed integer and returns another "n"-bit signed integer.
-//
-// We surround the parameter with single curly brackets (e.g., "{ n : Integer}") to indicate
-// the parameter is not passed explicitly, but should be inferred by type unification.
-//
-// We surround the parameter with double curly brackets (e.g., "{{ Ord a }}") to indicate the
-// parameter is not passed explicitly, but should be obtained by finding a unique term with
-// that type in the surrounding context.  If there are multiple such terms, then fail.
-//
-// We use a parameter with angle brackets (e.g., "{{{ Assert (eq x y) }}}") to denote parameters
-// that are not explicitly passed, but must be found to show that the expression is well formed.
-// This is used to ensure the index is valid when reading or updating an array.
+-- Grammar for the core prelude types.
+--
+-- We use double colons "::" to represent the type constraint on the core symbols.
+--   e.g., "Bool :: Type 0" indicates "Bool" has type "Type 0"
+-- Functions use "->" to separate arguments from result.
+--   e.g., "f :: Bool -> Bool -> Bool"indicates "f" is a binary operation on Booleans.
+--
+-- Single colons ":" are used for for scoping variables to be used in subsequent arguments.
+--   "f :: n : Integer -> Signed n -> Signed n"
+-- This  indicates "f" is a function that takes an integer argument "n", and returns a function
+-- that takes "n"-bit signed integer and returns another "n"-bit signed integer.
+--
+-- We prefix the parameter with a single question mark (e.g., "?(n : Integer)") to indicate
+-- the parameter is not passed explicitly, but should be inferred by type unification.
+--
+-- We prefix the parameter with two question marks (e.g., "??(Ord a)") to indicate the
+-- parameter is not passed explicitly, but should be obtained by finding a unique term with
+-- that type in the surrounding context.  If there are multiple such terms, then fail.
+--
+-- We use a parameter with three question marks (e.g., "???(Assert (eq x y))") to denote
+-- parameters that are not explicitly passed, but must be found to show that the expression
+-- is well formed.  This is used to ensure the index is valid when reading or updating an array.
 
-// Primitive types (e.g., Bool, Integer, bitvectors, arrays) all have type "Type 0"
-// "Type i" has type "Type (i+1)"
-Type :: i : Integer -> Type (add i 1);
+-- Primitive types (e.g., Bool, Integer, bitvectors, arrays) all have type "Type 0"
+-- "Type i" has type "Type (i+1)"
+Type :: (i :: Integer) -> Type (add i 1);
 
-// Booleans
-Bool :: Type 0;
-True :: Bool;
-False :: Bool;
+-- Booleans
+data Bool :: Type 0 where {
+    True :: Bool;
+    False :: Bool;
+  }
 
 -- assert is a function that maps "True" to the inhabited type "TrueProp" and
 -- "False" to the uninhabited type "FalseProp" 
-Assert :: Bool -> Type 1
+Assert :: Bool -> Type 1;
 
 -- Inhabited type for true propositions.
-TrueProp :: Type 0
-TrivialProp :: TrueProp
+data TrueProp :: Type 0 where {
+    TrivialProp :: TrueProp;
+  }
+
 
 -- Uninhabited type 
-FalseProp :: Type 0
+data FalseProp :: Type 0 where {
+  }
 
-// Equality and if-then-else.
-eq  :: {a :: Type 0} -> a -> a -> Bool;
-ite :: {a :: Type 0} -> Bool -> a -> a -> a;
+-- Equality and if-then-else.
+eq  :: ?(a :: Type 0) -> a -> a -> Bool;
+ite :: ?(a :: Type 0) -> Bool -> a -> a -> a;
 
-// Ordering "typeclass"
+-- Ordering "typeclass"
 Ord :: Type 0 -> Type 0
-leq :: {a : Type 0} -> {{Ord a}} -> a -> a -> Bool
-lt  :: {a : Type 0} -> {{Ord a}} -> a -> a -> Bool
-geq :: {a : Type 0} -> {{Ord a}} -> a -> a -> Bool
-gt  :: {a : Type 0} -> {{Ord a}} -> a -> a -> Bool
+leq :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
+lt  :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
+geq :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
+gt  :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
 
-// Building orderings.
-boolOrdInstance :: Ord Bool
+-- Building orderings.
+boolOrdInstance :: Ord Bool;
 
-// Numeric operations.
-Num :: Type 0 -> Type 0
-// Implicitly every integer constraint has type "{a:Type 0} -> {{Num a}} -> a"
-neg     :: {a : Type 0} -> {{Num a}} -> a -> a
-add     :: {a : Type 0} -> {{Num a}} -> a -> a -> a
-sub     :: {a : Type 0} -> {{Num a}} -> a -> a -> a
-mul     :: {a : Type 0} -> {{Num a}} -> a -> a -> a
-div     :: {a : Type 0} -> {{Num a}} -> a -> a -> a
-rem     :: {a : Type 0} -> {{Num a}} -> a -> a -> a
+-- Numeric operations.
+Num :: Type 0 -> Type 0;
+-- Implicitly every integer constraint has type "?(a:Type 0) -> ??(Num a) -> a"
+neg     :: ?(a :: Type 0) -> ??(Num a) -> a -> a;
+add     :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
+sub     :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
+mul     :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
+div     :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
+rem     :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
 
-// Bit level operations.
-Bits    :: Type 0 -> Type 0
-not     :: {a : Type 0} -> {{Bits a}} -> a -> a
-and     :: {a : Type 0} -> {{Bits a}} -> a -> a -> a
-or      :: {a : Type 0} -> {{Bits a}} -> a -> a -> a
-xor     :: {a : Type 0} -> {{Bits a}} -> a -> a -> a
-implies :: {a : Type 0} -> {{Bits a}} -> a -> a -> a
-shl     :: {a : Type 0} -> {{Bits a}} -> a -> a -> a
-shr     :: {a : Type 0} -> {{Bits a}} -> a -> a -> a
+-- Bit level operations.
+Bits    :: Type 0 -> Type 0;
+not     :: ?(a :: Type 0) -> ??(Bits a) -> a -> a;
+and     :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+or      :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+xor     :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+implies :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+shl     :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+shr     :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
 
-// Integers
-Integer :: Type 0
-// There are implicit constructors from integer literals.
-integerOrdInstance  :: Ord  Integer
-integerNumInstance  :: Num  Integer
-integerBitsInstance :: Bits Integer
+-- Integers
+Integer :: Type 0;
+-- There are implicit constructors from integer literals.
+integerOrdInstance  :: Ord  Integer;
+integerNumInstance  :: Num  Integer;
+integerBitsInstance :: Bits Integer;
 
-// "Array n a" is an array of n elements, each with type "a".
-Array :: n : Integer -> Type 0 -> Type 0
-// For each natural number n, there is an implicit constructor
-// [x0,...,x(n-1)] for creating an array with length n.
-arrayOrdInstance :: {n :: Integer} -> {e :: Type 0} -> {{Ord e}}  -> Ord  (Array n e)
-arrayBitInstance :: {n :: Integer} -> {e :: Type 0} -> {{Bits e}} -> Bits (Array n e)
+-- "Array n a" is an array of n elements, each with type "a".
+Array :: (n :: Integer) -> Type 0 -> Type 0;
+-- For each natural number n, there is an implicit constructor
+-- [x0,...,x(n-1)] for creating an array with length n.
+arrayOrdInstance :: ?(n :: Integer) -> ?(e :: Type 0) -> ??(Ord e)  -> Ord  (Array n e);
+arrayBitInstance :: ?(n :: Integer) -> ?(e :: Type 0) -> ??(Bits e) -> Bits (Array n e);
 
-// Get and set an individual element in an array.
-// The assertions are used to ensure that get and set are given valid arguments.
-get :: {n :: Integer} -> Array n a -> i:Integer -> {{{ Assert (and (leq 0 i) (lt i n)) }}} -> a
-set :: {n :: Integer} -> Array n a -> i:Integer -> a -> {{{ Assert (and (leq 0 i) (lt i n)) }}}
-     -> Array n a
+-- Get and set an individual element in an array.
+-- The assertions are used to ensure that get and set are given valid arguments.
+get :: ?(n :: Integer) -> Array n a -> i::Integer -> ???(Assert (and (leq 0 i) (lt i n))) -> a;
+set :: ?(n :: Integer) -> Array n a -> i::Integer -> a -> ???(Assert (and (leq 0 i) (lt i n)))
+     -> Array n a;
 
-// Concatenate arrays together.
-join  :: {m :: Integer} -> {n :: Integer} -> {e :: Integer}
-      -> Array m (Array n e) -> Array (mul m n) e
-// Split array into list
-split :: {m :: Integer} -> {n :: Integer} -> {e ::Integer}
-      -> Array (mul m n) e -> Array m (Array n e)
+-- Concatenate arrays together.
+join  :: ?(m n :: Integer) -> ?(e :: Type 0) -> Array m (Array n e) -> Array (mul m n) e;
+-- Split array into list
+split :: ?(m n :: Integer) -> ?(e :: Type 0) -> Array (mul m n) e -> Array m (Array n e);
 
-// Append two arrays together.
-// append :: {m : Integer} -> {n : Integer} -> {e : Type 0 } 
-//       -> Array m e -> Array n e -> Unsigned (plus m n) e
-// append can be represents as append x y = join [x, y] -- so may not be primitive.
+-- Append two arrays together.
+-- append :: ?(m n :: Integer) -> ?(e :: Type 0) 
+--       -> Array m e -> Array n e -> Unsigned (plus m n) e
+-- append can be represents as append x y = join [x, y] -- so may not be primitive.
 
-// "Signed n" and "Unsigned n" represent bitvectors with length n
-// representing signed and unsigned integers.
-Signed   :: n : Integer -> Type 0
-Unsigned :: n : Integer -> Type 0
-// These are equivalent to arrays of Booleans, but can perform arithmetic.
-signedBVOrdInstance  :: {n :: Integer} -> Ord  (Signed n)
-signedBVNumInstance  :: {n :: Integer} -> Num  (Signed n)
-unsignedBVOrdInstance  :: {n :: Integer} -> Ord  (Unsigned n)
-unsignedBVNumInstance  :: {n :: Integer} -> Num  (Unsigned n)
+-- "Signed n" and "Unsigned n" represent bitvectors with length n
+-- representing signed and unsigned integers.
+Signed   :: (n :: Integer) -> Type 0;
+Unsigned :: (n :: Integer) -> Type 0;
+-- These are equivalent to arrays of Booleans, but can perform arithmetic.
+signedBVOrdInstance    :: ?(n :: Integer) -> Ord (Signed n);
+signedBVNumInstance    :: ?(n :: Integer) -> Num (Signed n);
+unsignedBVOrdInstance  :: ?(n :: Integer) -> Ord (Unsigned n);
+unsignedBVNumInstance  :: ?(n :: Integer) -> Num (Unsigned n);
 
-// Convert between bitvectors and integers.
-signedToInteger   :: {n : Integer} -> Signed n   -> Integer
-unsignedToInteger :: {n : Integer} -> Unsigned n -> Integer
-integerToSigned   :: {n : Integer} -> Integer    -> Signed n
-integerToUnsigned :: {n : Integer} -> Integer    -> Unsigned n
+-- Convert between bitvectors and integers.
+signedToInteger   :: ?(n :: Integer) -> Signed n   -> Integer;
+unsignedToInteger :: ?(n :: Integer) -> Unsigned n -> Integer;
+integerToSigned   :: ?(n :: Integer) -> Integer    -> Signed n;
+integerToUnsigned :: ?(n :: Integer) -> Integer    -> Unsigned n;
 
-// Convert between bitvectors and arrays of bits.
-signedToArray   :: {n : Integer} -> Signed   n   -> Array n Bool
-unsignedToArray :: {n : Integer} -> Unsigned n   -> Array n Bool
-arrayToSigned   :: {n : Integer} -> Array n Bool -> Signed n
-arrayToUnsigned :: {n : Integer} -> Array n Bool -> Unsigned n
-
-
+-- Convert between bitvectors and arrays of bits.
+signedToArray   :: ?(n :: Integer) -> Signed   n   -> Array n Bool;
+unsignedToArray :: ?(n :: Integer) -> Unsigned n   -> Array n Bool;
+arrayToSigned   :: ?(n :: Integer) -> Array n Bool -> Signed n;
+arrayToUnsigned :: ?(n :: Integer) -> Array n Bool -> Unsigned n;
