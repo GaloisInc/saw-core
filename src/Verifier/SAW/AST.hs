@@ -1,5 +1,5 @@
-{-# LANGUAGE DeriveFunctor #-}
 module Verifier.SAW.AST
+  ( module Verifier.SAW.Position
   , Ident
   , ParamType(..)
   , Expr(..)

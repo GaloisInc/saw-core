@@ -1,4 +1,4 @@
-Name: SAWCore
+Name: saw-core
 Description: Core SAW terms
 Version: 0.1
 Author: Galois, Inc.
@@ -18,11 +18,15 @@ library
     utf8-string
   hs-source-dirs: src
   exposed-modules:
-     Verifier.SAW.Lexer
-     Verifier.SAW.Parser
+     Verifier.SAW
   other-modules:
      Verifier.SAW.AST
+     Verifier.SAW.DagTerm
+     Verifier.SAW.Grammar
+     Verifier.SAW.Lexer
      Verifier.SAW.Position
      Verifier.SAW.TypedAST
   GHC-options: -Wall
-
+  extensions:
+    DeriveFunctor
+    ImplicitParams
