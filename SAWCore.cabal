@@ -20,12 +20,12 @@ library
   exposed-modules:
      Verifier.SAW
   other-modules:
-     Verifier.SAW.AST
      Verifier.SAW.DagTerm
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
      Verifier.SAW.Position
      Verifier.SAW.TypedAST
+     Verifier.SAW.UntypedAST
   GHC-options: -Wall
   extensions:
     DeriveFunctor
