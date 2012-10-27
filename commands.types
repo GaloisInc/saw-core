@@ -11,37 +11,53 @@ cryptolSetup :: Setup CryptolSetup
 javaSetup :: Setup JavaSetup
 llvmSetup :: Setup LLVMSetup
 
-mayAlias :: {m :: Type 0 -> Type 0} -> {{PtrSetup m}} -> {a :: Type 0}
-         -> [a] -> m ()
+Name :: Type 0
+
+javaVar :: Name -> JavaType -> JavaVar
+
+mayAlias :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{PtrSetup m}}
+         -> JavaVar a -> JavaVar a -> m ()
+valueOf  :: {a :: Type 0} -> JavaVar a -> a
 assert   :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> Bool -> m ()
+/* Imperative assertion */
 assertI  :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> a -> a -> m ()
 assume   :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> Bool -> m ()
+/* Imperative ensure */
 ensureI  :: {m :: Type 0 -> Type 0} -> {{PtrSetup m}} -> a -> a -> m ()
-modify   :: {m :: Type 0 -> Type 0} -> {{PtrSetup m}} -> a -> m ()
+modify   :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{PtrSetup m}}
+         -> JavaVar a -> m ()
 return   :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> a -> m ()
+input    :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> JavaVar a -> m ()
+output   :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> JavaVar a -> m ()
 
 hasLLVMType 0 :: {a :: Type 0} -> a -> LLVMType 0 -> LLVMSetup ()
 hasJavaType 0 :: {a :: Type 0} -> a -> JavaType 0 -> JavaSetup ()
 
-Name :: Type 0
 FilePath :: Type 0
+FileIO :: Type 0 -> Type 0
 
-extractLLVM :: {a :: Type 0} -> FilePath -> Name -> LLVMSetup () -> a
-extractJava :: {a :: Type 0} -> Name -> JavaSetup () -> a
-extractCryptol :: {a :: Type 0} -> FilePath -> Name -> CryptolSetup () -> a
+extractLLVM :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
+            -> FilePath -> Name -> LLVMSetup a -> m a
+extractJava :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
+            -> Name -> JavaSetup a -> m a
+extractCryptol :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
+               -> FilePath -> Name -> CryptolSetup a -> m a
 
-loadAIG :: {a :: Type 0} -> FilePath -> FileIO a
-loadCNF :: {a :: Type 0} -> FilePath -> FileIO (a -> Bool)
-loadSBV :: {a :: Type 0} -> FilePath -> FileIO a
+loadAIG :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
+        -> FilePath -> m a
+loadCNF :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
+        -> FilePath -> m (a -> Bool)
+loadSBV :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
+        -> FilePath -> m a
 
 RuleSetup :: Type 0 -> Type 0
 Rule :: Type 0
+
 rule :: {a :: Type 0} -> a -> a -> RuleSetup Rule
 expand :: {a :: Type 0} -> a -> Rule
 forall :: {a :: Type 0} -> (a -> RuleSetup Rule) -> RuleSetup Rule
 rewrite :: {a :: Type 0} -> RuleSetup () -> a -> a
 
-FileIO :: Type 0 -> Type 0
 
 writeAIG :: {m :: Type 0 -> Type 0} -> {{FileIO m}} -> {a :: Type 0}
          -> FilePath -> a -> m ()
