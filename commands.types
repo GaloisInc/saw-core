@@ -13,26 +13,31 @@ llvmSetup :: Setup LLVMSetup
 
 Name :: Type 0
 
-javaVar :: Name -> JavaType -> JavaVar
+Var :: Type 0 -> Type 0
+javaVarIsVar :: Var JavaVar
+llvmVarIsVar :: Var LLVMVar
 
-mayAlias :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{PtrSetup m}}
-         -> JavaVar a -> JavaVar a -> m ()
-valueOf  :: {a :: Type 0} -> JavaVar a -> a
+javaVar :: Name -> JavaType -> JavaSetup JavaVar
+llvmVar :: Name -> LLVMType -> LLVMSetup LLVMVar
+
+mayAlias :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{PtrSetup m}} -> {{Var a}} ->
+         -> a -> a -> m ()
 assert   :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> Bool -> m ()
 /* Imperative assertion */
 assertI  :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> a -> a -> m ()
 assume   :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> Bool -> m ()
+ensure   :: {m :: Type 0 -> Type 0} -> {{PtrSetup m}} -> Bool -> m ()
 /* Imperative ensure */
 ensureI  :: {m :: Type 0 -> Type 0} -> {{PtrSetup m}} -> a -> a -> m ()
-modify   :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{PtrSetup m}}
-         -> JavaVar a -> m ()
+modify   :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{PtrSetup m}} -> {{Var a}}
+         -> a -> m ()
 return   :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> a -> m ()
-input    :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> JavaVar a -> m ()
-output   :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> JavaVar a -> m ()
+input    :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> {{Var a}}
+         -> JavaVar a -> m ()
+output   :: {m :: Type 0 -> Type 0} -> {{Setup m}} -> {{Var a}}
+         -> JavaVar a -> m ()
 
-hasLLVMType 0 :: {a :: Type 0} -> a -> LLVMType 0 -> LLVMSetup ()
-hasJavaType 0 :: {a :: Type 0} -> a -> JavaType 0 -> JavaSetup ()
-
+FileType :: Type 0
 FilePath :: Type 0
 FileIO :: Type 0 -> Type 0
 
@@ -43,28 +48,23 @@ extractJava :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
 extractCryptol :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
                -> FilePath -> Name -> CryptolSetup a -> m a
 
-loadAIG :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
-        -> FilePath -> m a
-loadCNF :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
-        -> FilePath -> m (a -> Bool)
-loadSBV :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
-        -> FilePath -> m a
+AIG :: FileType
+CNF :: FileType
+BTOR :: FileType
+SMTLib :: FileType
 
-RuleSetup :: Type 0 -> Type 0
+load :: {m :: Type 0 -> Type 0} -> {a :: Type 0} -> {{FileIO m}
+     -> FileType -> FilePath -> m a
+export :: {m :: Type 0 -> Type 0} -> {{FileIO m}} -> {a :: Type 0}
+       -> FileType -> FilePath -> a -> m ()
+
 Rule :: Type 0
 
-rule :: {a :: Type 0} -> a -> a -> RuleSetup Rule
+rule :: {a :: Type 0} -> a -> a -> Rule
 expand :: {a :: Type 0} -> a -> Rule
-forall :: {a :: Type 0} -> (a -> RuleSetup Rule) -> RuleSetup Rule
-rewrite :: {a :: Type 0} -> RuleSetup () -> a -> a
-
-
-writeAIG :: {m :: Type 0 -> Type 0} -> {{FileIO m}} -> {a :: Type 0}
-         -> FilePath -> a -> m ()
-writeSMTLib :: {m :: Type 0 -> Type 0} -> {{FileIO m}} -> {a :: Type 0}
-            -> FilePath -> a -> m ()
-writeCNF :: {m :: Type 0 -> Type 0} -> {{FileIO m}} -> {a :: Type 0}
-         -> FilePath -> (a -> Bool) -> m ()
+forall :: {a :: Type 0} -> (a -> Rule) -> Rule
+exists :: {a :: Type 0} -> (a -> Rule) -> Rule
+rewrite :: {a :: Type 0} -> [Rule] -> a -> a
 
 Prover :: Type 0 -> Type 0
 ProverParams :: (Type 0 -> Type 0) -> Type 0
