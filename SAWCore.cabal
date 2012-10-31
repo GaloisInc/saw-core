@@ -15,14 +15,15 @@ library
     directory,
     filepath,
     mtl,
+    pretty,
     utf8-string
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
-  other-modules:
-     Verifier.SAW.DagTerm
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
+  other-modules:
+     Verifier.SAW.DagTerm
      Verifier.SAW.Position
      Verifier.SAW.TypedAST
      Verifier.SAW.UntypedAST

@@ -14,7 +14,9 @@ module Verifier.SAW.DagTerm
   , deLocalVar
   , deBuiltin
   , deInteger
+  , deTypeOf
   , deProject
+  , dePrettyTerm
     -- ** Utilities.
   , deGroundSignedType
   , deGroundSignedValueFn
@@ -23,6 +25,7 @@ module Verifier.SAW.DagTerm
 
 import Control.Monad
 import Data.Word
+import Text.PrettyPrint.HughesPJ
 
 import Verifier.SAW.TypedAST
 
@@ -44,11 +47,15 @@ data DagEngine s = DagEngine
   , deLambdaFn :: ParamType -> Ident -> DagTerm s -> IO (DagTerm s) 
   , deGlobalFn :: Ident -> IO (Maybe (DagTerm s))
   , deFreshGlobalFn :: Ident -> DagTerm s -> IO (DagTerm s)
-  , deLocalVarFn   :: Integer -> IO (DagTerm s)
-  , deBuiltinFn    :: Builtin -> IO (DagTerm s)
-  , deIntegerFn    :: Integer -> IO (DagTerm s)
+    -- | Return list of globals with the given type.
+  , deGlobalsWithType :: DagTerm s -> IO [DagTerm s]
+  , deLocalVarFn    :: Integer -> DagTerm s -> IO (DagTerm s)
+  , deBuiltinFn     :: Builtin -> IO (DagTerm s)
+  , deIntegerFn     :: Integer -> IO (DagTerm s)
+  , deTypeOfFn      :: DagTerm s -> IO (DagTerm s)
     -- | Project term to an application.
   , deProjectFn  :: DagTerm s -> TermF (DagTerm s)
+  , dePrettyTermDocFn :: DagTerm s -> Doc
   }
 
 deApply :: (?de :: DagEngine s) => DagTerm s -> DagTerm s -> IO (DagTerm s)
@@ -67,7 +74,7 @@ deGlobal = deGlobalFn ?de
 deFreshGlobal :: (?de :: DagEngine s) => Ident -> DagTerm s -> IO (DagTerm s)
 deFreshGlobal = deFreshGlobalFn ?de
 
-deLocalVar :: (?de :: DagEngine s) => Integer -> IO (DagTerm s)
+deLocalVar :: (?de :: DagEngine s) => Integer -> DagTerm s -> IO (DagTerm s)
 deLocalVar = deLocalVarFn ?de
 
 deBuiltin :: (?de :: DagEngine s) => Builtin -> IO (DagTerm s)
@@ -75,6 +82,9 @@ deBuiltin = deBuiltinFn ?de
 
 deInteger :: (?de :: DagEngine s) => Integer -> IO (DagTerm s)
 deInteger = deIntegerFn ?de
+
+deTypeOf :: (?de :: DagEngine s) => DagTerm s -> IO (DagTerm s)
+deTypeOf = deTypeOfFn ?de
 
 deProject :: (?de :: DagEngine s) => DagTerm s -> TermF (DagTerm s)
 deProject = deProjectFn ?de
@@ -90,6 +100,9 @@ deGroundSignedValueFn w = do
   fw <- deApply f =<< deInteger w
   return $ deApply fw <=< deInteger
 
+dePrettyTerm :: (?de :: DagEngine s) => DagTerm s -> String
+dePrettyTerm t = show (dePrettyTermDocFn ?de t)
+
 mkDagEngine :: IO (DagEngine s)
 mkDagEngine = do
   return DagEngine {
@@ -97,8 +110,11 @@ mkDagEngine = do
      , deLambdaFn = undefined
      , deGlobalFn = undefined              
      , deFreshGlobalFn = undefined
+     , deGlobalsWithType = undefined
      , deLocalVarFn = undefined
      , deBuiltinFn = undefined
      , deIntegerFn = undefined
+     , deTypeOfFn  = undefined
      , deProjectFn = undefined
+     , dePrettyTermDocFn = undefined
      }

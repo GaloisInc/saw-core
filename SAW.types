@@ -31,13 +31,16 @@ data Bool :: Type 0 where {
     False :: Bool;
   }
 
+-- Could be derived from data declaration.
+ite :: ?(a :: Type 0) -> Bool -> a -> a -> a;
+
 -- assert is a function that maps "True" to the inhabited type "TrueProp" and
 -- "False" to the uninhabited type "FalseProp" 
-Assert :: Bool -> Type 1;
+Assert :: Bool -> Type 0;
 
 -- Inhabited type for true propositions.
 data TrueProp :: Type 0 where {
-    TrivialProp :: TrueProp;
+    AtomicProof :: TrueProp;
   }
 
 
@@ -45,43 +48,113 @@ data TrueProp :: Type 0 where {
 data FalseProp :: Type 0 where {
   }
 
+-- Equality "typeclass"
+data Eq :: Type 0 -> Type 0 where {
+   EqInstance :: ?(a :: Type 0)
+              -> (a -> a -> Bool) -- Equality comparison function.
+              -> Eq a;
+  }
+
 -- Equality and if-then-else.
-eq  :: ?(a :: Type 0) -> a -> a -> Bool;
-ite :: ?(a :: Type 0) -> Bool -> a -> a -> a;
+eq  :: ?(a :: Type 0) -> ??(Eq a) -> a -> a -> Bool;
+eq ??(EqInstance e) = e;
+
+boolEqInstance :: Eq Bool;
 
 -- Ordering "typeclass"
-Ord :: Type 0 -> Type 0
-leq :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
-lt  :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
-geq :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
-gt  :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
+data Ord :: Type 0 -> Type 0 where {
+   OrdInstance :: ?(a :: Type 0)
+         -> (a -> a -> Bool) -- Less-than-or-equal function.
+         -> Ord a;
+  }
 
--- Building orderings.
+leq :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
+leq ??(OrdInstance f) = f;
+
+lt  :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
+lt ??(OrdInstance f) x y = not (leq y x);
+
+geq :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
+geq ??(OrdInstance f) x y = leq y x;
+
+gt  :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
+gt ??(OrdInstance f) x y = not (leq x y);
+
+-- False becomes before true.
 boolOrdInstance :: Ord Bool;
 
 -- Numeric operations.
-Num :: Type 0 -> Type 0;
--- Implicitly every integer constraint has type "?(a:Type 0) -> ??(Num a) -> a"
-neg     :: ?(a :: Type 0) -> ??(Num a) -> a -> a;
-add     :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
-sub     :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
-mul     :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
-div     :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
-rem     :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
+data Num :: Type 0 -> Type 0 where {
+   NumInstance 
+         :: ?(a :: Type 0)
+         -> #{ neg :: a -> a;
+               add :: a -> a -> a;
+               sub :: a -> a -> a;
+               mul :: a -> a -> a;
+               div :: a -> a -> a;
+               rem :: a -> a -> a;
+             }
+         -> Num a;
+  }
 
--- Bit level operations.
-Bits    :: Type 0 -> Type 0;
-not     :: ?(a :: Type 0) -> ??(Bits a) -> a -> a;
-and     :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
-or      :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
-xor     :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+neg :: ?(a :: Type 0) -> ??(Num a) -> a -> a;
+neg ??(NumInstance r) = r.neg;
+
+add :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
+add ??(NumInstance r) = r.add;
+
+sub :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
+sub ??(NumInstance r) = r.sub;
+
+mul :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
+mul ??(NumInstance r) = r.mul;
+
+div :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
+div ??(NumInstance r) = r.div;
+
+rem :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
+rem ??(NumInstance r) = r.rem;
+
+data Bits :: Type 0 -> Type 0 where {
+   BitsInstance :: ?(a :: Type 0)
+          -> #{ not     :: a -> a;
+                and     :: a -> a -> a;
+                or      :: a -> a -> a;
+                xor     :: a -> a -> a;
+                implies :: a -> a -> a;
+                shl     :: a -> a -> a;
+                shr     :: a -> a -> a;
+             }
+          -> Bits a;
+  }
+
+not :: ?(a :: Type 0) -> ??(Bits a) -> a -> a;
+not ??(BitsInstance r) = r.not;
+
+and :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+and ??(BitsInstance r) = r.and;
+
+or :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+or ??(BitsInstance r) = r.or;
+
+xor :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+xor ??(BitsInstance r) = r.xor;
+
 implies :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
-shl     :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
-shr     :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+implies ??(BitsInstance r) = r.imples;
+
+shl :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+shl ??(BitsInstance r) = r.shl;
+
+shr :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
+shr ??(BitsInstance r) = r.shr;
+
+boolBitsInstance :: Bits Bool;
 
 -- Integers
 Integer :: Type 0;
 -- There are implicit constructors from integer literals.
+integerEqInstance   :: Eq   Integer;
 integerOrdInstance  :: Ord  Integer;
 integerNumInstance  :: Num  Integer;
 integerBitsInstance :: Bits Integer;
@@ -90,43 +163,89 @@ integerBitsInstance :: Bits Integer;
 Array :: (n :: Integer) -> Type 0 -> Type 0;
 -- For each natural number n, there is an implicit constructor
 -- [x0,...,x(n-1)] for creating an array with length n.
-arrayOrdInstance :: ?(n :: Integer) -> ?(e :: Type 0) -> ??(Ord e)  -> Ord  (Array n e);
-arrayBitInstance :: ?(n :: Integer) -> ?(e :: Type 0) -> ??(Bits e) -> Bits (Array n e);
+arrayEqInstance   :: ?(n :: Integer) -> ?(e :: Type 0) -> ??(Eq e)   -> Eq   (Array n e);
+arrayOrdInstance  :: ?(n :: Integer) -> ?(e :: Type 0) -> ??(Ord e)  -> Ord  (Array n e);
+arrayBitsInstance :: ?(n :: Integer) -> ?(e :: Type 0) -> ??(Bits e) -> Bits (Array n e);
 
 -- Get and set an individual element in an array.
 -- The assertions are used to ensure that get and set are given valid arguments.
-get :: ?(n :: Integer) -> Array n a -> i::Integer -> ???(Assert (and (leq 0 i) (lt i n))) -> a;
-set :: ?(n :: Integer) -> Array n a -> i::Integer -> a -> ???(Assert (and (leq 0 i) (lt i n)))
-     -> Array n a;
+get :: ?(n :: Integer) -> ?(e :: Type 0)
+    -> Array n e -> (i::Integer) -> ???(Assert (and (leq 0 i) (lt i n))) -> e;
+set :: ?(n :: Integer) -> ?(a :: Type 0)
+    -> Array n a -> (i::Integer) -> a -> ???(Assert (and (leq 0 i) (lt i n)))
+    -> Array n a;
+
+-- Function for generating an array.
+generate :: (n :: Integer)
+         -> ???(Assert (leq 0 n))
+         -> ?(e :: Type 0) 
+         -> ((i :: Integer) -> ???(Assert (and (leq 0 i) (lt i n))) -> e) 
+         -> Array n e;
+
+-- | Select a range [l,..,l+n] of values from the array.
+select :: ?(l :: Integer) -> (i n :: Integer) -> ?(e :: Type 0)
+       -> ???(Assert (and (and (leq 0 i) (leq 0 n)) (leq (add i n) l))) 
+       -> Array l e -> Array n e;
+select i n a = generate n (\j -> get a (add i j));
+
+-- replicate n x returns an array with n copies of x.
+replicate :: (n :: Integer)
+          -> ???(Assert (leq 0 n))
+          -> ?(e :: Type 0) -> e -> Array n e;
+replicate n e = generate n (\_ -> e);
 
 -- Concatenate arrays together.
 join  :: ?(m n :: Integer) -> ?(e :: Type 0) -> Array m (Array n e) -> Array (mul m n) e;
+join ?m ?n a = generate (mul m n) (\i -> get (get a (div i n)) (rem i n));
+
 -- Split array into list
 split :: ?(m n :: Integer) -> ?(e :: Type 0) -> Array (mul m n) e -> Array m (Array n e);
+split ?m ?n a = generate m (\i -> generate n (\j -> get a (add (mul n i) j)));
 
 -- Append two arrays together.
--- append :: ?(m n :: Integer) -> ?(e :: Type 0) 
---       -> Array m e -> Array n e -> Unsigned (plus m n) e
--- append can be represents as append x y = join [x, y] -- so may not be primitive.
+append :: ?(m n :: Integer) -> ?(e :: Type 0) 
+       -> Array m e -> Array n e -> Array (plus m n) e;
+append ?m ?n x y = generate (plus m n) (\i -> ite (lt i m) (get x i) (get y (sub i m)));
 
 -- "Signed n" and "Unsigned n" represent bitvectors with length n
 -- representing signed and unsigned integers.
 Signed   :: (n :: Integer) -> Type 0;
 Unsigned :: (n :: Integer) -> Type 0;
 -- These are equivalent to arrays of Booleans, but can perform arithmetic.
-signedBVOrdInstance    :: ?(n :: Integer) -> Ord (Signed n);
-signedBVNumInstance    :: ?(n :: Integer) -> Num (Signed n);
-unsignedBVOrdInstance  :: ?(n :: Integer) -> Ord (Unsigned n);
-unsignedBVNumInstance  :: ?(n :: Integer) -> Num (Unsigned n);
+signedEqInstance     :: ?(n :: Integer) -> Eq  (Signed n);
+signedOrdInstance    :: ?(n :: Integer) -> Ord (Signed n);
+signedNumInstance    :: ?(n :: Integer) -> Num (Signed n);
+signedBitsInstance   :: ?(n :: Integer) -> Bits (Signed n);
+unsignedEqInstance   :: ?(n :: Integer) -> Eq  (Unsigned n);
+unsignedOrdInstance  :: ?(n :: Integer) -> Ord (Unsigned n);
+unsignedNumInstance  :: ?(n :: Integer) -> Num (Unsigned n);
+unsignedBitsInstance :: ?(n :: Integer) -> Bits (Unsigned n);
 
 -- Convert between bitvectors and integers.
 signedToInteger   :: ?(n :: Integer) -> Signed n   -> Integer;
 unsignedToInteger :: ?(n :: Integer) -> Unsigned n -> Integer;
-integerToSigned   :: ?(n :: Integer) -> Integer    -> Signed n;
-integerToUnsigned :: ?(n :: Integer) -> Integer    -> Unsigned n;
+integerToSigned   :: ?(n :: Integer) -> ???(Assert (leq 0 n)) -> Integer -> Signed n;
+integerToUnsigned :: ?(n :: Integer) -> ???(Assert (leq 0 n)) -> Integer -> Unsigned n;
 
 -- Convert between bitvectors and arrays of bits.
 signedToArray   :: ?(n :: Integer) -> Signed   n   -> Array n Bool;
 unsignedToArray :: ?(n :: Integer) -> Unsigned n   -> Array n Bool;
 arrayToSigned   :: ?(n :: Integer) -> Array n Bool -> Signed n;
 arrayToUnsigned :: ?(n :: Integer) -> Array n Bool -> Unsigned n;
+
+-- | Convert between two signed representations.
+signedToSigned :: ?(x y :: Integer)
+               -> ???(Assert (and (leq 1 x) (leq 0 y)))
+               -> Signed x -> Signed y;
+-- Simple definition (if bit-blasting doesn't matter)
+-- signedToSigned s = integerToSigned (signedToInteger s)
+-- Complex definition (supports bit-blasting).
+signedToSigned ?x ?y s = 
+  ite (leq x y)
+      ((\(a :: Array x Bool) -> arrayToSigned (append (replicate (sub y x) (get a (sub x 1)))
+                                                      a))
+       (signedToArray s))
+      (arrayToSigned (append (replicate (sub y x)
+                                        (get (signedToArray s) (sub x 1)))
+                             (signedToArray s)))
+      (arrayToSigned (select 0 y (signedToArray s)));
