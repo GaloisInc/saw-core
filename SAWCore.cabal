@@ -22,12 +22,14 @@ library
      Verifier.SAW
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
+     Verifier.SAW.TypedAST
   other-modules:
      Verifier.SAW.DagTerm
      Verifier.SAW.Position
-     Verifier.SAW.TypedAST
+     Verifier.SAW.UnionFind
      Verifier.SAW.UntypedAST
   GHC-options: -Wall
   extensions:
     DeriveFunctor
+    GeneralizedNewtypeDeriving
     ImplicitParams

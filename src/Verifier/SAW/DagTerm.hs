@@ -40,7 +40,7 @@ instance Ord (DagTerm s) where
 -- | Operations that are defined, but not 
 
 signedToSignedIdent :: Ident
-signedToSignedIdent = "signedToSigned"
+signedToSignedIdent = mkIdent "signedToSigned"
 
 data DagEngine s = DagEngine
   { deApplyFn :: DagTerm s -> DagTerm s -> IO (DagTerm s)

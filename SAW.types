@@ -21,72 +21,68 @@
 -- parameters that are not explicitly passed, but must be found to show that the expression
 -- is well formed.  This is used to ensure the index is valid when reading or updating an array.
 
--- Primitive types (e.g., Bool, Integer, bitvectors, arrays) all have type "Type 0"
--- "Type i" has type "Type (i+1)"
-Type :: (i :: Integer) -> Type (add i 1);
-
 -- Booleans
-data Bool :: Type 0 where {
+data Bool :: sort 0 where {
     True :: Bool;
     False :: Bool;
   }
 
 -- Could be derived from data declaration.
-ite :: ?(a :: Type 0) -> Bool -> a -> a -> a;
+ite :: ?(a :: sort 0) -> Bool -> a -> a -> a;
 
 -- assert is a function that maps "True" to the inhabited type "TrueProp" and
 -- "False" to the uninhabited type "FalseProp" 
-Assert :: Bool -> Type 0;
+Assert :: Bool -> sort 0;
 
 -- Inhabited type for true propositions.
-data TrueProp :: Type 0 where {
+data TrueProp :: sort 0 where {
     AtomicProof :: TrueProp;
   }
 
 
 -- Uninhabited type 
-data FalseProp :: Type 0 where {
+data FalseProp :: sort 0 where {
   }
 
 -- Equality "typeclass"
-data Eq :: Type 0 -> Type 0 where {
-   EqInstance :: ?(a :: Type 0)
+data Eq :: sort 0 -> sort 0 where {
+   EqInstance :: ?(a :: sort 0)
               -> (a -> a -> Bool) -- Equality comparison function.
               -> Eq a;
   }
 
 -- Equality and if-then-else.
-eq  :: ?(a :: Type 0) -> ??(Eq a) -> a -> a -> Bool;
-eq ??(EqInstance e) = e;
+--eq  :: ?(a :: sort 0) -> ??(Eq a) -> a -> a -> Bool;
+--eq ??(EqInstance e) = e;
 
 boolEqInstance :: Eq Bool;
 
 -- Ordering "typeclass"
-data Ord :: Type 0 -> Type 0 where {
-   OrdInstance :: ?(a :: Type 0)
+data Ord :: sort 0 -> sort 0 where {
+   OrdInstance :: ?(a :: sort 0)
          -> (a -> a -> Bool) -- Less-than-or-equal function.
          -> Ord a;
   }
 
-leq :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
-leq ??(OrdInstance f) = f;
+--leq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
+--leq ??(OrdInstance f) = f;
 
-lt  :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
-lt ??(OrdInstance f) x y = not (leq y x);
+--lt  :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
+--lt ??(OrdInstance f) x y = not (leq y x);
 
-geq :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
-geq ??(OrdInstance f) x y = leq y x;
+--geq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
+--geq ??(OrdInstance f) x y = leq y x;
 
-gt  :: ?(a :: Type 0) -> ??(Ord a) -> a -> a -> Bool;
-gt ??(OrdInstance f) x y = not (leq x y);
+--gt  :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
+--gt ??(OrdInstance f) x y = not (leq x y);
 
 -- False becomes before true.
 boolOrdInstance :: Ord Bool;
 
 -- Numeric operations.
-data Num :: Type 0 -> Type 0 where {
+data Num :: sort 0 -> sort 0 where {
    NumInstance 
-         :: ?(a :: Type 0)
+         :: ?(a :: sort 0)
          -> #{ neg :: a -> a;
                add :: a -> a -> a;
                sub :: a -> a -> a;
@@ -97,26 +93,27 @@ data Num :: Type 0 -> Type 0 where {
          -> Num a;
   }
 
-neg :: ?(a :: Type 0) -> ??(Num a) -> a -> a;
-neg ??(NumInstance r) = r.neg;
+--neg :: ?(a :: sort 0) -> ??(Num a) -> a -> a;
+--neg ??(NumInstance r) = r.neg;
 
-add :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
-add ??(NumInstance r) = r.add;
+--add :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+--add ??(NumInstance r) = r.add;
 
-sub :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
-sub ??(NumInstance r) = r.sub;
+--sub :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+--sub ??(NumInstance r) = r.sub;
 
-mul :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
-mul ??(NumInstance r) = r.mul;
+--mul :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+--mul ??(NumInstance r) = r.mul;
 
-div :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
-div ??(NumInstance r) = r.div;
+--div :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+--div ??(NumInstance r) = r.div;
 
-rem :: ?(a :: Type 0) -> ??(Num a) -> a -> a -> a;
-rem ??(NumInstance r) = r.rem;
+--rem :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+--rem ??(NumInstance r) = r.rem;
 
-data Bits :: Type 0 -> Type 0 where {
-   BitsInstance :: ?(a :: Type 0)
+
+data Bits :: sort 0 -> sort 0 where {
+   BitsInstance :: ?(a :: sort 0)
           -> #{ not     :: a -> a;
                 and     :: a -> a -> a;
                 or      :: a -> a -> a;
@@ -128,31 +125,43 @@ data Bits :: Type 0 -> Type 0 where {
           -> Bits a;
   }
 
-not :: ?(a :: Type 0) -> ??(Bits a) -> a -> a;
-not ??(BitsInstance r) = r.not;
+unBits :: ?(a :: sort 0)
+       -> Bits a
+       -> #{ not     :: a -> a;
+             and     :: a -> a -> a;
+             or      :: a -> a -> a;
+             xor     :: a -> a -> a;
+             implies :: a -> a -> a;
+             shl     :: a -> a -> a;
+             shr     :: a -> a -> a;
+           };
 
-and :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
-and ??(BitsInstance r) = r.and;
 
-or :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
-or ??(BitsInstance r) = r.or;
+--not :: ?(a :: sort 0) -> ??(Bits a) -> a -> a;
+--not ??(BitsInstance r) = r.not;
 
-xor :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
-xor ??(BitsInstance r) = r.xor;
+--and :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--and ??(BitsInstance r) = r.and;
 
-implies :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
-implies ??(BitsInstance r) = r.imples;
+--or :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--or ??(BitsInstance r) = r.or;
 
-shl :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
-shl ??(BitsInstance r) = r.shl;
+--xor :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--xor ??(BitsInstance r) = r.xor;
 
-shr :: ?(a :: Type 0) -> ??(Bits a) -> a -> a -> a;
-shr ??(BitsInstance r) = r.shr;
+--implies :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--implies ??(BitsInstance r) = r.imples;
+
+--shl :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--shl ??(BitsInstance r) = r.shl;
+
+--shr :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--shr = ?(a :: sort 0) ??(r BitsInstance r) = r.shr;
 
 boolBitsInstance :: Bits Bool;
 
 -- Integers
-Integer :: Type 0;
+Integer :: sort 0;
 -- There are implicit constructors from integer literals.
 integerEqInstance   :: Eq   Integer;
 integerOrdInstance  :: Ord  Integer;
@@ -160,57 +169,75 @@ integerNumInstance  :: Num  Integer;
 integerBitsInstance :: Bits Integer;
 
 -- "Array n a" is an array of n elements, each with type "a".
-Array :: (n :: Integer) -> Type 0 -> Type 0;
+Array :: (n :: Integer) -> sort 0 -> sort 0;
 -- For each natural number n, there is an implicit constructor
 -- [x0,...,x(n-1)] for creating an array with length n.
-arrayEqInstance   :: ?(n :: Integer) -> ?(e :: Type 0) -> ??(Eq e)   -> Eq   (Array n e);
-arrayOrdInstance  :: ?(n :: Integer) -> ?(e :: Type 0) -> ??(Ord e)  -> Ord  (Array n e);
-arrayBitsInstance :: ?(n :: Integer) -> ?(e :: Type 0) -> ??(Bits e) -> Bits (Array n e);
+arrayEqInstance   :: ?(n :: Integer) -> ?(e :: sort 0) -> ??(Eq e)   -> Eq   (Array n e);
+arrayOrdInstance  :: ?(n :: Integer) -> ?(e :: sort 0) -> ??(Ord e)  -> Ord  (Array n e);
+arrayBitsInstance :: ?(n :: Integer) -> ?(e :: sort 0) -> ??(Bits e) -> Bits (Array n e);
 
 -- Get and set an individual element in an array.
 -- The assertions are used to ensure that get and set are given valid arguments.
-get :: ?(n :: Integer) -> ?(e :: Type 0)
+get :: ?(n :: Integer) -> ?(e :: sort 0)
     -> Array n e -> (i::Integer) -> ???(Assert (and (leq 0 i) (lt i n))) -> e;
-set :: ?(n :: Integer) -> ?(a :: Type 0)
+set :: ?(n :: Integer) -> ?(a :: sort 0)
     -> Array n a -> (i::Integer) -> a -> ???(Assert (and (leq 0 i) (lt i n)))
     -> Array n a;
 
 -- Function for generating an array.
 generate :: (n :: Integer)
          -> ???(Assert (leq 0 n))
-         -> ?(e :: Type 0) 
+         -> ?(e :: sort 0) 
          -> ((i :: Integer) -> ???(Assert (and (leq 0 i) (lt i n))) -> e) 
          -> Array n e;
 
 -- | Select a range [l,..,l+n] of values from the array.
-select :: ?(l :: Integer) -> (i n :: Integer) -> ?(e :: Type 0)
+select :: ?(l :: Integer) -> (i n :: Integer) -> ?(e :: sort 0)
        -> ???(Assert (and (and (leq 0 i) (leq 0 n)) (leq (add i n) l))) 
        -> Array l e -> Array n e;
-select i n a = generate n (\j -> get a (add i j));
+select =
+  \?(l :: Integer) (i :: Integer) (n :: Integer) ?(e :: sort 0) ???(_::TrueProp) (a::Array l e) ->    generate n ???AtomicProof ?e (\(j :: Integer) ???(_::TrueProp) ->
+      get ?n ?e a (add i j) ???AtomicProof);
 
 -- replicate n x returns an array with n copies of x.
 replicate :: (n :: Integer)
           -> ???(Assert (leq 0 n))
-          -> ?(e :: Type 0) -> e -> Array n e;
-replicate n e = generate n (\_ -> e);
+          -> ?(e :: sort 0) -> e -> Array n e;
+replicate = \(n :: Integer) ???(_::TrueProp) ?(e :: sort 0) (v :: e) ->
+  generate n ???AtomicProof ?e (\(_::Integer) ???(_::TrueProp) -> v);
 
 -- Concatenate arrays together.
-join  :: ?(m n :: Integer) -> ?(e :: Type 0) -> Array m (Array n e) -> Array (mul m n) e;
-join ?m ?n a = generate (mul m n) (\i -> get (get a (div i n)) (rem i n));
+join  :: ?(m n :: Integer) -> ?(e :: sort 0) -> Array m (Array n e) -> Array (mul m n) e;
+join = \?(m :: Integer) ?(n :: Integer) ?(e :: sort 0) a ->
+  generate (mul m n) ???AtomicProof ?e (\i ?_ ->
+    get ?n
+        ?e
+        (get ?m ?(Array n e) a (div i n) ???AtomicProof)
+        (rem i n)
+        ???AtomicProof);
 
 -- Split array into list
-split :: ?(m n :: Integer) -> ?(e :: Type 0) -> Array (mul m n) e -> Array m (Array n e);
-split ?m ?n a = generate m (\i -> generate n (\j -> get a (add (mul n i) j)));
+split :: ?(m n :: Integer) -> ?(e :: sort 0) -> Array (mul m n) e -> Array m (Array n e);
+split = \?(m :: Integer) ?(n :: Integer) ?(e :: sort 0) a ->
+  generate m ???AtomicProof ?(Array n e) (\(i :: Integer) ???_ ->
+    generate n ???AtomicProof ?e (\(j :: Integer) ???_ ->
+      get ?(mul m n) ?e a (add (mul n i) j) ???AtomicProof));
 
 -- Append two arrays together.
-append :: ?(m n :: Integer) -> ?(e :: Type 0) 
+append :: ?(m n :: Integer) -> ?(e :: sort 0) 
        -> Array m e -> Array n e -> Array (plus m n) e;
-append ?m ?n x y = generate (plus m n) (\i -> ite (lt i m) (get x i) (get y (sub i m)));
+append =
+  \?(m :: Integer) ?(n :: Integer) ?(e :: sort 0) (x :: Array m e) (y :: Array n e) ->
+     generate (plus m n) ???AtomicProof ?e (\(i :: Integer) ???_ ->
+       ite ?e
+           (lt ?Integer ??integerOrdInstance i m)
+           (get ?m ?e x i ???AtomicProof)
+           (get ?n ?e y (sub i m) ???AtomicProof));
 
 -- "Signed n" and "Unsigned n" represent bitvectors with length n
 -- representing signed and unsigned integers.
-Signed   :: (n :: Integer) -> Type 0;
-Unsigned :: (n :: Integer) -> Type 0;
+Signed   :: (n :: Integer) -> sort 0;
+Unsigned :: (n :: Integer) -> sort 0;
 -- These are equivalent to arrays of Booleans, but can perform arithmetic.
 signedEqInstance     :: ?(n :: Integer) -> Eq  (Signed n);
 signedOrdInstance    :: ?(n :: Integer) -> Ord (Signed n);
@@ -240,12 +267,19 @@ signedToSigned :: ?(x y :: Integer)
 -- Simple definition (if bit-blasting doesn't matter)
 -- signedToSigned s = integerToSigned (signedToInteger s)
 -- Complex definition (supports bit-blasting).
-signedToSigned ?x ?y s = 
-  ite (leq x y)
-      ((\(a :: Array x Bool) -> arrayToSigned (append (replicate (sub y x) (get a (sub x 1)))
-                                                      a))
-       (signedToArray s))
-      (arrayToSigned (append (replicate (sub y x)
-                                        (get (signedToArray s) (sub x 1)))
-                             (signedToArray s)))
-      (arrayToSigned (select 0 y (signedToArray s)));
+signedToSigned = 
+  \?(x :: Integer) ?(y :: Integer) ???_ (s :: Signed x) ->
+     arrayToSigned ?y
+       ((\(a :: Array x Bool) ->
+           ite ?(Signed y)
+               (leq ?Integer ??integerOrdInstance x y)
+               (append ?(sub y x)
+                       ?x
+                       ?Bool
+                       (replicate (sub y x)
+                                  ???AtomicProof
+                                  ?Bool
+                                  (get ?x ?Bool a (sub x 1) ???AtomicProof))
+                       a)
+               (select ?x 0 y ?Bool ???AtomicProof a))
+        (signedToArray ?x s));

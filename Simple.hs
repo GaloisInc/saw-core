@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Simple where
 
 import Control.Applicative ((<$>))
@@ -12,6 +14,9 @@ type Name = String
 type Sort = Integer
 type DeBrujinIndex = Int
 
+newtype Zero = Zero ()
+newtype Succ a = Succ a
+
 data Term = Var DeBrujinIndex -- ^ Variable using deBrujin index
           | Set Sort
 
@@ -19,51 +24,127 @@ data Term = Var DeBrujinIndex -- ^ Variable using deBrujin index
           | Lambda Term
           | App Term Term
 
+            -- | A dependent named constructor.
+            -- Terms may contain free variables that reference previous terms in the list.
+          | Ctor Name [Term]
+
           | Sigma Term Term
           | Pair Term Term
           | Proj1 Term
           | Proj2 Term
 
+
           | UnitValue
           | UnitType
+
+          -- TODO: Support arbitrary dependent tuples.
+          -- | Sigma [Term]
+          -- | Tuple  [Term]
+          -- | Proj Integer Term
   deriving (Show)
 
-data Telescope
-    = EmptyTelescope
-    | Nest Telescope Term
+-- | @termVarFn t s@ returns union of @s@ and free variables in @t@.
+termVarFn :: Term -> Set DeBrujinIndex -> Set DeBrujinIndex
+termVarFn = \t -> go [(0,t)]
+  where go :: [(DeBrujinIndex,Term)] -> Set DeBrujinIndex -> Set DeBrujinIndex
+        go [] s = s
+        go ((i,t):r) s =
+          case t of
+             Var j | j >= i -> go r (Set.insert (j-i) s)
+             Pi a b    -> go ((i,a):(i+1,b):r) s
+             Lambda t  -> go ((i+1,t):r) s
+             App a b   -> go ((i,a):(i,b):r) s
+             Ctor _ l  -> go (zip [i..] l ++ r) s 
+             Sigma a b -> go ((i,a):(i+1,b):r) s
+             Pair a b  -> go ((i,a):(i+1,b):r) s
+             Proj1 a   -> go ((i,a):r) s
+             Proj2 a   -> go ((i,a):r) s
+             _ -> s
+
+termVars :: Term -> Set DeBrujinIndex
+termVars t = termVarFn t Set.empty
+
+-- | A list structure that behinds the new element on the right.
+-- This is isomophic to the standard list, but the right bind is used so that
+-- context and other data types have a syntax that associates in the order used in
+-- the literature.
+data RList t
+    = REmpty
+    | RCons (RList t) t
+  deriving (Eq, Ord, Functor)
+
+type Telescope = RList Term
 
 -- | Find variable type, lifting free variables in term so they refer to the
 -- proper variables in the telescope.
 findVarType :: Telescope -> DeBrujinIndex -> Maybe Term
 findVarType te lvl = go te lvl
-  where go EmptyTelescope _ = Nothing
-        go (Nest g t) 0 = Just (incVarBy (lvl + 1) t)
-        go (Nest g t) i = findVarType g (i-1)
+  where go REmpty _ = Nothing
+        go (RCons g t) 0 = Just (incVarBy (lvl + 1) t)
+        go (RCons g t) i = findVarType g (i-1)
 
--- | @changeFreeVar f t@ substitutes each free variable @Var j@ with the
+-- | @instantiateVars f t@ substitutes each free variable @Var j@ with the
 -- term @f i j@ where @i@ is the number of bound variables around @Var j@.
-changeFreeVar :: (DeBrujinIndex -> DeBrujinIndex -> Term) ->  Term -> Term
--- Increment all variable with debrujin indices at or above the limit.
-changeFreeVar f = go 0
+instantiateVars :: (DeBrujinIndex -> DeBrujinIndex -> Term) ->  Term -> Term
+instantiateVars f = go 0
   where go i (Var j)     | j >= i = f i j
         go i (Pi a b)    = Pi     (go i a) (go (i+1) b)
         go i (Lambda a)  = Lambda (go (i+1) a)
         go i (App a b)   = App    (go i a) (go i b)
+        go i (Ctor nm l) = Ctor nm (zipWith go [i..] l)
         go i (Sigma a b) = Sigma  (go i a) (go (i+1) b)
         go i (Pair a b)  = Pair   (go i a) (go (i+1) b)
         go i (Proj1 a)   = Proj1  (go i a)
         go i (Proj2 a)   = Proj2  (go i a)
         go _ s           = s
 
--- Increment all free variables by the given count.
+-- | Change the indices of free variables in a pattern.
+renumberPatFreeVar :: (DeBrujinIndex -> DeBrujinIndex) -> Pat -> Pat
+renumberPatFreeVar f = go
+  where fn i j = Var (i + f (j - i))
+        go (PVar i) = PVar (f i)
+        go (PCtor nm l) = PCtor nm (go <$> l)
+        go (PInaccessible t) = PInaccessible $ instantiateVars fn t
+
+removeUnusedFreeVarFn :: DeBrujinIndex -> DeBrujinIndex -> DeBrujinIndex
+removeUnusedFreeVarFn l i 
+  | l  < i = i - 1
+  | l == i = error "internal: unexpected free variable referenced."
+  | l  > i = i
+
+removeUnusedTermFreeVar :: DeBrujinIndex -> Term -> Term
+removeUnusedTermFreeVar l = instantiateVars fn
+  where fn i j = Var (i + removeUnusedFreeVarFn l (j - i))
+
+-- | @shiftlTermFreeVar l k t@ moves variable with index @l@ to index @k@.
+shiftlTermFreeVar :: DeBrujinIndex -> DeBrujinIndex -> Term -> Term
+shiftlTermFreeVar l k =
+    case compare k l of
+      LT -> instantiateVars h    
+      EQ -> id
+      GT -> shiftlTermFreeVar k l
+  where h i j | j == i + l              = Var (i + k)
+              | i + k <= j && j < i + l = Var (j + 1)
+              | otherwise               = Var j
+
+-- | Increment all free variables by the given count.
 incVarBy :: DeBrujinIndex -> Term -> Term
-incVarBy c = changeFreeVar (\_ j -> Var (j+c))
+incVarBy 0 = id
+incVarBy c = instantiateVars (\_ j -> Var (j+c))
+
+-- | @instantantiateVar Substitute term with var index 0 and shift all remaining free variables.
+instantiateVar :: DeBrujinIndex -> Term -> Term -> Term
+instantiateVar k t = instantiateVars fn
+  where -- Use terms to memoize instantiated versions of t.
+        terms = [ incVarBy i t | i <- [0..] ] 
+        -- Instantiate variable 0.
+        fn i j | j  > i + k = Var (j - 1)
+               | j == i + k = terms !! i
+               | otherwise  = Var j
 
 -- | Substitute term with var index 0 and shift all remaining free variables.
 betaReduce :: Term -> Term -> Term
-betaReduce s t = changeFreeVar fn s
-  where fn i j | j == i = incVarBy i t
-               | otherwise = Var (j-1)
+betaReduce s t = instantiateVar 0 t s
 
 -- | Convert term to weak-head normal form. 
 whnf :: Term -> Term
@@ -81,14 +162,22 @@ whnf (Proj2 s) =
     t -> t
 whnf t = t
 
-conversion :: Telescope -> Term -> Term -> Term -> Maybe ()
+newtype TC a = TC (Maybe a)
+  deriving (Functor, Monad)
+
+runTC :: TC a -> Maybe a
+runTC (TC v) = v
+
+-- | @conversion g s t a@ returns @Just ()@ if @g@ entails that @s@ and @t@ are
+-- equal elements both with type @a@.
+conversion :: Telescope -> Term -> Term -> Term -> TC ()
 conversion g s t a = conversion' g (whnf s) (whnf t) a
 
 -- Conversion for terms in weak head normal form.
-conversion' :: Telescope -> Term -> Term -> Term -> Maybe ()
+conversion' :: Telescope -> Term -> Term -> Term -> TC ()
 conversion' g s t (Set _) = conversionSet' g s t
 conversion' _ _ _ UnitType = return ()
-conversion' g s t (Pi a b) = conversion (Nest g a) (eta s) (eta t) b
+conversion' g s t (Pi a b) = conversion (RCons g a) (eta s) (eta t) b
   where eta u = App (incVarBy 1 u) (Var 0)
 conversion' g s t (Sigma a b) = do
   conversion g (Proj1 s) (Proj1 t) a
@@ -96,23 +185,29 @@ conversion' g s t (Sigma a b) = do
 conversion' g s t _ = do
   neutralEquality g s t >> return ()
 
-conversionSet :: Telescope -> Term -> Term -> Maybe ()
+-- | @conversionSet g s t@ returns true if @s@ and @t@ are equal types
+-- with type @Set i@ for some i@.
+conversionSet :: Telescope -> Term -> Term -> TC ()
 conversionSet g s t = conversionSet' g (whnf s) (whnf t)
 
-conversionSet' :: Telescope -> Term -> Term -> Maybe ()
+-- | @conversionSet@ applied to terms in weak-head normal form.
+conversionSet' :: Telescope -> Term -> Term -> TC ()
 conversionSet' _ (Set i) (Set j) | i == j = return ()
 conversionSet' g (Pi a1 b1) (Pi a2 b2) = do
   conversionSet g a1 a2
-  conversionSet (Nest g a1) b1 b2
+  conversionSet (RCons g a1) b1 b2
 conversionSet' g (Sigma a1 b1) (Sigma a2 b2) = do
   conversionSet g a1 a2
-  conversionSet (Nest g a1) b1 b2
+  conversionSet (RCons g a1) b1 b2
 conversionSet' g s t = do
-  neutralEquality g s t >> return ()
+  void $ neutralEquality g s t
 
 -- | Checks two neutral terms are equal, and returns their type if they are.
-neutralEquality :: Telescope -> Term -> Term -> Maybe Term
-neutralEquality g (Var i) (Var j) | i == j = findVarType g i
+neutralEquality :: Telescope -> Term -> Term -> TC Term
+neutralEquality g (Var i) (Var j) | i == j = 
+  case findVarType g i of
+    Just t -> return t
+    Nothing -> fail "Variables are different"
 neutralEquality g (App s1 t1) (App s2 t2) = do
   Pi b c <- whnf <$> neutralEquality g s1 s2
   conversion g t1 t2 b
@@ -123,45 +218,49 @@ neutralEquality g (Proj1 s) (Proj1 t) = do
 neutralEquality g (Proj2 s) (Proj2 t) = do
   Sigma b c <- whnf <$> neutralEquality g s t
   return (betaReduce c (Proj1 s))
-neutralEquality _ _ _ = Nothing
+neutralEquality _ _ _ = fail "Terms are not equal"
 
-isSubtype :: Telescope -> Term -> Term -> Maybe ()
+isSubtype :: Telescope -> Term -> Term -> TC ()
 isSubtype g a b = isSubtype' g (whnf a) (whnf b)
 
 -- | Subtyping for weak head normal forms.
-isSubtype' :: Telescope -> Term -> Term -> Maybe ()
+isSubtype' :: Telescope -> Term -> Term -> TC ()
 isSubtype' _ (Set i) (Set j) | i <= j = return ()
 isSubtype' g (Pi  a1 b1) (Pi a2 b2) = do
   conversionSet g a1 a2
-  isSubtype (Nest g a1) b1 b2
+  isSubtype (RCons g a1) b1 b2
 isSubtype' g (Sigma  a1 b1) (Sigma a2 b2) = do
   conversionSet g  a1 a2
-  isSubtype (Nest g a1) b1 b2
+  isSubtype (RCons g a1) b1 b2
 isSubtype' g a b = conversionSet g a b
 
--- 
-checkType :: Telescope -> Term -> Term -> Maybe Term
+-- | @checkType g s e@ checks that term @s@ has type @e@ and
+-- returns possible beta-reduced form of @s@ with type @e@ if so. 
+checkType :: Telescope -> Term -> Term -> TC Term
 checkType g (Lambda e) a = do
   Pi b c <- return (whnf a)
-  Lambda <$> checkType (Nest g b) e c
+  Lambda <$> checkType (RCons g b) e c
 checkType g (Pair e1 e2) a = do
   Sigma b c <- return (whnf a)
   s <- checkType g e1 b
   t <- checkType g e2 (betaReduce c s)
   return (Pair s t)
-checkType g e a = do
-  (b,t) <- inferType g e
-  isSubtype g b a
+checkType g e u = do
+  (s,t) <- inferType g e
+  isSubtype g s u
   return t
 
--- Returns type and evaluated term.
-inferType :: Telescope -> Term -> Maybe (Term,Term)
-inferType g (Var x) = fmap (\t -> (t,Var x)) (findVarType g x)
+-- | Returns type and evaluated term.
+inferType :: Telescope -> Term -> TC (Term,Term)
+inferType g (Var x) =
+  case findVarType g x of
+    Nothing -> error "Could not find variable in context"
+    Just t -> return (t,Var x)
 inferType _ (Set s) = return (Set (s+1), Set s)
 inferType g (Pi e1 e2) = do
   (c1,a) <- inferType g e1
   Set i <- return (whnf c1)
-  (c2,b) <- inferType (Nest g a) e2
+  (c2,b) <- inferType (RCons g a) e2
   Set j <- return (whnf c2)
   return (Set (max i j), Pi a b)
 inferType g Lambda{} =
@@ -170,11 +269,13 @@ inferType g (App e1 e2) = do
   (a,s) <- inferType g e1
   Pi b c <- return (whnf a)
   t <- checkType g e2 b
-  return (betaReduce c t, App s t) 
+  return (betaReduce c t, App s t)
+inferType g (Ctor nm t) = do
+  undefined
 inferType g (Sigma e1 e2) = do
   (c1,a) <- inferType g e1
   Set i <- return (whnf c1)
-  (c2,b) <- inferType (Nest g a) e2
+  (c2,b) <- inferType (RCons g a) e2
   Set j <- return (whnf c2)
   return (Set (max i j), Sigma a b)
 inferType g Pair{} = error "Cannnot infer types of pair expressions"
@@ -182,18 +283,210 @@ inferType g (Proj1 e) = do
   (a,t) <- inferType g e
   case whnf a of
     Sigma b c -> return (b, Proj1 t)
-    _ -> Nothing
+    _ -> fail "Value for proj1 had wrong type"
 inferType g (Proj2 e) = do
   (a,t) <- inferType g e
   case whnf a of
     Sigma b c -> return (betaReduce c t, Proj2 t)
-    _ -> Nothing
+    _ -> fail "Value for proj2 had wrong type"
 inferType _ UnitValue = return (UnitType,UnitValue)
 inferType _ UnitType = return (Set 0, UnitType)
 
+-- A context mapping is a list of patterns that maps one
+-- telescope to another.
+
+internalError :: String -> a
+internalError msg = error $ "INTERNAL: " ++ msg
+
+-- @instContext t i u@ returns the context that replaces variable @i@ in @t@ with @u@.
+-- It assumes that @p@ is well-typed in the context, and may fail if @p@ cannot be
+-- typed due to an occurs check failure.
+instContext :: Telescope -> DeBrujinIndex -> Term -> Maybe Telescope
+instContext ctx x initTerm
+    | Set.member x (termVars initTerm) = Nothing -- Occurs check fails (pattern depends on itself)
+    | otherwise = go ctx x (termVars initTerm) [] initTerm []
+  where merge :: Telescope -> [Term] -> Telescope
+        merge = foldl RCons
+        go :: -- | Current telescope
+              Telescope
+              -- | Index of variable being replaced relative to current telescope.
+           -> DeBrujinIndex
+              -- | Set of free variables needed to type pattern.
+              -- Variables are indexed relative to current telescope.
+              -- We maintain the invariant that the index of the variable being
+              -- replaced may not appear in the set.
+           -> Set DeBrujinIndex
+              -- | Variable types that are needed to type pattern.
+              -- These are stored in reverse order from how they appeared in context.
+              -- Free variables are relative to current telescope.
+           -> [Term]
+              -- | Term to use in instantiation.
+              -- Free variables in term must be relative to @merge g supp@ where @g@ is the
+              -- curent telescope and @supp@ is the processed terms.
+           -> Term
+              -- | Variable types that will be bound after those used to type instantiated term.
+              -- Free variables reference @merge g supp@.
+           -> [Term]
+           -> Maybe Telescope
+        go REmpty _i _pv _supp _p _subp = internalError "Variable undefined in telescope"
+        go (RCons g _) 0 _ supp _ subp
+          = return $ merge (merge g supp) subp
+        go (RCons g t) i pv supp u subp
+          | needed && occursCheck = Nothing -- Fail due to occurs check
+          | needed    = go g (pred i)
+                           -- Update list of needed variables as @t@ is needed.
+                           (Set.union (Set.map pred pv') (termVars t))
+                           (t:supp)
+                           u
+                           subp
+          | otherwise = 
+              let -- Let supp' be the variables used to define the pattern after
+                  -- removing @t@ from their scope.
+                  supp' = zipWith removeUnusedTermFreeVar [0..] supp
+                  -- Let u' be the pattern after removing suppl
+                  -- Free variables in u' are defined by (merge g supp')
+                  u' = removeUnusedTermFreeVar suppl u
+                  suppl = length supp
+                  -- Let t1 be the current type after adding all the variables in supp' to the
+                  -- context.
+                  t1 = incVarBy suppl t
+                  -- Let t2 be the current type after substituting @i@ with @u'@.
+                  t2 = instantiateVar (suppl + pred i) u' t1
+                  -- Let subp' equal subp after @t@ has been shifted to the head of the list.
+                  shiftSubpVarFn j e = shiftlTermFreeVar (suppl + j) j e
+                  subp' = zipWith shiftSubpVarFn [0..] subp
+               in go g (pred i) (Set.map pred pv') supp' u' (t2 : subp')
+         where -- Lookup if this variable is needed to type pattern.
+               (_,needed,pv') = Set.splitMember 0 pv
+               -- Check that @t@ does not need variable being replaced to type itself.
+               occursCheck = Set.member (pred i) (termVars t)
+
+
+-- Delta = (y : Set 0, x : <y,y>)
+-- id_Delta = { x |-> x ; y |-> y }
+
+-- c :: (y :: Set 0) (x :: <y,y>) (Set 0);
+
+-- Gamma = { a: Set 0, b : Set 0 }
+-- sigma = { a |-> c .y x ; b |-> y }
+-- Delta |- c .y x : Set 0
+
+data Pat = PVar DeBrujinIndex
+         | PCtor Name [Pat]
+         | PPair Pat Pat
+         | PInaccessible Term
+
+-- | Returns term associated with pattern.
+patTerm :: Pat -> Term
+patTerm (PVar i) = Var i
+patTerm (PCtor nm l) = Ctor nm (fmap patTerm l)
+patTerm (PPair t u) = Pair (patTerm t) (patTerm u)
+patTerm (PInaccessible t) = t
+
+-- The head of the context mapping is the pattern for var 0, the second is ht pattern for
+-- var 1, etc.
+type ContextMapping = RList Pat
+
+data ConstraintResult
+  = Stuck ContextMapping ContextMapping
+  | Success ContextMapping
+  | Failed ContextMapping ContextMapping
+
+-- match(t,p) => q
+-- Assume 
+-- * t is a context mapping (t : D -> G), i.e. t instantiates the variables in
+--   G with variables defined in D.
+-- * p is a context mapping (p : T -> G), i.e., p instantiates variables in G
+--   with variables defined in G.  T |- p : G.
+-- * q is a context mapping (q : T -> D).  It should be the case that tq is a
+--   context mapping (tq : T -> G) such that tq = p.
+
+{-
+match :: ContextMapping -> ContextMapping -> ConstraintResult
+match = go []
+  where go :: [(Name,Pat)] -> ContextMapping -> [Pat] -> ConstraintResult
+        go prev [] [] = Success prev
+        go prev (p1:r1) (p2:r2) =
+          case (p1,p2) of
+            (PVar x,_) -> go ((x,p2):prev) r1 r2
+            (PInaccessible t,_) -> go prev r1 r2
+            (PCtor c1 l1, PCtor c2 l2)
+              | c1 == c2 ->
+                 assert (length l1 == length l2) $
+                   go prev (l1 ++ r1) (l2 ++ r2)
+              | otherwise -> Failed (p1:r1) (p2:r2) 
+            _ -> Stuck (p1:r1) (p2:r2)
+       go _ r1 r2 -> Stuck r1 r2
+
+flexible :: [Pat] -> [(Name,Pat)] -> Set Name
+flexible = undefined
+
+data UnifyEq = UEq Pat Pat Term
+
+freeVars :: Pat -> Set Name
+freeVars = undefined
+
+unify1 :: Set Name
+       -> ContextMapping
+       -> UnifyEq
+       -> ConstraintResult
+unify1 zeta g [UEq (PVar x) v _a] 
+  | Set.member x zeta && (Set.notMember x (freeVars v))
+  = undefined
+unify1 zeta g [UEq (PVar 
+
+unify :: Set Name -> ContextMapping -> [UnifyEq] -> ConstraintResult
+unify = undefined
+-}
+
+{-
+split :: RList Pat -> Telescope -> Maybe ContextMapping
+-}
+
+{-
+-- The configuration used to check the left hand side of an equation.
+-- In a configuration (p,g,t), the following is true:
+--   * The patterns p correspond to the patterns given by the user.
+--   * The context g contains the types of the arguments being checked.
+--   * The context mapping @t@ is the mapping built so far.
+type LHSConfiguration = ([Pat], Telescope, ContextMapping)
+
+checkLHS :: 
+-}
+
 test = do
-  let emp = EmptyTelescope
+  let emp = REmpty
   let idType = Pi (Set 0) (Pi (Var 0) (Var 1))
-  print $ inferType emp idType
+  print $ runTC $ inferType emp idType
   let idFn = Lambda (Lambda (Var 0))
-  print $ checkType emp idFn idType
+  print $ runTC $ checkType emp idFn idType
+
+{-
+Glossary
+
+t is a context mapping "t : D -> G"
+Means:
+t instantiates the variables in G with patterns that have variables in D.
+
+D |- t : G
+
+match(t,p) => q
+
+
+p is a context mapping "p : T -> G" (i.e., T |- p : G)
+
+p instantiates the variables in G with variables in T.
+
+t : D -> G
+
+t instantiates the variables in G with variables in D.
+
+q : T -> D
+
+t instantes the variables in D with variables in T.
+
+tq = p
+
+q instantiates the variables
+
+-}
