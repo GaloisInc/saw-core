@@ -22,9 +22,9 @@ library
      Verifier.SAW
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
+     Verifier.SAW.SharedTerm
      Verifier.SAW.TypedAST
   other-modules:
-     Verifier.SAW.DagTerm
      Verifier.SAW.Position
      Verifier.SAW.UnionFind
      Verifier.SAW.UntypedAST

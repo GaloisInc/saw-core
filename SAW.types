@@ -39,29 +39,15 @@ data TrueProp :: sort 0 where {
     AtomicProof :: TrueProp;
   }
 
-
 -- Uninhabited type 
 data FalseProp :: sort 0 where {
   }
 
--- Equality "typeclass"
-data Eq :: sort 0 -> sort 0 where {
-   EqInstance :: ?(a :: sort 0)
-              -> (a -> a -> Bool) -- Equality comparison function.
-              -> Eq a;
-  }
-
--- Equality and if-then-else.
---eq  :: ?(a :: sort 0) -> ??(Eq a) -> a -> a -> Bool;
---eq ??(EqInstance e) = e;
-
-boolEqInstance :: Eq Bool;
-
 -- Ordering "typeclass"
 data Ord :: sort 0 -> sort 0 where {
    OrdInstance :: ?(a :: sort 0)
-         -> (a -> a -> Bool) -- Less-than-or-equal function.
-         -> Ord a;
+               -> (a -> a -> Bool) -- Less-than-or-equal function.
+               -> Ord a;
   }
 
 --leq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
@@ -93,70 +79,58 @@ data Num :: sort 0 -> sort 0 where {
          -> Num a;
   }
 
---neg :: ?(a :: sort 0) -> ??(Num a) -> a -> a;
---neg ??(NumInstance r) = r.neg;
+neg :: ?(a :: sort 0) -> ??(Num a) -> a -> a;
+neg ??(NumInstance r) = r.neg;
 
---add :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
---add ??(NumInstance r) = r.add;
+add :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+add ??(NumInstance r) = r.add;
 
---sub :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
---sub ??(NumInstance r) = r.sub;
+sub :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+sub ??(NumInstance r) = r.sub;
 
---mul :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
---mul ??(NumInstance r) = r.mul;
+mul :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+mul ??(NumInstance r) = r.mul;
 
---div :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
---div ??(NumInstance r) = r.div;
+div :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+div ??(NumInstance r) = r.div;
 
---rem :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
---rem ??(NumInstance r) = r.rem;
+rem :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+rem ??(NumInstance r) = r.rem;
 
 
 data Bits :: sort 0 -> sort 0 where {
    BitsInstance :: ?(a :: sort 0)
-          -> #{ not     :: a -> a;
-                and     :: a -> a -> a;
-                or      :: a -> a -> a;
-                xor     :: a -> a -> a;
-                implies :: a -> a -> a;
-                shl     :: a -> a -> a;
-                shr     :: a -> a -> a;
-             }
-          -> Bits a;
+                -> #{ not     :: a -> a;
+                      and     :: a -> a -> a;
+                      or      :: a -> a -> a;
+                      xor     :: a -> a -> a;
+                      implies :: a -> a -> a;
+                      shl     :: a -> a -> a;
+                      shr     :: a -> a -> a;
+                    }
+                -> Bits a;
   }
 
-unBits :: ?(a :: sort 0)
-       -> Bits a
-       -> #{ not     :: a -> a;
-             and     :: a -> a -> a;
-             or      :: a -> a -> a;
-             xor     :: a -> a -> a;
-             implies :: a -> a -> a;
-             shl     :: a -> a -> a;
-             shr     :: a -> a -> a;
-           };
+not :: ?(a :: sort 0) -> ??(Bits a) -> a -> a;
+not ??(BitsInstance r) = r.not;
 
+and :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+and ??(BitsInstance r) = r.and;
 
---not :: ?(a :: sort 0) -> ??(Bits a) -> a -> a;
---not ??(BitsInstance r) = r.not;
+or :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+or ??(BitsInstance r) = r.or;
 
---and :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
---and ??(BitsInstance r) = r.and;
+xor :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+xor ??(BitsInstance r) = r.xor;
 
---or :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
---or ??(BitsInstance r) = r.or;
+implies :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+implies ??(BitsInstance r) = r.imples;
 
---xor :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
---xor ??(BitsInstance r) = r.xor;
+shl :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+shl ?(a :: sort 0) ??(BitsInstance r) = r.shl;
 
---implies :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
---implies ??(BitsInstance r) = r.imples;
-
---shl :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
---shl ??(BitsInstance r) = r.shl;
-
---shr :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
---shr = ?(a :: sort 0) ??(r BitsInstance r) = r.shr;
+shr :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+shr ?(a :: sort 0) ??(r :: BitsInstance r) = r.shr;
 
 boolBitsInstance :: Bits Bool;
 
@@ -239,11 +213,9 @@ append =
 Signed   :: (n :: Integer) -> sort 0;
 Unsigned :: (n :: Integer) -> sort 0;
 -- These are equivalent to arrays of Booleans, but can perform arithmetic.
-signedEqInstance     :: ?(n :: Integer) -> Eq  (Signed n);
 signedOrdInstance    :: ?(n :: Integer) -> Ord (Signed n);
 signedNumInstance    :: ?(n :: Integer) -> Num (Signed n);
 signedBitsInstance   :: ?(n :: Integer) -> Bits (Signed n);
-unsignedEqInstance   :: ?(n :: Integer) -> Eq  (Unsigned n);
 unsignedOrdInstance  :: ?(n :: Integer) -> Ord (Unsigned n);
 unsignedNumInstance  :: ?(n :: Integer) -> Num (Unsigned n);
 unsignedBitsInstance :: ?(n :: Integer) -> Bits (Unsigned n);
@@ -255,19 +227,21 @@ integerToSigned   :: ?(n :: Integer) -> ???(Assert (leq 0 n)) -> Integer -> Sign
 integerToUnsigned :: ?(n :: Integer) -> ???(Assert (leq 0 n)) -> Integer -> Unsigned n;
 
 -- Convert between bitvectors and arrays of bits.
+-- Integers are stored with most-significant bit first (aka. in byte 0).
 signedToArray   :: ?(n :: Integer) -> Signed   n   -> Array n Bool;
 unsignedToArray :: ?(n :: Integer) -> Unsigned n   -> Array n Bool;
 arrayToSigned   :: ?(n :: Integer) -> Array n Bool -> Signed n;
 arrayToUnsigned :: ?(n :: Integer) -> Array n Bool -> Unsigned n;
 
 -- | Convert between two signed representations.
-signedToSigned :: ?(x y :: Integer)
-               -> ???(Assert (and (leq 1 x) (leq 0 y)))
-               -> Signed x -> Signed y;
+-- This is implemented by using arrays so that the result can still be bit-blasted.
+signedResize :: ?(x y :: Integer)
+             -> ???(Assert (and (leq 1 x) (leq 1 y)))
+             -> Signed x -> Signed y;
 -- Simple definition (if bit-blasting doesn't matter)
 -- signedToSigned s = integerToSigned (signedToInteger s)
 -- Complex definition (supports bit-blasting).
-signedToSigned = 
+signedResize = 
   \?(x :: Integer) ?(y :: Integer) ???_ (s :: Signed x) ->
      arrayToSigned ?y
        ((\(a :: Array x Bool) ->
@@ -279,7 +253,15 @@ signedToSigned =
                        (replicate (sub y x)
                                   ???AtomicProof
                                   ?Bool
-                                  (get ?x ?Bool a (sub x 1) ???AtomicProof))
+                                  (get ?x ?Bool a 0 ???AtomicProof))
                        a)
                (select ?x 0 y ?Bool ???AtomicProof a))
         (signedToArray ?x s));
+
+signedToUnsigned :: ?(x :: Integer)
+                 -> ???(Assert (leq 1 x))
+                 -> Signed x -> Unsigned x;
+
+unsignedToSigned :: ?(x :: Integer)
+                 -> ???(Assert (leq 1 x))
+                 -> Unsigned x -> Signed x;
