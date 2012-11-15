@@ -17,7 +17,7 @@
 -- parameter is not passed explicitly, but should be obtained by finding a unique term with
 -- that type in the surrounding context.  If there are multiple such terms, then fail.
 --
--- We use a parameter with three question marks (e.g., "???(Assert (eq x y))") to denote
+-- We use a parameter with three question marks (e.g., "???(assert (eq x y))") to denote
 -- parameters that are not explicitly passed, but must be found to show that the expression
 -- is well formed.  This is used to ensure the index is valid when reading or updating an array.
 
@@ -27,12 +27,10 @@ data Bool :: sort 0 where {
     False :: Bool;
   }
 
+eq :: ?(a :: sort 0) -> a -> a -> Bool;
+
 -- Could be derived from data declaration.
 ite :: ?(a :: sort 0) -> Bool -> a -> a -> a;
-
--- assert is a function that maps "True" to the inhabited type "TrueProp" and
--- "False" to the uninhabited type "FalseProp" 
-Assert :: Bool -> sort 0;
 
 -- Inhabited type for true propositions.
 data TrueProp :: sort 0 where {
@@ -43,6 +41,10 @@ data TrueProp :: sort 0 where {
 data FalseProp :: sort 0 where {
   }
 
+-- assert is a function that maps "True" to the inhabited type "TrueProp" and
+-- "False" to the uninhabited type "FalseProp" 
+assert :: Bool -> sort 0;
+
 -- Ordering "typeclass"
 data Ord :: sort 0 -> sort 0 where {
    OrdInstance :: ?(a :: sort 0)
@@ -50,8 +52,8 @@ data Ord :: sort 0 -> sort 0 where {
                -> Ord a;
   }
 
---leq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
---leq ??(OrdInstance f) = f;
+leq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
+leq ??(OrdInstance f) = f;
 
 --lt  :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
 --lt ??(OrdInstance f) x y = not (leq y x);
@@ -69,34 +71,38 @@ boolOrdInstance :: Ord Bool;
 data Num :: sort 0 -> sort 0 where {
    NumInstance 
          :: ?(a :: sort 0)
+         -- Predicate reducing to TrueProp if we can divide input by zero, and false otherwise.
+         -> (nonZero :: a -> sort 0)     
          -> #{ neg :: a -> a;
                add :: a -> a -> a;
                sub :: a -> a -> a;
                mul :: a -> a -> a;
-               div :: a -> a -> a;
-               rem :: a -> a -> a;
+               div :: a -> (y::a) -> ???(nonZero y) -> a;
+               rem :: a -> (y::a) -> ???(nonZero y) -> a;
              }
          -> Num a;
   }
 
+nonZero :: ?(a :: sort 0) -> ??(Num a) -> a -> sort 0;
+nonZero ??(NumInstance nz _) = nz;
+
 neg :: ?(a :: sort 0) -> ??(Num a) -> a -> a;
-neg ??(NumInstance r) = r.neg;
+neg ??(NumInstance _ r) = r.neg;
 
 add :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-add ??(NumInstance r) = r.add;
+add ??(NumInstance _ r) = r.add;
 
 sub :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-sub ??(NumInstance r) = r.sub;
+sub ??(NumInstance _ r) = r.sub;
 
 mul :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-mul ??(NumInstance r) = r.mul;
+mul ??(NumInstance _ r) = r.mul;
 
-div :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-div ??(NumInstance r) = r.div;
+div :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
+div ??(NumInstance _ r) = r.div;
 
-rem :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-rem ??(NumInstance r) = r.rem;
-
+rem :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
+rem ??(NumInstance _ r) = r.rem;
 
 data Bits :: sort 0 -> sort 0 where {
    BitsInstance :: ?(a :: sort 0)
@@ -153,21 +159,21 @@ arrayBitsInstance :: ?(n :: Integer) -> ?(e :: sort 0) -> ??(Bits e) -> Bits (Ar
 -- Get and set an individual element in an array.
 -- The assertions are used to ensure that get and set are given valid arguments.
 get :: ?(n :: Integer) -> ?(e :: sort 0)
-    -> Array n e -> (i::Integer) -> ???(Assert (and (leq 0 i) (lt i n))) -> e;
+    -> Array n e -> (i::Integer) -> ???(assert (and (leq 0 i) (lt i n))) -> e;
 set :: ?(n :: Integer) -> ?(a :: sort 0)
-    -> Array n a -> (i::Integer) -> a -> ???(Assert (and (leq 0 i) (lt i n)))
+    -> Array n a -> (i::Integer) -> ???(assert (and (leq 0 i) (lt i n))) -> a
     -> Array n a;
 
 -- Function for generating an array.
 generate :: (n :: Integer)
-         -> ???(Assert (leq 0 n))
+         -> ???(assert (leq 0 n))
          -> ?(e :: sort 0) 
-         -> ((i :: Integer) -> ???(Assert (and (leq 0 i) (lt i n))) -> e) 
+         -> ((i :: Integer) -> ???(assert (and (leq 0 i) (lt i n))) -> e) 
          -> Array n e;
 
 -- | Select a range [l,..,l+n] of values from the array.
 select :: ?(l :: Integer) -> (i n :: Integer) -> ?(e :: sort 0)
-       -> ???(Assert (and (and (leq 0 i) (leq 0 n)) (leq (add i n) l))) 
+       -> ???(assert (and (and (leq 0 i) (leq 0 n)) (leq (add i n) l))) 
        -> Array l e -> Array n e;
 select =
   \?(l :: Integer) (i :: Integer) (n :: Integer) ?(e :: sort 0) ???(_::TrueProp) (a::Array l e) ->    generate n ???AtomicProof ?e (\(j :: Integer) ???(_::TrueProp) ->
@@ -175,7 +181,7 @@ select =
 
 -- replicate n x returns an array with n copies of x.
 replicate :: (n :: Integer)
-          -> ???(Assert (leq 0 n))
+          -> ???(assert (leq 0 n))
           -> ?(e :: sort 0) -> e -> Array n e;
 replicate = \(n :: Integer) ???(_::TrueProp) ?(e :: sort 0) (v :: e) ->
   generate n ???AtomicProof ?e (\(_::Integer) ???(_::TrueProp) -> v);
@@ -223,8 +229,8 @@ unsignedBitsInstance :: ?(n :: Integer) -> Bits (Unsigned n);
 -- Convert between bitvectors and integers.
 signedToInteger   :: ?(n :: Integer) -> Signed n   -> Integer;
 unsignedToInteger :: ?(n :: Integer) -> Unsigned n -> Integer;
-integerToSigned   :: ?(n :: Integer) -> ???(Assert (leq 0 n)) -> Integer -> Signed n;
-integerToUnsigned :: ?(n :: Integer) -> ???(Assert (leq 0 n)) -> Integer -> Unsigned n;
+integerToSigned   :: ?(n :: Integer) -> ???(assert (leq 0 n)) -> Integer -> Signed n;
+integerToUnsigned :: ?(n :: Integer) -> ???(assert (leq 0 n)) -> Integer -> Unsigned n;
 
 -- Convert between bitvectors and arrays of bits.
 -- Integers are stored with most-significant bit first (aka. in byte 0).
@@ -235,13 +241,13 @@ arrayToUnsigned :: ?(n :: Integer) -> Array n Bool -> Unsigned n;
 
 -- | Convert between two signed representations.
 -- This is implemented by using arrays so that the result can still be bit-blasted.
-signedResize :: ?(x y :: Integer)
-             -> ???(Assert (and (leq 1 x) (leq 1 y)))
+resizeSigned :: ?(x y :: Integer)
+             -> ???(assert (and (leq 1 x) (leq 1 y)))
              -> Signed x -> Signed y;
 -- Simple definition (if bit-blasting doesn't matter)
 -- signedToSigned s = integerToSigned (signedToInteger s)
 -- Complex definition (supports bit-blasting).
-signedResize = 
+resizeSigned = 
   \?(x :: Integer) ?(y :: Integer) ???_ (s :: Signed x) ->
      arrayToSigned ?y
        ((\(a :: Array x Bool) ->
@@ -259,9 +265,18 @@ signedResize =
         (signedToArray ?x s));
 
 signedToUnsigned :: ?(x :: Integer)
-                 -> ???(Assert (leq 1 x))
+                 -> ???(assert (leq 1 x))
                  -> Signed x -> Unsigned x;
 
 unsignedToSigned :: ?(x :: Integer)
-                 -> ???(Assert (leq 1 x))
+                 -> ???(assert (leq 1 x))
                  -> Unsigned x -> Signed x;
+
+
+-- Performs a signed shift right as an unsigned shift right.
+signedUShr :: ?(n :: Integer) -> ???(assert (leq 1 n)) -> Signed n -> Signed n -> Signed n;
+-- TODO: Add definition.
+
+-- Performs the Java long compare operation.
+javaLongCompare :: Signed 64 -> Signed 64 -> Signed 32;
+-- TODO: Add definition.
