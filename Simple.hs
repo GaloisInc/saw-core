@@ -12,12 +12,12 @@ import qualified Data.Set as Set
 
 type Name = String
 type Sort = Integer
-type DeBrujinIndex = Int
+type DeBruijnIndex = Int
 
 newtype Zero = Zero ()
 newtype Succ a = Succ a
 
-data Term = Var DeBrujinIndex -- ^ Variable using deBrujin index
+data Term = Var DeBruijnIndex -- ^ Variable using deBrujin index
           | Set Sort
 
           | Pi Term Term
@@ -44,9 +44,9 @@ data Term = Var DeBrujinIndex -- ^ Variable using deBrujin index
   deriving (Show)
 
 -- | @termVarFn t s@ returns union of @s@ and free variables in @t@.
-termVarFn :: Term -> Set DeBrujinIndex -> Set DeBrujinIndex
+termVarFn :: Term -> Set DeBruijnIndex -> Set DeBruijnIndex
 termVarFn = \t -> go [(0,t)]
-  where go :: [(DeBrujinIndex,Term)] -> Set DeBrujinIndex -> Set DeBrujinIndex
+  where go :: [(DeBruijnIndex,Term)] -> Set DeBruijnIndex -> Set DeBruijnIndex
         go [] s = s
         go ((i,t):r) s =
           case t of
@@ -61,7 +61,7 @@ termVarFn = \t -> go [(0,t)]
              Proj2 a   -> go ((i,a):r) s
              _ -> s
 
-termVars :: Term -> Set DeBrujinIndex
+termVars :: Term -> Set DeBruijnIndex
 termVars t = termVarFn t Set.empty
 
 -- | A list structure that behinds the new element on the right.
@@ -77,7 +77,7 @@ type Telescope = RList Term
 
 -- | Find variable type, lifting free variables in term so they refer to the
 -- proper variables in the telescope.
-findVarType :: Telescope -> DeBrujinIndex -> Maybe Term
+findVarType :: Telescope -> DeBruijnIndex -> Maybe Term
 findVarType te lvl = go te lvl
   where go REmpty _ = Nothing
         go (RCons g t) 0 = Just (incVarBy (lvl + 1) t)
@@ -85,7 +85,7 @@ findVarType te lvl = go te lvl
 
 -- | @instantiateVars f t@ substitutes each free variable @Var j@ with the
 -- term @f i j@ where @i@ is the number of bound variables around @Var j@.
-instantiateVars :: (DeBrujinIndex -> DeBrujinIndex -> Term) ->  Term -> Term
+instantiateVars :: (DeBruijnIndex -> DeBruijnIndex -> Term) ->  Term -> Term
 instantiateVars f = go 0
   where go i (Var j)     | j >= i = f i j
         go i (Pi a b)    = Pi     (go i a) (go (i+1) b)
@@ -99,25 +99,25 @@ instantiateVars f = go 0
         go _ s           = s
 
 -- | Change the indices of free variables in a pattern.
-renumberPatFreeVar :: (DeBrujinIndex -> DeBrujinIndex) -> Pat -> Pat
+renumberPatFreeVar :: (DeBruijnIndex -> DeBruijnIndex) -> Pat -> Pat
 renumberPatFreeVar f = go
   where fn i j = Var (i + f (j - i))
         go (PVar i) = PVar (f i)
         go (PCtor nm l) = PCtor nm (go <$> l)
         go (PInaccessible t) = PInaccessible $ instantiateVars fn t
 
-removeUnusedFreeVarFn :: DeBrujinIndex -> DeBrujinIndex -> DeBrujinIndex
+removeUnusedFreeVarFn :: DeBruijnIndex -> DeBruijnIndex -> DeBruijnIndex
 removeUnusedFreeVarFn l i 
   | l  < i = i - 1
   | l == i = error "internal: unexpected free variable referenced."
   | l  > i = i
 
-removeUnusedTermFreeVar :: DeBrujinIndex -> Term -> Term
+removeUnusedTermFreeVar :: DeBruijnIndex -> Term -> Term
 removeUnusedTermFreeVar l = instantiateVars fn
   where fn i j = Var (i + removeUnusedFreeVarFn l (j - i))
 
 -- | @shiftlTermFreeVar l k t@ moves variable with index @l@ to index @k@.
-shiftlTermFreeVar :: DeBrujinIndex -> DeBrujinIndex -> Term -> Term
+shiftlTermFreeVar :: DeBruijnIndex -> DeBruijnIndex -> Term -> Term
 shiftlTermFreeVar l k =
     case compare k l of
       LT -> instantiateVars h    
@@ -128,12 +128,12 @@ shiftlTermFreeVar l k =
               | otherwise               = Var j
 
 -- | Increment all free variables by the given count.
-incVarBy :: DeBrujinIndex -> Term -> Term
+incVarBy :: DeBruijnIndex -> Term -> Term
 incVarBy 0 = id
 incVarBy c = instantiateVars (\_ j -> Var (j+c))
 
 -- | @instantantiateVar Substitute term with var index 0 and shift all remaining free variables.
-instantiateVar :: DeBrujinIndex -> Term -> Term -> Term
+instantiateVar :: DeBruijnIndex -> Term -> Term -> Term
 instantiateVar k t = instantiateVars fn
   where -- Use terms to memoize instantiated versions of t.
         terms = [ incVarBy i t | i <- [0..] ] 
@@ -301,7 +301,7 @@ internalError msg = error $ "INTERNAL: " ++ msg
 -- @instContext t i u@ returns the context that replaces variable @i@ in @t@ with @u@.
 -- It assumes that @p@ is well-typed in the context, and may fail if @p@ cannot be
 -- typed due to an occurs check failure.
-instContext :: Telescope -> DeBrujinIndex -> Term -> Maybe Telescope
+instContext :: Telescope -> DeBruijnIndex -> Term -> Maybe Telescope
 instContext ctx x initTerm
     | Set.member x (termVars initTerm) = Nothing -- Occurs check fails (pattern depends on itself)
     | otherwise = go ctx x (termVars initTerm) [] initTerm []
@@ -310,12 +310,12 @@ instContext ctx x initTerm
         go :: -- | Current telescope
               Telescope
               -- | Index of variable being replaced relative to current telescope.
-           -> DeBrujinIndex
+           -> DeBruijnIndex
               -- | Set of free variables needed to type pattern.
               -- Variables are indexed relative to current telescope.
               -- We maintain the invariant that the index of the variable being
               -- replaced may not appear in the set.
-           -> Set DeBrujinIndex
+           -> Set DeBruijnIndex
               -- | Variable types that are needed to type pattern.
               -- These are stored in reverse order from how they appeared in context.
               -- Free variables are relative to current telescope.
@@ -371,7 +371,7 @@ instContext ctx x initTerm
 -- sigma = { a |-> c .y x ; b |-> y }
 -- Delta |- c .y x : Set 0
 
-data Pat = PVar DeBrujinIndex
+data Pat = PVar DeBruijnIndex
          | PCtor Name [Pat]
          | PPair Pat Pat
          | PInaccessible Term
