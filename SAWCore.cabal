@@ -16,7 +16,8 @@ library
     filepath,
     mtl,
     pretty,
-    utf8-string
+    utf8-string,
+    vector
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
