@@ -16,7 +16,7 @@ library
     filepath,
     mtl,
     pretty,
-    template-haskell <= 2.8,
+    template-haskell,
     utf8-string,
     vector
   hs-source-dirs: src
