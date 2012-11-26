@@ -34,3 +34,4 @@ library
     DeriveFunctor
     GeneralizedNewtypeDeriving
     ImplicitParams
+    ViewPatterns

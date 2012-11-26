@@ -55,8 +55,8 @@ data Ord :: sort 0 -> sort 0 where {
 leq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
 leq ??(OrdInstance f) = f;
 
---lt  :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
---lt ??(OrdInstance f) x y = not (leq y x);
+lt  :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
+lt ??(OrdInstance f) x y = not (leq y x);
 
 --geq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
 --geq ??(OrdInstance f) x y = leq y x;
@@ -133,26 +133,28 @@ implies :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
 implies ??(BitsInstance r) = r.imples;
 
 shl :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-shl ?(a :: sort 0) ??(BitsInstance r) = r.shl;
+shl ?a ??(BitsInstance r) = r.shl;
 
 shr :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-shr ?(a :: sort 0) ??(r :: BitsInstance r) = r.shr;
+shr ?a ??(BitsInstance r) = r.shr;
 
 boolBitsInstance :: Bits Bool;
 
 -- Integers
-Integer :: sort 0;
+data Integer :: sort 0 where {
+  }
+
 -- There are implicit constructors from integer literals.
-integerEqInstance   :: Eq   Integer;
 integerOrdInstance  :: Ord  Integer;
 integerNumInstance  :: Num  Integer;
 integerBitsInstance :: Bits Integer;
 
 -- "Array n a" is an array of n elements, each with type "a".
-Array :: (n :: Integer) -> sort 0 -> sort 0;
+data Array :: (n :: Integer) -> sort 0 -> sort 0 where {
+  }
+
 -- For each natural number n, there is an implicit constructor
 -- [x0,...,x(n-1)] for creating an array with length n.
-arrayEqInstance   :: ?(n :: Integer) -> ?(e :: sort 0) -> ??(Eq e)   -> Eq   (Array n e);
 arrayOrdInstance  :: ?(n :: Integer) -> ?(e :: sort 0) -> ??(Ord e)  -> Ord  (Array n e);
 arrayBitsInstance :: ?(n :: Integer) -> ?(e :: sort 0) -> ??(Bits e) -> Bits (Array n e);
 
@@ -175,9 +177,8 @@ generate :: (n :: Integer)
 select :: ?(l :: Integer) -> (i n :: Integer) -> ?(e :: sort 0)
        -> ???(assert (and (and (leq 0 i) (leq 0 n)) (leq (add i n) l))) 
        -> Array l e -> Array n e;
-select =
-  \?(l :: Integer) (i :: Integer) (n :: Integer) ?(e :: sort 0) ???(_::TrueProp) (a::Array l e) ->    generate n ???AtomicProof ?e (\(j :: Integer) ???(_::TrueProp) ->
-      get ?n ?e a (add i j) ???AtomicProof);
+select ?l i n ?e ???_ a = generate n ???AtomicProof ?e
+           (\(j :: Integer) ???(_::TrueProp) -> get ?n ?e a (add i j) ???AtomicProof);
 
 -- replicate n x returns an array with n copies of x.
 replicate :: (n :: Integer)
@@ -188,8 +189,8 @@ replicate = \(n :: Integer) ???(_::TrueProp) ?(e :: sort 0) (v :: e) ->
 
 -- Concatenate arrays together.
 join  :: ?(m n :: Integer) -> ?(e :: sort 0) -> Array m (Array n e) -> Array (mul m n) e;
-join = \?(m :: Integer) ?(n :: Integer) ?(e :: sort 0) a ->
-  generate (mul m n) ???AtomicProof ?e (\i ?_ ->
+join ?m ?n ?e a =
+  generate (mul m n) ???AtomicProof ?e (\(i :: Integer) ?(_::TrueProp) ->
     get ?n
         ?e
         (get ?m ?(Array n e) a (div i n) ???AtomicProof)
@@ -198,26 +199,29 @@ join = \?(m :: Integer) ?(n :: Integer) ?(e :: sort 0) a ->
 
 -- Split array into list
 split :: ?(m n :: Integer) -> ?(e :: sort 0) -> Array (mul m n) e -> Array m (Array n e);
-split = \?(m :: Integer) ?(n :: Integer) ?(e :: sort 0) a ->
-  generate m ???AtomicProof ?(Array n e) (\(i :: Integer) ???_ ->
-    generate n ???AtomicProof ?e (\(j :: Integer) ???_ ->
+split ?m ?n ?e a =
+  generate m ???AtomicProof ?(Array n e) (\(i :: Integer) ???(_ :: TrueProp) ->
+    generate n ???AtomicProof ?e (\(j :: Integer) ???(_ :: TrueProp) ->
       get ?(mul m n) ?e a (add (mul n i) j) ???AtomicProof));
 
 -- Append two arrays together.
 append :: ?(m n :: Integer) -> ?(e :: sort 0) 
-       -> Array m e -> Array n e -> Array (plus m n) e;
-append =
-  \?(m :: Integer) ?(n :: Integer) ?(e :: sort 0) (x :: Array m e) (y :: Array n e) ->
-     generate (plus m n) ???AtomicProof ?e (\(i :: Integer) ???_ ->
-       ite ?e
-           (lt ?Integer ??integerOrdInstance i m)
-           (get ?m ?e x i ???AtomicProof)
-           (get ?n ?e y (sub i m) ???AtomicProof));
+       -> Array m e -> Array n e -> Array (add m n) e;
+append ?m ?n ?e x y =
+  generate (add m n) ???AtomicProof ?e (\(i :: Integer) ???(_ :: TrueProp) ->
+     ite ?e
+         (lt ?Integer ??integerOrdInstance i m)
+         (get ?m ?e x i ???AtomicProof)
+         (get ?n ?e y (sub i m) ???AtomicProof));
 
 -- "Signed n" and "Unsigned n" represent bitvectors with length n
 -- representing signed and unsigned integers.
-Signed   :: (n :: Integer) -> sort 0;
-Unsigned :: (n :: Integer) -> sort 0;
+data Signed :: (n :: Integer) -> sort 0 where {
+  }
+
+data Unsigned :: (n :: Integer) -> sort 0 where {
+  }
+
 -- These are equivalent to arrays of Booleans, but can perform arithmetic.
 signedOrdInstance    :: ?(n :: Integer) -> Ord (Signed n);
 signedNumInstance    :: ?(n :: Integer) -> Num (Signed n);
@@ -247,8 +251,7 @@ resizeSigned :: ?(x y :: Integer)
 -- Simple definition (if bit-blasting doesn't matter)
 -- signedToSigned s = integerToSigned (signedToInteger s)
 -- Complex definition (supports bit-blasting).
-resizeSigned = 
-  \?(x :: Integer) ?(y :: Integer) ???_ (s :: Signed x) ->
+resizeSigned ?x ?y ???_ s =
      arrayToSigned ?y
        ((\(a :: Array x Bool) ->
            ite ?(Signed y)
