@@ -16,6 +16,7 @@ library
     filepath,
     mtl,
     pretty,
+    template-haskell <= 2.8,
     utf8-string,
     vector
   hs-source-dirs: src
@@ -23,6 +24,7 @@ library
      Verifier.SAW
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
+     Verifier.SAW.Prelude
      Verifier.SAW.SharedTerm
      Verifier.SAW.TypedAST
   other-modules:
