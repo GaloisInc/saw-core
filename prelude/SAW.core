@@ -53,10 +53,10 @@ data Ord :: sort 0 -> sort 0 where {
   }
 
 leq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
-leq ??(OrdInstance f) = f;
+leq _ ??(OrdInstance a f) = f;
 
 lt  :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
-lt ??(OrdInstance f) x y = not (leq y x);
+lt _ ??(OrdInstance a f) x y = not (leq y x);
 
 --geq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
 --geq ??(OrdInstance f) x y = leq y x;
@@ -84,25 +84,25 @@ data Num :: sort 0 -> sort 0 where {
   }
 
 nonZero :: ?(a :: sort 0) -> ??(Num a) -> a -> sort 0;
-nonZero ??(NumInstance nz _) = nz;
+nonZero _ ??(NumInstance a nz r) = nz;
 
 neg :: ?(a :: sort 0) -> ??(Num a) -> a -> a;
-neg ??(NumInstance _ r) = r.neg;
+neg _ ??(NumInstance a nz r) = r.neg;
 
 add :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-add ??(NumInstance _ r) = r.add;
+add _ ??(NumInstance a nz r) = r.add;
 
 sub :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-sub ??(NumInstance _ r) = r.sub;
+sub _ ??(NumInstance a nz r) = r.sub;
 
 mul :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-mul ??(NumInstance _ r) = r.mul;
+mul _ ??(NumInstance a nz r) = r.mul;
 
 div :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
-div ??(NumInstance _ r) = r.div;
+div _ ??(NumInstance a nz r) = r.div;
 
 rem :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
-rem ??(NumInstance _ r) = r.rem;
+rem _ ??(NumInstance a nz r) = r.rem;
 
 data Bits :: sort 0 -> sort 0 where {
    BitsInstance :: ?(a :: sort 0)
@@ -118,25 +118,25 @@ data Bits :: sort 0 -> sort 0 where {
   }
 
 not :: ?(a :: sort 0) -> ??(Bits a) -> a -> a;
-not ??(BitsInstance r) = r.not;
+not _ ??(BitsInstance a r) = r.not;
 
 and :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-and ??(BitsInstance r) = r.and;
+and _ ??(BitsInstance a r) = r.and;
 
 or :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-or ??(BitsInstance r) = r.or;
+or _ ??(BitsInstance a r) = r.or;
 
 xor :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-xor ??(BitsInstance r) = r.xor;
+xor _ ??(BitsInstance a r) = r.xor;
 
 implies :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-implies ??(BitsInstance r) = r.imples;
+implies _ ??(BitsInstance a r) = r.imples;
 
 shl :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-shl ?a ??(BitsInstance r) = r.shl;
+shl .a ??(BitsInstance a r) = r.shl;
 
 shr :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-shr ?a ??(BitsInstance r) = r.shr;
+shr .a ??(BitsInstance a r) = r.shr;
 
 boolBitsInstance :: Bits Bool;
 
@@ -177,7 +177,7 @@ generate :: (n :: Integer)
 select :: ?(l :: Integer) -> (i n :: Integer) -> ?(e :: sort 0)
        -> ???(assert (and (and (leq 0 i) (leq 0 n)) (leq (add i n) l))) 
        -> Array l e -> Array n e;
-select ?l i n ?e ???_ a = generate n ???AtomicProof ?e
+select ?l i n ?e p a = generate n ???AtomicProof ?e
            (\(j :: Integer) ???(_::TrueProp) -> get ?n ?e a (add i j) ???AtomicProof);
 
 -- replicate n x returns an array with n copies of x.
@@ -251,7 +251,7 @@ resizeSigned :: ?(x y :: Integer)
 -- Simple definition (if bit-blasting doesn't matter)
 -- signedToSigned s = integerToSigned (signedToInteger s)
 -- Complex definition (supports bit-blasting).
-resizeSigned ?x ?y ???_ s =
+resizeSigned ?x ?y p s =
      arrayToSigned ?y
        ((\(a :: Array x Bool) ->
            ite ?(Signed y)

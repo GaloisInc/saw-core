@@ -13,6 +13,7 @@ library
     bytestring,
     containers,
     directory,
+    fgl >= 5.3,
     filepath,
     mtl,
     pretty,
