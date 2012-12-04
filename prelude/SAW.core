@@ -32,19 +32,6 @@ eq :: ?(a :: sort 0) -> a -> a -> Bool;
 -- Could be derived from data declaration.
 ite :: ?(a :: sort 0) -> Bool -> a -> a -> a;
 
--- Inhabited type for true propositions.
-data TrueProp :: sort 0 where {
-    AtomicProof :: TrueProp;
-  }
-
--- Uninhabited type 
-data FalseProp :: sort 0 where {
-  }
-
--- assert is a function that maps "True" to the inhabited type "TrueProp" and
--- "False" to the uninhabited type "FalseProp" 
-assert :: Bool -> sort 0;
-
 -- Ordering "typeclass"
 data Ord :: sort 0 -> sort 0 where {
    OrdInstance :: ?(a :: sort 0)
@@ -78,7 +65,7 @@ data Num :: sort 0 -> sort 0 where {
                sub :: a -> a -> a;
                mul :: a -> a -> a;
                div :: a -> (y::a) -> ???(nonZero y) -> a;
-               rem :: a -> (y::a) -> ???(nonZero y) -> a;
+               mod :: a -> (y::a) -> ???(nonZero y) -> a;
              }
          -> Num a;
   }
@@ -101,8 +88,8 @@ mul _ ??(NumInstance a nz r) = r.mul;
 div :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
 div _ ??(NumInstance a nz r) = r.div;
 
-rem :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
-rem _ ??(NumInstance a nz r) = r.rem;
+mod :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
+mod _ ??(NumInstance a nz r) = r.mod;
 
 data Bits :: sort 0 -> sort 0 where {
    BitsInstance :: ?(a :: sort 0)
@@ -140,6 +127,57 @@ shr .a ??(BitsInstance a r) = r.shr;
 
 boolBitsInstance :: Bits Bool;
 
+-- Nat
+data Nat :: sort 0 where {
+    Zero :: Nat;
+    Succ :: Nat -> Nat;
+  }
+
+data LeqNat :: Nat -> Nat -> sort 0 where {
+  }
+
+data LtNat :: Nat -> Nat -> sort 0 where {
+  }
+
+addNat :: Nat -> Nat -> Nat; 
+mulNat :: Nat -> Nat -> Nat;
+divNat :: Nat -> (y::Nat) -> LtNat 0 y -> Nat;
+modNat :: Nat -> (y::Nat) -> LtNat 0 y -> Nat;
+
+ltNatDiv :: (i m n :: Nat)
+         -> (p :: LtNat 0 n)
+         -> LtNat i (mulNat m n)
+         -> LtNat (divNat i n p) m;
+
+ltNatMod :: (i n :: Nat) -> (p :: LtNat 0 n) -> LtNat (modNat i n p) n;
+
+lt0Succ :: (x :: Nat) -> LtNat 0 (Succ x);
+
+ltNatAddBounded :: (i n j l :: Nat)
+                -> LeqNat (addNat i n) l
+                -> LtNat j n
+                -> LtNat (addNat i j) l;
+
+lt0NatMul2 :: (n i m :: Nat) -> LtNat i (mulNat m n) -> LtNat 0 n;
+
+ltNatPair :: (i m j n :: Nat)
+           -> LtNat i m
+           -> LtNat j n
+           -> LtNat (addNat (mulNat i n) j) (mulNat m n);
+
+-- | Compares two integers and perform appropriate action.
+iteLtNat :: (a :: sort 0)
+         -> (i m :: Nat)
+         -> (LtNat i m -> a)
+         -> (LeqNat m i -> a);
+
+subNat :: (x y :: Nat) -> LeqNat y x -> Nat;
+
+ltSubNat :: (i m n :: Nat)
+         -> (p :: LeqNat m i)
+         -> LtNat i (addNat m n)
+         -> LtNat (subNat i m p) n;
+
 -- Integers
 data Integer :: sort 0 where {
   }
@@ -150,134 +188,175 @@ integerNumInstance  :: Num  Integer;
 integerBitsInstance :: Bits Integer;
 
 -- "Array n a" is an array of n elements, each with type "a".
-data Array :: (n :: Integer) -> sort 0 -> sort 0 where {
+data Array :: (n :: Nat) -> sort 0 -> sort 0 where {
   }
 
 -- For each natural number n, there is an implicit constructor
 -- [x0,...,x(n-1)] for creating an array with length n.
-arrayOrdInstance  :: ?(n :: Integer) -> ?(e :: sort 0) -> ??(Ord e)  -> Ord  (Array n e);
-arrayBitsInstance :: ?(n :: Integer) -> ?(e :: sort 0) -> ??(Bits e) -> Bits (Array n e);
+arrayOrdInstance  :: ?(n :: Nat) -> ?(e :: sort 0) -> ??(Ord e)  -> Ord  (Array n e);
+arrayBitsInstance :: ?(n :: Nat) -> ?(e :: sort 0) -> ??(Bits e) -> Bits (Array n e);
 
 -- Get and set an individual element in an array.
 -- The assertions are used to ensure that get and set are given valid arguments.
-get :: ?(n :: Integer) -> ?(e :: sort 0)
-    -> Array n e -> (i::Integer) -> ???(assert (and (leq 0 i) (lt i n))) -> e;
-set :: ?(n :: Integer) -> ?(a :: sort 0)
-    -> Array n a -> (i::Integer) -> ???(assert (and (leq 0 i) (lt i n))) -> a
+get :: ?(n :: Nat) -> ?(e :: sort 0)
+    -> Array n e -> (i::Nat) -> ???(LtNat i n) -> e;
+set :: ?(n :: Nat) -> ?(a :: sort 0)
+    -> Array n a -> (i::Nat) -> ???(LtNat i n) -> a
     -> Array n a;
 
 -- Function for generating an array.
-generate :: (n :: Integer)
-         -> ???(assert (leq 0 n))
+generate :: (n :: Nat)
          -> ?(e :: sort 0) 
-         -> ((i :: Integer) -> ???(assert (and (leq 0 i) (lt i n))) -> e) 
+         -> ((i :: Nat) -> ???(LtNat i n) -> e) 
          -> Array n e;
 
--- | Select a range [l,..,l+n] of values from the array.
-select :: ?(l :: Integer) -> (i n :: Integer) -> ?(e :: sort 0)
-       -> ???(assert (and (and (leq 0 i) (leq 0 n)) (leq (add i n) l))) 
+fst :: (x y :: sort 0) -> #(x,y) -> x;
+fst x y (l,h) = l;
+
+snd :: (x y :: sort 0) -> #(x,y) -> y;
+snd x y (l,h) = h;
+
+-- | Select a range [i,..,i+n] of values from the array.
+select :: ?(l :: Nat) -> (i n :: Nat) -> ?(e :: sort 0)
+       -> LeqNat (addNat i n) l
        -> Array l e -> Array n e;
-select ?l i n ?e p a = generate n ???AtomicProof ?e
-           (\(j :: Integer) ???(_::TrueProp) -> get ?n ?e a (add i j) ???AtomicProof);
+select ?l i n ?e lh a = 
+  let { eltFn :: (j :: Nat) -> LtNat j n -> e;
+        eltFn j jh = get l ?e a (add i j) (ltNatAddBounded i n j l lh jh);
+      }
+   in generate n ?e eltFn;
 
 -- replicate n x returns an array with n copies of x.
-replicate :: (n :: Integer)
-          -> ???(assert (leq 0 n))
+replicate :: (n :: Nat)
           -> ?(e :: sort 0) -> e -> Array n e;
-replicate = \(n :: Integer) ???(_::TrueProp) ?(e :: sort 0) (v :: e) ->
-  generate n ???AtomicProof ?e (\(_::Integer) ???(_::TrueProp) -> v);
+replicate n e v =
+  let { eltFn :: (j :: Nat) -> LtNat j n -> e;
+        eltFn j p = v;
+      }
+   in generate n e eltFn;
 
 -- Concatenate arrays together.
-join  :: ?(m n :: Integer) -> ?(e :: sort 0) -> Array m (Array n e) -> Array (mul m n) e;
-join ?m ?n ?e a =
-  generate (mul m n) ???AtomicProof ?e (\(i :: Integer) ?(_::TrueProp) ->
-    get ?n
-        ?e
-        (get ?m ?(Array n e) a (div i n) ???AtomicProof)
-        (rem i n)
-        ???AtomicProof);
+join  :: (m n :: Nat)
+      -> (e :: sort 0)
+      -> Array m (Array n e)
+      -> Array (mulNat m n) e;
+join m n e a =
+  let { eltFn :: (i :: Nat) -> LtNat i (mulNat m n) -> e;
+        eltFn i ih = 
+          let { nNZ :: LtNat 0 Nat;
+                nNZ = lt0NatMul2 n i m ih;
+                a1 :: Array n e;
+                a1 = get ?m ?(Array n e) a (divNat i n nNZ) (ltNatDiv i m n nNZ ih);
+              }
+           in get ?n ?e a1 (modNat i n nNZ) (ltNatMod i n nNZ);
+      }
+   in generate (mulNat m n) e eltFn;
 
 -- Split array into list
-split :: ?(m n :: Integer) -> ?(e :: sort 0) -> Array (mul m n) e -> Array m (Array n e);
+split :: ?(m n :: Nat) -> ?(e :: sort 0) -> Array (mul m n) e -> Array m (Array n e);
 split ?m ?n ?e a =
-  generate m ???AtomicProof ?(Array n e) (\(i :: Integer) ???(_ :: TrueProp) ->
-    generate n ???AtomicProof ?e (\(j :: Integer) ???(_ :: TrueProp) ->
-      get ?(mul m n) ?e a (add (mul n i) j) ???AtomicProof));
+  let { arrayFn :: (i::Nat) -> LtNat i m -> Array n e;
+        arrayFn i ih =
+         let { eltFn :: (j :: Nat) -> LtNat j n -> e;
+               eltFn j jh = get ?(mulNat m n) ?e a
+                                (addNat (mulNat i n) j)
+                                (ltNatPair i m j n ih jh);
+             }
+          in generate n ?e eltFn;
+      }
+   in generate m ?(Array n e) arrayFn;
 
 -- Append two arrays together.
-append :: ?(m n :: Integer) -> ?(e :: sort 0) 
-       -> Array m e -> Array n e -> Array (add m n) e;
+append :: ?(m n :: Nat) -> ?(e :: sort 0) 
+       -> Array m e -> Array n e -> Array (addNat m n) e;
 append ?m ?n ?e x y =
-  generate (add m n) ???AtomicProof ?e (\(i :: Integer) ???(_ :: TrueProp) ->
-     ite ?e
-         (lt ?Integer ??integerOrdInstance i m)
-         (get ?m ?e x i ???AtomicProof)
-         (get ?n ?e y (sub i m) ???AtomicProof));
+  let { ltFn :: (i :: Nat) -> LtNat i m -> e;
+        ltFn i p = get ?m ?e x i p;
+        leqFn :: (i :: Nat) -> LtNat i (addNat m n) -> LeqNat m i -> e;
+        leqFn i ih p = get ?n ?e y (subNat i m p) (ltSubNat i m n p ih);
+        eltFn :: (i :: Nat) -> LtNat i (addNat m n) -> e;
+        eltFn i ih = iteLtNat e i m (ltFn i) (leqFn i ih);
+      }
+   in generate (addNat m n) ?e eltFn;
 
 -- "Signed n" and "Unsigned n" represent bitvectors with length n
 -- representing signed and unsigned integers.
-data Signed :: (n :: Integer) -> sort 0 where {
+data Signed :: (n :: Nat) -> sort 0 where {
   }
 
-data Unsigned :: (n :: Integer) -> sort 0 where {
+data Unsigned :: (n :: Nat) -> sort 0 where {
   }
 
 -- These are equivalent to arrays of Booleans, but can perform arithmetic.
-signedOrdInstance    :: ?(n :: Integer) -> Ord (Signed n);
-signedNumInstance    :: ?(n :: Integer) -> Num (Signed n);
-signedBitsInstance   :: ?(n :: Integer) -> Bits (Signed n);
-unsignedOrdInstance  :: ?(n :: Integer) -> Ord (Unsigned n);
-unsignedNumInstance  :: ?(n :: Integer) -> Num (Unsigned n);
-unsignedBitsInstance :: ?(n :: Integer) -> Bits (Unsigned n);
+signedOrdInstance    :: ?(n :: Nat) -> Ord (Signed (Succ n));
+signedNumInstance    :: ?(n :: Nat) -> Num (Signed (Succ n));
+signedBitsInstance   :: ?(n :: Nat) -> Bits (Signed (Succ n));
+unsignedOrdInstance  :: ?(n :: Nat) -> Ord (Unsigned n);
+unsignedNumInstance  :: ?(n :: Nat) -> Num (Unsigned n);
+unsignedBitsInstance :: ?(n :: Nat) -> Bits (Unsigned n);
 
 -- Convert between bitvectors and integers.
-signedToInteger   :: ?(n :: Integer) -> Signed n   -> Integer;
-unsignedToInteger :: ?(n :: Integer) -> Unsigned n -> Integer;
-integerToSigned   :: ?(n :: Integer) -> ???(assert (leq 0 n)) -> Integer -> Signed n;
-integerToUnsigned :: ?(n :: Integer) -> ???(assert (leq 0 n)) -> Integer -> Unsigned n;
+signedToInteger   :: ?(n :: Nat) -> Signed (Succ n) -> Integer;
+integerToSigned   :: ?(n :: Nat) -> Integer -> Signed (Succ n);
+
+unsignedToInteger :: ?(n :: Nat) -> Unsigned n -> Integer;
+integerToUnsigned :: ?(n :: Nat) -> Integer -> Unsigned n;
 
 -- Convert between bitvectors and arrays of bits.
 -- Integers are stored with most-significant bit first (aka. in byte 0).
-signedToArray   :: ?(n :: Integer) -> Signed   n   -> Array n Bool;
+signedToArray   :: ?(n :: Integer) -> Signed (Succ n) -> Array (Succ n) Bool;
+arrayToSigned   :: ?(n :: Integer) -> Array (Succ n) Bool -> Signed (Succ n);
+
 unsignedToArray :: ?(n :: Integer) -> Unsigned n   -> Array n Bool;
-arrayToSigned   :: ?(n :: Integer) -> Array n Bool -> Signed n;
 arrayToUnsigned :: ?(n :: Integer) -> Array n Bool -> Unsigned n;
+
+ltNatToLeqNat :: (x y :: Nat) -> LtNat x y -> LeqNat x y;
+
+leqSucc :: (x y :: Nat) -> LeqNat x y -> LeqNat (Succ x) (Succ y);
+
+leqAdd0 :: (x y :: Nat) -> LeqNat x y -> LeqNat (addNat 0 x) y;
 
 -- | Convert between two signed representations.
 -- This is implemented by using arrays so that the result can still be bit-blasted.
-resizeSigned :: ?(x y :: Integer)
-             -> ???(assert (and (leq 1 x) (leq 1 y)))
-             -> Signed x -> Signed y;
+resizeSigned :: ?(x y :: Nat)
+             -> Signed (Succ x) -> Signed (Succ y);
 -- Simple definition (if bit-blasting doesn't matter)
 -- signedToSigned s = integerToSigned (signedToInteger s)
 -- Complex definition (supports bit-blasting).
-resizeSigned ?x ?y p s =
-     arrayToSigned ?y
-       ((\(a :: Array x Bool) ->
-           ite ?(Signed y)
-               (leq ?Integer ??integerOrdInstance x y)
-               (append ?(sub y x)
-                       ?x
-                       ?Bool
-                       (replicate (sub y x)
-                                  ???AtomicProof
-                                  ?Bool
-                                  (get ?x ?Bool a 0 ???AtomicProof))
-                       a)
-               (select ?x 0 y ?Bool ???AtomicProof a))
-        (signedToArray ?x s));
+resizeSigned ?x ?y s =
+  let { a :: Array (Succ x) Bool;
+        a = signedToArray ?x s;
+        ltFn :: LtNat y x -> Array (Succ y) Bool;
+        ltFn p = 
+           let { pLeq :: LeqNat y x;
+                 pLeq = ltNatToLeqNat y x p;
+                 pSucc :: LeqNat (Succ y) (Succ x);
+                 pSucc = leqSucc y x pLeq;
+                 pAdd0 :: LeqNat (addNat 0 (Succ y)) (Succ x);
+                 pAdd0 = leqAdd0 (Succ y) (Succ x) pSucc;
+               }
+            in select (Succ x) 0 (Succ y) ?Bool pAdd0 a;
+        leqFn :: LeqNat x y -> Array (Succ y) Bool;
+        leqFn p = 
+          let { z :: Nat;
+                z = subNat y x p;
+                msb :: Bool;
+                msb = get (Succ ?x) ?Bool a 0 (lt0Succ x);
+                padding :: Array (subNat y x p) Bool;
+                padding = replicate z Bool msb;
+              }
+           in append ?(subNat y x p) ?x ?Bool padding a;
+      }
+   in arrayToSigned ?y (iteLtNat (Array (Succ y) Bool) y x ltFn leqFn);
 
-signedToUnsigned :: ?(x :: Integer)
-                 -> ???(assert (leq 1 x))
-                 -> Signed x -> Unsigned x;
+signedToUnsigned :: ?(x :: Nat) -> Signed (Succ x) -> Unsigned (Succ x);
 
-unsignedToSigned :: ?(x :: Integer)
-                 -> ???(assert (leq 1 x))
-                 -> Unsigned x -> Signed x;
+unsignedToSigned :: ?(x :: Nat)
+                 -> Unsigned (Succ x) -> Signed (Succ x);
 
 
 -- Performs a signed shift right as an unsigned shift right.
-signedUShr :: ?(n :: Integer) -> ???(assert (leq 1 n)) -> Signed n -> Signed n -> Signed n;
+signedUShr :: ?(n :: Nat) -> Signed (Succ n) -> Signed (Succ n) -> Signed (Succ n);
 -- TODO: Add definition.
 
 -- Performs the Java long compare operation.
