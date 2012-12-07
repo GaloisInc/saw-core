@@ -27,6 +27,7 @@ library
      Verifier.SAW.Lexer
      Verifier.SAW.Prelude
      Verifier.SAW.SharedTerm
+     Verifier.SAW.Typechecker
      Verifier.SAW.TypedAST
   other-modules:
      Verifier.SAW.Position

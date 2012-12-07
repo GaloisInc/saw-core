@@ -1,3 +1,5 @@
+module Prelude where
+
 -- Grammar for the core prelude types.
 --
 -- We use double colons "::" to represent the type constraint on the core symbols.
@@ -29,8 +31,18 @@ data Bool :: sort 0 where {
 
 eq :: ?(a :: sort 0) -> a -> a -> Bool;
 
+not :: Bool -> Bool;
+
 -- Could be derived from data declaration.
 ite :: ?(a :: sort 0) -> Bool -> a -> a -> a;
+
+-- Pairs
+
+fst :: (x y :: sort 0) -> #(x,y) -> x;
+fst x y (l,h) = l;
+
+snd :: (x y :: sort 0) -> #(x,y) -> y;
+snd x y (l,h) = h;
 
 -- Ordering "typeclass"
 data Ord :: sort 0 -> sort 0 where {
@@ -120,10 +132,10 @@ implies :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
 implies _ ??(BitsInstance a r) = r.imples;
 
 shl :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-shl .a ??(BitsInstance a r) = r.shl;
+shl _ ??(BitsInstance a r) = r.shl;
 
 shr :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-shr .a ??(BitsInstance a r) = r.shr;
+shr _ ??(BitsInstance a r) = r.shr;
 
 boolBitsInstance :: Bits Bool;
 
@@ -136,47 +148,53 @@ data Nat :: sort 0 where {
 data LeqNat :: Nat -> Nat -> sort 0 where {
   }
 
+leqSucc :: (x y :: Nat) -> LeqNat x y -> LeqNat (Succ x) (Succ y);
+
 data LtNat :: Nat -> Nat -> sort 0 where {
   }
 
-addNat :: Nat -> Nat -> Nat; 
-mulNat :: Nat -> Nat -> Nat;
-divNat :: Nat -> (y::Nat) -> LtNat 0 y -> Nat;
-modNat :: Nat -> (y::Nat) -> LtNat 0 y -> Nat;
-
-ltNatDiv :: (i m n :: Nat)
-         -> (p :: LtNat 0 n)
-         -> LtNat i (mulNat m n)
-         -> LtNat (divNat i n p) m;
-
-ltNatMod :: (i n :: Nat) -> (p :: LtNat 0 n) -> LtNat (modNat i n p) n;
-
 lt0Succ :: (x :: Nat) -> LtNat 0 (Succ x);
+ltNatToLeqNat :: (x y :: Nat) -> LtNat x y -> LeqNat x y;
 
+-- | Compares two integers and perform appropriate action.
+iteLtNat :: (a :: sort 0)
+         -> (x y :: Nat)
+         -> (LtNat x y -> a)
+         -> (LeqNat y x -> a);
+
+addNat :: Nat -> Nat -> Nat; 
+
+leqAdd0 :: (x y :: Nat) -> LeqNat x y -> LeqNat (addNat 0 x) y;
 ltNatAddBounded :: (i n j l :: Nat)
                 -> LeqNat (addNat i n) l
                 -> LtNat j n
                 -> LtNat (addNat i j) l;
 
-lt0NatMul2 :: (n i m :: Nat) -> LtNat i (mulNat m n) -> LtNat 0 n;
 
+
+subNat :: (x y :: Nat) -> LeqNat y x -> Nat;
+
+ltSubNat :: (x y z :: Nat)
+         -> (p :: LeqNat y x)
+         -> LtNat x (addNat y z)
+         -> LtNat (subNat x y p) z;
+
+mulNat :: Nat -> Nat -> Nat;
+lt0NatMul2 :: (n i m :: Nat) -> LtNat i (mulNat m n) -> LtNat 0 n;
 ltNatPair :: (i m j n :: Nat)
            -> LtNat i m
            -> LtNat j n
            -> LtNat (addNat (mulNat i n) j) (mulNat m n);
 
--- | Compares two integers and perform appropriate action.
-iteLtNat :: (a :: sort 0)
-         -> (i m :: Nat)
-         -> (LtNat i m -> a)
-         -> (LeqNat m i -> a);
 
-subNat :: (x y :: Nat) -> LeqNat y x -> Nat;
+divNat :: Nat -> (y::Nat) -> LtNat 0 y -> Nat;
+ltNatDiv :: (i m n :: Nat)
+         -> (p :: LtNat 0 n)
+         -> LtNat i (mulNat m n)
+         -> LtNat (divNat i n p) m;
 
-ltSubNat :: (i m n :: Nat)
-         -> (p :: LeqNat m i)
-         -> LtNat i (addNat m n)
-         -> LtNat (subNat i m p) n;
+modNat :: Nat -> (y::Nat) -> LtNat 0 y -> Nat;
+ltNatMod :: (i n :: Nat) -> (p :: LtNat 0 n) -> LtNat (modNat i n p) n;
 
 -- Integers
 data Integer :: sort 0 where {
@@ -209,12 +227,6 @@ generate :: (n :: Nat)
          -> ?(e :: sort 0) 
          -> ((i :: Nat) -> ???(LtNat i n) -> e) 
          -> Array n e;
-
-fst :: (x y :: sort 0) -> #(x,y) -> x;
-fst x y (l,h) = l;
-
-snd :: (x y :: sort 0) -> #(x,y) -> y;
-snd x y (l,h) = h;
 
 -- | Select a range [i,..,i+n] of values from the array.
 select :: ?(l :: Nat) -> (i n :: Nat) -> ?(e :: sort 0)
@@ -310,12 +322,6 @@ arrayToSigned   :: ?(n :: Integer) -> Array (Succ n) Bool -> Signed (Succ n);
 unsignedToArray :: ?(n :: Integer) -> Unsigned n   -> Array n Bool;
 arrayToUnsigned :: ?(n :: Integer) -> Array n Bool -> Unsigned n;
 
-ltNatToLeqNat :: (x y :: Nat) -> LtNat x y -> LeqNat x y;
-
-leqSucc :: (x y :: Nat) -> LeqNat x y -> LeqNat (Succ x) (Succ y);
-
-leqAdd0 :: (x y :: Nat) -> LeqNat x y -> LeqNat (addNat 0 x) y;
-
 -- | Convert between two signed representations.
 -- This is implemented by using arrays so that the result can still be bit-blasted.
 resizeSigned :: ?(x y :: Nat)
@@ -352,8 +358,8 @@ resizeSigned ?x ?y s =
 signedToUnsigned :: ?(x :: Nat) -> Signed (Succ x) -> Unsigned (Succ x);
 
 unsignedToSigned :: ?(x :: Nat)
-                 -> Unsigned (Succ x) -> Signed (Succ x);
-
+                 -> Unsigned (Succ x)
+                 -> Signed (Succ x);
 
 -- Performs a signed shift right as an unsigned shift right.
 signedUShr :: ?(n :: Nat) -> Signed (Succ n) -> Signed (Succ n) -> Signed (Succ n);
