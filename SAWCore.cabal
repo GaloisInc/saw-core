@@ -33,6 +33,7 @@ library
      Verifier.SAW.Position
      Verifier.SAW.UnionFind
      Verifier.SAW.UntypedAST
+     Verifier.SAW.Utils
   GHC-options: -Wall
   extensions:
     DeriveFunctor
