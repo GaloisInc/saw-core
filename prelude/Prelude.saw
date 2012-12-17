@@ -37,7 +37,6 @@ not :: Bool -> Bool;
 ite :: ?(a :: sort 0) -> Bool -> a -> a -> a;
 
 -- Pairs
-
 fst :: (x y :: sort 0) -> #(x,y) -> x;
 fst x y (l,h) = l;
 
