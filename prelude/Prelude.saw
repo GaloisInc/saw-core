@@ -3,7 +3,7 @@ module Prelude where
 -- Grammar for the core prelude types.
 --
 -- We use double colons "::" to represent the type constraint on the core symbols.
---   e.g., "Bool :: Type 0" indicates "Bool" has type "Type 0"
+--   e.g., "Bool :: sort 0" indicates "Bool" has type "sort 0"
 -- Functions use "->" to separate arguments from result.
 --   e.g., "f :: Bool -> Bool -> Bool"indicates "f" is a binary operation on Booleans.
 --
@@ -169,8 +169,6 @@ ltNatAddBounded :: (i n j l :: Nat)
                 -> LtNat j n
                 -> LtNat (addNat i j) l;
 
-
-
 subNat :: (x y :: Nat) -> LeqNat y x -> Nat;
 
 ltSubNat :: (x y z :: Nat)
@@ -205,25 +203,25 @@ integerNumInstance  :: Num  Integer;
 integerBitsInstance :: Bits Integer;
 
 -- "Array n a" is an array of n elements, each with type "a".
-data Array :: (n :: Nat) -> sort 0 -> sort 0 where {
+data Array :: (n :: Nat) -> sort 1 -> sort 1 where {
   }
 
 -- For each natural number n, there is an implicit constructor
 -- [x0,...,x(n-1)] for creating an array with length n.
-arrayOrdInstance  :: ?(n :: Nat) -> ?(e :: sort 0) -> ??(Ord e)  -> Ord  (Array n e);
-arrayBitsInstance :: ?(n :: Nat) -> ?(e :: sort 0) -> ??(Bits e) -> Bits (Array n e);
+arrayOrdInstance  :: ?(n :: Nat) -> ?(e :: sort 1) -> ??(Ord e)  -> Ord  (Array n e);
+arrayBitsInstance :: ?(n :: Nat) -> ?(e :: sort 1) -> ??(Bits e) -> Bits (Array n e);
 
 -- Get and set an individual element in an array.
 -- The assertions are used to ensure that get and set are given valid arguments.
-get :: ?(n :: Nat) -> ?(e :: sort 0)
+get :: ?(n :: Nat) -> ?(e :: sort 1)
     -> Array n e -> (i::Nat) -> ???(LtNat i n) -> e;
-set :: ?(n :: Nat) -> ?(a :: sort 0)
+set :: ?(n :: Nat) -> ?(a :: sort 1)
     -> Array n a -> (i::Nat) -> ???(LtNat i n) -> a
     -> Array n a;
 
 -- Function for generating an array.
 generate :: (n :: Nat)
-         -> ?(e :: sort 0) 
+         -> ?(e :: sort 1)
          -> ((i :: Nat) -> ???(LtNat i n) -> e) 
          -> Array n e;
 
@@ -236,6 +234,12 @@ select ?l i n ?e lh a =
         eltFn j jh = get l ?e a (add i j) (ltNatAddBounded i n j l lh jh);
       }
    in generate n ?e eltFn;
+
+-- | Defines a function that maps array elements from one range to another.
+mapArray :: (s t :: sort 0) -> (s -> t)  -> (n :: Nat) -> Array n s -> Array n t;
+{-
+mapArray = undefined
+-}
 
 -- replicate n x returns an array with n copies of x.
 replicate :: (n :: Nat)
@@ -367,3 +371,15 @@ signedUShr :: ?(n :: Nat) -> Signed (Succ n) -> Signed (Succ n) -> Signed (Succ 
 -- Performs the Java long compare operation.
 javaLongCompare :: Signed 64 -> Signed 64 -> Signed 32;
 -- TODO: Add definition.
+
+-- | An array where each element may have a different type.
+data Tuple :: (n :: Nat) -> (tps :: Array n (sort 0)) -> sort 0 where {
+    MkTuple :: (n :: Nat)
+            -> (tps :: Array n (sort 0))
+            -> ((i :: Nat) -> (p :: LtNat i n) -> get n (sort 0) tps i p)
+            -> Tuple n tps;
+  }
+
+data Double :: sort 0 where { }
+
+data Float :: sort 0 where { }

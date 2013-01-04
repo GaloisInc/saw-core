@@ -18,6 +18,7 @@ library
     mtl,
     pretty,
     template-haskell,
+    transformers,
     utf8-string,
     vector
   hs-source-dirs: src
@@ -31,6 +32,7 @@ library
      Verifier.SAW.Typechecker
      Verifier.SAW.TypedAST
   other-modules:
+     Verifier.SAW.Change
      Verifier.SAW.Position
      Verifier.SAW.UnionFind
      Verifier.SAW.UntypedAST
