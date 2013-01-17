@@ -18,6 +18,7 @@ library
     mtl,
     pretty,
     template-haskell,
+    transformers,
     utf8-string,
     vector
   hs-source-dirs: src
@@ -25,14 +26,17 @@ library
      Verifier.SAW
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
+     Verifier.SAW.ParserUtils
      Verifier.SAW.Prelude
      Verifier.SAW.SharedTerm
      Verifier.SAW.Typechecker
      Verifier.SAW.TypedAST
   other-modules:
+     Verifier.SAW.Change
      Verifier.SAW.Position
      Verifier.SAW.UnionFind
      Verifier.SAW.UntypedAST
+     Verifier.SAW.Utils
   GHC-options: -Wall
   extensions:
     DeriveFunctor
