@@ -115,28 +115,28 @@ data Bits :: sort 0 -> sort 0 where {
                 -> Bits a;
   }
 
-not :: ?(a :: sort 0) -> ??(Bits a) -> a -> a;
-not _ ??(BitsInstance a r) = r.not;
 
-and :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-and _ ??(BitsInstance a r) = r.and;
-
-or :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-or _ ??(BitsInstance a r) = r.or;
-
-xor :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-xor _ ??(BitsInstance a r) = r.xor;
-
-implies :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-implies _ ??(BitsInstance a r) = r.imples;
-
-shl :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-shl _ ??(BitsInstance a r) = r.shl;
-
-shr :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
-shr _ ??(BitsInstance a r) = r.shr;
-
-boolBitsInstance :: Bits Bool;
+--not :: ?(a :: sort 0) -> ??(Bits a) -> a -> a;
+--not _ ??(BitsInstance a r) = r.not;
+--
+--and :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--and _ ??(BitsInstance a r) = r.and;
+--
+--or :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--or _ ??(BitsInstance a r) = r.or;
+--xor :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--xor _ ??(BitsInstance a r) = r.xor;
+--
+--implies :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--implies _ ??(BitsInstance a r) = r.imples;
+--
+--shl :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--shl _ ??(BitsInstance a r) = r.shl;
+--
+--shr :: ?(a :: sort 0) -> ??(Bits a) -> a -> a -> a;
+--shr _ ??(BitsInstance a r) = r.shr;
+--
+--boolBitsInstance :: Bits Bool;
 
 -- Nat
 data Nat :: sort 0 where {
@@ -359,7 +359,6 @@ resizeSigned ?x ?y s =
    in arrayToSigned ?y (iteLtNat (Array (Succ y) Bool) y x ltFn leqFn);
 
 signedToUnsigned :: ?(x :: Nat) -> Signed (Succ x) -> Unsigned (Succ x);
-
 unsignedToSigned :: ?(x :: Nat)
                  -> Unsigned (Succ x)
                  -> Signed (Succ x);
