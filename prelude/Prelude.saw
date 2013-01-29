@@ -206,11 +206,6 @@ integerBitsInstance :: Bits Integer;
 data Array :: (n :: Nat) -> sort 1 -> sort 1 where {
   }
 
--- For each natural number n, there is an implicit constructor
--- [x0,...,x(n-1)] for creating an array with length n.
-arrayOrdInstance  :: ?(n :: Nat) -> ?(e :: sort 1) -> ??(Ord e)  -> Ord  (Array n e);
-arrayBitsInstance :: ?(n :: Nat) -> ?(e :: sort 1) -> ??(Bits e) -> Bits (Array n e);
-
 -- Get and set an individual element in an array.
 -- The assertions are used to ensure that get and set are given valid arguments.
 get :: ?(n :: Nat) -> ?(e :: sort 1)
@@ -319,11 +314,11 @@ integerToUnsigned :: ?(n :: Nat) -> Integer -> Unsigned n;
 
 -- Convert between bitvectors and arrays of bits.
 -- Integers are stored with most-significant bit first (aka. in byte 0).
-signedToArray   :: ?(n :: Integer) -> Signed (Succ n) -> Array (Succ n) Bool;
-arrayToSigned   :: ?(n :: Integer) -> Array (Succ n) Bool -> Signed (Succ n);
+signedToArray   :: ?(n :: Nat) -> Signed (Succ n) -> Array (Succ n) Bool;
+arrayToSigned   :: ?(n :: Nat) -> Array (Succ n) Bool -> Signed (Succ n);
 
-unsignedToArray :: ?(n :: Integer) -> Unsigned n   -> Array n Bool;
-arrayToUnsigned :: ?(n :: Integer) -> Array n Bool -> Unsigned n;
+unsignedToArray :: ?(n :: Nat) -> Unsigned n   -> Array n Bool;
+arrayToUnsigned :: ?(n :: Nat) -> Array n Bool -> Unsigned n;
 
 -- | Convert between two signed representations.
 -- This is implemented by using arrays so that the result can still be bit-blasted.

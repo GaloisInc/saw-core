@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
-module Verifier.SAW.Typechecker.Common
+module Verifier.SAW.Typechecker.Monad
   ( TC
   , liftST
   , runTC

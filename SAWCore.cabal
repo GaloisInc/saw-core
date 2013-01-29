@@ -35,7 +35,8 @@ library
   other-modules:
      Verifier.SAW.Change
      Verifier.SAW.Position
-     Verifier.SAW.Typechecker.Common
+     Verifier.SAW.Typechecker.Context
+     Verifier.SAW.Typechecker.Monad
      Verifier.SAW.UnionFind
      Verifier.SAW.UntypedAST
      Verifier.SAW.Utils
