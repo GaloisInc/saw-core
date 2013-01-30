@@ -43,19 +43,19 @@ fst x y (l,h) = l;
 snd :: (x y :: sort 0) -> #(x,y) -> y;
 snd x y (l,h) = h;
 
--- Ordering "typeclass"
-data Ord :: sort 0 -> sort 0 where {
-   OrdInstance :: ?(a :: sort 0)
-               -> (a -> a -> Bool) -- Less-than-or-equal function.
-               -> Ord a;
-  }
-
-leq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
-leq _ ??(OrdInstance a f) = f;
-
-lt  :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
-lt _ ??(OrdInstance a f) x y = not (leq y x);
-
+---- Ordering "typeclass"
+--data Ord :: sort 0 -> sort 0 where {
+--   OrdInstance :: ?(a :: sort 0)
+--               -> (a -> a -> Bool) -- Less-than-or-equal function.
+--               -> Ord a;
+--  }
+--
+--leq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
+--leq _ ??(OrdInstance a f) = f;
+--
+--lt  :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
+--lt _ ??(OrdInstance a f) x y = not (leq y x);
+--
 --geq :: ?(a :: sort 0) -> ??(Ord a) -> a -> a -> Bool;
 --geq ??(OrdInstance f) x y = leq y x;
 
@@ -63,57 +63,57 @@ lt _ ??(OrdInstance a f) x y = not (leq y x);
 --gt ??(OrdInstance f) x y = not (leq x y);
 
 -- False becomes before true.
-boolOrdInstance :: Ord Bool;
+--boolOrdInstance :: Ord Bool;
 
--- Numeric operations.
-data Num :: sort 0 -> sort 0 where {
-   NumInstance 
-         :: ?(a :: sort 0)
-         -- Predicate reducing to TrueProp if we can divide input by zero, and false otherwise.
-         -> (nonZero :: a -> sort 0)     
-         -> #{ neg :: a -> a;
-               add :: a -> a -> a;
-               sub :: a -> a -> a;
-               mul :: a -> a -> a;
-               div :: a -> (y::a) -> ???(nonZero y) -> a;
-               mod :: a -> (y::a) -> ???(nonZero y) -> a;
-             }
-         -> Num a;
-  }
+---- Numeric operations.
+--data Num :: sort 0 -> sort 0 where {
+--   NumInstance 
+--         :: ?(a :: sort 0)
+--         -- Predicate reducing to TrueProp if we can divide input by zero, and false otherwise.
+--         -> (nonZero :: a -> sort 0)     
+--         -> #{ neg :: a -> a;
+--               add :: a -> a -> a;
+--               sub :: a -> a -> a;
+--               mul :: a -> a -> a;
+--               div :: a -> (y::a) -> ???(nonZero y) -> a;
+--               mod :: a -> (y::a) -> ???(nonZero y) -> a;
+--             }
+--         -> Num a;
+--  }
+--
+--nonZero :: ?(a :: sort 0) -> ??(Num a) -> a -> sort 0;
+--nonZero _ ??(NumInstance a nz r) = nz;
 
-nonZero :: ?(a :: sort 0) -> ??(Num a) -> a -> sort 0;
-nonZero _ ??(NumInstance a nz r) = nz;
+--neg :: ?(a :: sort 0) -> ??(Num a) -> a -> a;
+--neg _ ??(NumInstance a nz r) = r.neg;
 
-neg :: ?(a :: sort 0) -> ??(Num a) -> a -> a;
-neg _ ??(NumInstance a nz r) = r.neg;
+--add :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+--add _ ??(NumInstance a nz r) = r.add;
 
-add :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-add _ ??(NumInstance a nz r) = r.add;
+--sub :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+--sub _ ??(NumInstance a nz r) = r.sub;
 
-sub :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-sub _ ??(NumInstance a nz r) = r.sub;
+--mul :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
+--mul _ ??(NumInstance a nz r) = r.mul;
 
-mul :: ?(a :: sort 0) -> ??(Num a) -> a -> a -> a;
-mul _ ??(NumInstance a nz r) = r.mul;
+--div :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
+--div _ ??(NumInstance a nz r) = r.div;
 
-div :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
-div _ ??(NumInstance a nz r) = r.div;
+--mod :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
+--mod _ ??(NumInstance a nz r) = r.mod;
 
-mod :: ?(a :: sort 0) -> ??(r::Num a) -> a -> (y::a) -> ???(nonZero ?a ??r y) -> a;
-mod _ ??(NumInstance a nz r) = r.mod;
-
-data Bits :: sort 0 -> sort 0 where {
-   BitsInstance :: ?(a :: sort 0)
-                -> #{ not     :: a -> a;
-                      and     :: a -> a -> a;
-                      or      :: a -> a -> a;
-                      xor     :: a -> a -> a;
-                      implies :: a -> a -> a;
-                      shl     :: a -> a -> a;
-                      shr     :: a -> a -> a;
-                    }
-                -> Bits a;
-  }
+--data Bits :: sort 0 -> sort 0 where {
+--   BitsInstance :: ?(a :: sort 0)
+--                -> #{ not     :: a -> a;
+--                      and     :: a -> a -> a;
+--                      or      :: a -> a -> a;
+--                      xor     :: a -> a -> a;
+--                      implies :: a -> a -> a;
+--                      shl     :: a -> a -> a;
+--                      shr     :: a -> a -> a;
+--                    }
+--                -> Bits a;
+--  }
 
 
 --not :: ?(a :: sort 0) -> ??(Bits a) -> a -> a;
@@ -144,6 +144,10 @@ data Nat :: sort 0 where {
     Succ :: Nat -> Nat;
   }
 
+addNat :: Nat -> Nat -> Nat; 
+addNat x (Zero) = z;
+addNat x (Succ y) = Succ (addNat x y);
+
 data LeqNat :: Nat -> Nat -> sort 0 where {
   }
 
@@ -160,8 +164,6 @@ iteLtNat :: (a :: sort 0)
          -> (x y :: Nat)
          -> (LtNat x y -> a)
          -> (LeqNat y x -> a);
-
-addNat :: Nat -> Nat -> Nat; 
 
 leqAdd0 :: (x y :: Nat) -> LeqNat x y -> LeqNat (addNat 0 x) y;
 ltNatAddBounded :: (i n j l :: Nat)
@@ -193,15 +195,16 @@ ltNatDiv :: (i m n :: Nat)
 modNat :: Nat -> (y::Nat) -> LtNat 0 y -> Nat;
 ltNatMod :: (i n :: Nat) -> (p :: LtNat 0 n) -> LtNat (modNat i n p) n;
 
+
 -- Integers
 data Integer :: sort 0 where {
   }
 
 -- There are implicit constructors from integer literals.
-integerOrdInstance  :: Ord  Integer;
-integerNumInstance  :: Num  Integer;
-integerBitsInstance :: Bits Integer;
-
+--integerOrdInstance  :: Ord  Integer;
+--integerNumInstance  :: Num  Integer;
+--integerBitsInstance :: Bits Integer;
+--
 -- "Array n a" is an array of n elements, each with type "a".
 data Array :: (n :: Nat) -> sort 1 -> sort 1 where {
   }
@@ -226,7 +229,7 @@ select :: ?(l :: Nat) -> (i n :: Nat) -> ?(e :: sort 0)
        -> Array l e -> Array n e;
 select ?l i n ?e lh a = 
   let { eltFn :: (j :: Nat) -> LtNat j n -> e;
-        eltFn j jh = get l ?e a (add i j) (ltNatAddBounded i n j l lh jh);
+        eltFn j jh = get l ?e a (addNat i j) (ltNatAddBounded i n j l lh jh);
       }
    in generate n ?e eltFn;
 
@@ -253,7 +256,7 @@ join  :: (m n :: Nat)
 join m n e a =
   let { eltFn :: (i :: Nat) -> LtNat i (mulNat m n) -> e;
         eltFn i ih = 
-          let { nNZ :: LtNat 0 Nat;
+          let { nNZ :: LtNat 0 n;
                 nNZ = lt0NatMul2 n i m ih;
                 a1 :: Array n e;
                 a1 = get ?m ?(Array n e) a (divNat i n nNZ) (ltNatDiv i m n nNZ ih);
@@ -263,7 +266,7 @@ join m n e a =
    in generate (mulNat m n) e eltFn;
 
 -- Split array into list
-split :: ?(m n :: Nat) -> ?(e :: sort 0) -> Array (mul m n) e -> Array m (Array n e);
+split :: ?(m n :: Nat) -> ?(e :: sort 0) -> Array (mulNat m n) e -> Array m (Array n e);
 split ?m ?n ?e a =
   let { arrayFn :: (i::Nat) -> LtNat i m -> Array n e;
         arrayFn i ih =
@@ -298,12 +301,12 @@ data Unsigned :: (n :: Nat) -> sort 0 where {
   }
 
 -- These are equivalent to arrays of Booleans, but can perform arithmetic.
-signedOrdInstance    :: ?(n :: Nat) -> Ord (Signed (Succ n));
-signedNumInstance    :: ?(n :: Nat) -> Num (Signed (Succ n));
-signedBitsInstance   :: ?(n :: Nat) -> Bits (Signed (Succ n));
-unsignedOrdInstance  :: ?(n :: Nat) -> Ord (Unsigned n);
-unsignedNumInstance  :: ?(n :: Nat) -> Num (Unsigned n);
-unsignedBitsInstance :: ?(n :: Nat) -> Bits (Unsigned n);
+--signedOrdInstance    :: ?(n :: Nat) -> Ord (Signed (Succ n));
+--signedNumInstance    :: ?(n :: Nat) -> Num (Signed (Succ n));
+--signedBitsInstance   :: ?(n :: Nat) -> Bits (Signed (Succ n));
+--unsignedOrdInstance  :: ?(n :: Nat) -> Ord (Unsigned n);
+--unsignedNumInstance  :: ?(n :: Nat) -> Num (Unsigned n);
+--unsignedBitsInstance :: ?(n :: Nat) -> Bits (Unsigned n);
 
 -- Convert between bitvectors and integers.
 signedToInteger   :: ?(n :: Nat) -> Signed (Succ n) -> Integer;
@@ -319,6 +322,22 @@ arrayToSigned   :: ?(n :: Nat) -> Array (Succ n) Bool -> Signed (Succ n);
 
 unsignedToArray :: ?(n :: Nat) -> Unsigned n   -> Array n Bool;
 arrayToUnsigned :: ?(n :: Nat) -> Array n Bool -> Unsigned n;
+
+
+
+data EqNat :: Nat -> Nat -> sort 0 where {
+  }
+
+succEqNat :: (x y :: Nat) -> EqNat x y -> EqNat (Succ x) (Succ y);
+
+addSubEqNat :: (x y :: Nat) -> (p :: LeqNat x y)
+            -> EqNat (addNat (subNat y x p) x) y;
+
+coerceArrayLen :: (m n :: Nat)
+               -> EqNat m n
+               -> (e :: sort 1)
+               -> Array m e
+               -> Array n e;
 
 -- | Convert between two signed representations.
 -- This is implemented by using arrays so that the result can still be bit-blasted.
@@ -342,14 +361,18 @@ resizeSigned ?x ?y s =
             in select (Succ x) 0 (Succ y) ?Bool pAdd0 a;
         leqFn :: LeqNat x y -> Array (Succ y) Bool;
         leqFn p = 
-          let { z :: Nat;
-                z = subNat y x p;
-                msb :: Bool;
+          let { msb :: Bool;
                 msb = get (Succ ?x) ?Bool a 0 (lt0Succ x);
                 padding :: Array (subNat y x p) Bool;
-                padding = replicate z Bool msb;
+                padding = replicate (subNat y x p) Bool msb;
               }
-           in append ?(subNat y x p) ?x ?Bool padding a;
+           in coerceArrayLen (addNat (subNat y x p) (Succ x))
+                             (Succ y)
+                             (succEqNat (addNat (subNat y x p) x)
+                                        y
+                                        (addSubEqNat x y p))
+                             Bool
+                             (append ?(subNat y x p) (Succ x) ?Bool padding a);
       }
    in arrayToSigned ?y (iteLtNat (Array (Succ y) Bool) y x ltFn leqFn);
 
