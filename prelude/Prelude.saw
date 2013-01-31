@@ -145,7 +145,7 @@ data Nat :: sort 0 where {
   }
 
 addNat :: Nat -> Nat -> Nat; 
-addNat x (Zero) = z;
+addNat x (Zero) = x;
 addNat x (Succ y) = Succ (addNat x y);
 
 data LeqNat :: Nat -> Nat -> sort 0 where {
@@ -163,7 +163,8 @@ ltNatToLeqNat :: (x y :: Nat) -> LtNat x y -> LeqNat x y;
 iteLtNat :: (a :: sort 0)
          -> (x y :: Nat)
          -> (LtNat x y -> a)
-         -> (LeqNat y x -> a);
+         -> (LeqNat y x -> a)
+         -> a;
 
 leqAdd0 :: (x y :: Nat) -> LeqNat x y -> LeqNat (addNat 0 x) y;
 ltNatAddBounded :: (i n j l :: Nat)
@@ -285,8 +286,12 @@ append :: ?(m n :: Nat) -> ?(e :: sort 0)
 append ?m ?n ?e x y =
   let { ltFn :: (i :: Nat) -> LtNat i m -> e;
         ltFn i p = get ?m ?e x i p;
+
         leqFn :: (i :: Nat) -> LtNat i (addNat m n) -> LeqNat m i -> e;
         leqFn i ih p = get ?n ?e y (subNat i m p) (ltSubNat i m n p ih);
+
+        foo :: (i :: Nat) -> LeqNat m i -> e;
+
         eltFn :: (i :: Nat) -> LtNat i (addNat m n) -> e;
         eltFn i ih = iteLtNat e i m (ltFn i) (leqFn i ih);
       }
