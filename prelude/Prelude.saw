@@ -160,7 +160,7 @@ lt0Succ :: (x :: Nat) -> LtNat 0 (Succ x);
 ltNatToLeqNat :: (x y :: Nat) -> LtNat x y -> LeqNat x y;
 
 -- | Compares two integers and perform appropriate action.
-iteLtNat :: (a :: sort 0)
+iteLtNat :: (a :: sort 1)
          -> (x y :: Nat)
          -> (LtNat x y -> a)
          -> (LeqNat y x -> a)
