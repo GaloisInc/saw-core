@@ -54,6 +54,10 @@ xor :: Bool -> Bool -> Bool;
 xor (True) b = not b;
 xor (False) b = b; 
 
+boolEq :: Bool -> Bool -> Bool;
+boolEq True b = b;
+boolEq False b = not b;
+
 -- Could be derived from data declaration.
 ite :: ?(a :: sort 0) -> Bool -> a -> a -> a;
 ite _ (True)  t _ = t;
@@ -95,19 +99,19 @@ eqNatPrec :: (x y :: Nat) -> eqNat (Succ x) (Succ y) -> eqNat x y;
 eqNatPrec _ _ (Refl _ (Succ x)) = Refl Nat x;
 
 addNat :: Nat -> Nat -> Nat; 
-addNat x (Zero) = x;
+addNat x Zero = x;
 addNat x (Succ y) = Succ (addNat x y);
 
 eqNatAdd0 :: (x :: Nat) -> eqNat (addNat 0 x) x;
-eqNatAdd0 (Zero) = Refl Nat 0;
+eqNatAdd0 Zero = Refl Nat 0;
 eqNatAdd0 (Succ x) = eqNatSucc (addNat 0 x) x (eqNatAdd0 x);
 
 eqNatAddS :: (x y :: Nat) -> eqNat (addNat (Succ x) y) (Succ (addNat x y));
-eqNatAddS x (Zero) = Refl Nat (Succ x);
+eqNatAddS x Zero = Refl Nat (Succ x);
 eqNatAddS x (Succ y) = eqNatSucc (addNat (Succ x) y) (Succ (addNat x y)) (eqNatAddS x y);
 
 eqNatAddComm :: (x y :: Nat) -> eqNat (addNat x y) (addNat y x);
-eqNatAddComm (Zero) y = eqNatAdd0 y;
+eqNatAddComm Zero y = eqNatAdd0 y;
 eqNatAddComm (Succ x) y = 
   trans Nat
         (addNat (Succ x) y)
@@ -117,7 +121,7 @@ eqNatAddComm (Succ x) y =
         (eqNatSucc (addNat x y) (addNat y x) (eqNatAddComm x y));
 
 mulNat :: Nat -> Nat -> Nat;
-mulNat x (Zero) = 0;
+mulNat x Zero = 0;
 mulNat x (Succ y) = addNat x (mulNat x y);
 
 data NatOrdering :: (x y :: Nat) -> sort 0 where {
@@ -133,8 +137,8 @@ succNatOrdering _ _ (LeNatOrd x d) = LeNatOrd (Succ x) d;
 succNatOrdering _ _ (GtNatOrd x d) = GtNatOrd (Succ x) d;
 
 compareNat :: (x y :: Nat) -> NatOrdering x y;
-compareNat (Zero) y = LeNatOrd Zero y;
-compareNat (Succ x) (Zero) = GtNatOrd Zero x;
+compareNat Zero y = LeNatOrd Zero y;
+compareNat (Succ x) Zero = GtNatOrd Zero x;
 compareNat (Succ x) (Succ y) = succNatOrdering x y (compareNat x y);
 
 -- Unchecked assertion that two types are equal.
@@ -155,6 +159,26 @@ data Fin :: (n :: Nat) -> sort 0 where {
 
 finCong :: (m n :: Nat) -> Eq Nat m n -> Eq (sort 0) (Fin m) (Fin n);
 finCong _ _ (Refl _ v) = Refl (sort 0) (Fin v);
+
+forallNat :: (n :: Nat) -> (Fin n -> Bool) -> Bool;
+forallNat Zero _ = True;
+forallNat (Succ n0) p = 
+  let { go :: (n :: Nat) -> (Fin n -> Bool) -> Fin n -> Bool;
+        go _ p (FinVal i Zero) = p (FinVal i Zero);
+        go _ p (FinVal i (Succ n)) =
+           and (p (FinVal i (Succ n)))
+               (go (Succ (addNat (Succ n) i))
+                   p
+                   (rcoerce (Fin (Succ (addNat (Succ n) i)))
+                            (Fin (Succ (Succ (addNat n i)))) 
+                            (finCong (Succ (addNat (Succ n) i))
+                                     (Succ (Succ (addNat n i)))
+                                     (eqNatSucc (addNat (Succ n) i)
+                                                (Succ (addNat n i))
+                                                (eqNatAddS n i)))
+                           (FinVal (Succ i) n)));
+      }
+   in go (Succ n0) p (FinVal 0 n0);
 
 incFin :: (n :: Nat) -> Fin n -> (i :: Nat) -> Fin (addNat i n); 
 incFin _ (FinVal b r) i =
@@ -183,13 +207,13 @@ finSplitSum2 :: (n :: Nat)
              -> (r :: Nat) -- Initial remainer.
              -> eqNat (addNat n m) (Succ (addNat r v))
              -> Either (Fin (addNat m i)) (Fin n);
-finSplitSum2 n i v (Zero) r eq =
-  Right (Fin (addNat (Zero) i)) (Fin n)
+finSplitSum2 n i v Zero r eq =
+  Right (Fin (addNat Zero i)) (Fin n)
         (rcoerce (Fin n)
                  (Fin (Succ (addNat r v)))
                  (finCong n (Succ (addNat r v)) eq)
                  (FinVal v r));
-finSplitSum2 n i (Zero) (Succ p) _ _ =
+finSplitSum2 n i Zero (Succ p) _ _ =
   Left (Fin (addNat (Succ p) i)) (Fin n)
        (rcoerce (Fin (addNat (Succ p) i))
                (Fin (Succ (addNat p i)))
@@ -241,9 +265,10 @@ set :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e -> Vec n e;
 --TODO
 
 -- | Select a range [i,..,i+n] of values from the array.
-slice :: (i n o :: Nat) -> (e :: sort 1)
-        -> Vec (addNat (addNat i n) o) e -> Vec n e;
-slice i n o e a = 
+slice :: (e :: sort 1)
+      -> (i n o :: Nat)
+      -> Vec (addNat (addNat i n) o) e -> Vec n e;
+slice e i n o a = 
   let { eltFn :: Fin n -> e;
         eltFn j = get (addNat (addNat i n) o) e a (incFinLim (addNat i n) (incFin n j i) o);
       }
@@ -251,7 +276,7 @@ slice i n o e a =
 
 -- | Returns a suffix of a vector after a given number of elements.
 vDrop :: (e :: sort 1) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec y e;
-vDrop e x y a = slice x y 0 e a;
+vDrop e x y = slice e x y 0;
 
 -- | Defines a function that maps array elements from one range to another.
 vMap :: (s t :: sort 0) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
@@ -314,7 +339,11 @@ msb :: (x :: Nat) -> bitvector (Succ x) -> Bool;
 msb x v = get (Succ x) Bool v (FinVal 0 x);
 
 bvNat :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+
 bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+
+bvAddWithOverflow :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
+
 bvSub :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
 bvMul :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
 --TODO
@@ -358,24 +387,43 @@ bvSShr :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
 bvSShr :: (x :: Nat) -> bitvector (Succ x) -> Nat -> bitvector (Succ x);
 --TODO
 
+-- | Zipwith specialized to bitvectors.
 bvZipWith :: (Bool -> Bool -> Bool)
           -> (n :: Nat)
           -> bitvector n -> bitvector n -> bitvector n;
 bvZipWith = vZipWith Bool Bool Bool;
 
+-- | Pairwise conjunction, disjunction, and exclusive or.
 bvAnd bvOr bvXor :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
 bvAnd = bvZipWith and;
 bvOr  = bvZipWith or;
 bvXor = bvZipWith xor;
 
-bvEq :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
---TODO
+-- | Get bit in vector by index with most significant bit at index 0.
+bvMbit :: (n :: Nat) -> bitvector n -> Fin n -> Bool;
+bvMbit n = get n Bool;
+
+-- | Return true if two bitvectors are equal.
+bvEq :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
+bvEq n x y = forallNat n (\(i :: Fin n) -> boolEq (bvMbit n x i) (bvMbit n y i)); 
+
+-- | Return true if two bitvectors are not equal.
+bvNe :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
+bvNe n x y = not (bvEq n x y);
+
+-- | Unsigned and signed comparison functions.
+bvugt bvuge bvult bvule :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
+bvsgt bvsge bvslt bvsle :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
 
 -- | Truncates a vector a smaller size.
 bvTrunc :: (x y :: Nat) -> bitvector (addNat x y) -> bitvector y;
 bvTrunc = vDrop Bool;
 
--- | Perform a signed extensgio  of the bitvector.
+-- | Perform a unsigned extension  of the bitvector.
+bvUExt :: (x y :: Nat) -> bitvector y -> bitvector (addNat x y);
+bvUExt x y a = append x y ?Bool (replicate x Bool False) a;
+
+-- | Perform a signed extension of the bitvector.
 bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (Succ (addNat x y));
 bvSExt x y a = append x (Succ y) ?Bool (replicate x Bool (msb y a)) a;
 
