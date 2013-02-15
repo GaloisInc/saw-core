@@ -42,6 +42,18 @@ not :: Bool -> Bool;
 not (True) = False;
 not (False) = True;
 
+and :: Bool -> Bool -> Bool;
+and (True) b = b;
+and (False) b = False;
+
+or :: Bool -> Bool -> Bool;
+or (True) b = True;
+or (False) b = b;
+
+xor :: Bool -> Bool -> Bool;
+xor (True) b = not b;
+xor (False) b = b; 
+
 -- Could be derived from data declaration.
 ite :: ?(a :: sort 0) -> Bool -> a -> a -> a;
 ite _ (True)  t _ = t;
@@ -108,13 +120,6 @@ mulNat :: Nat -> Nat -> Nat;
 mulNat x (Zero) = 0;
 mulNat x (Succ y) = addNat x (mulNat x y);
 
-data LeqNat :: Nat -> Nat -> sort 0 where {
-    LeqNatProof :: (x y :: Nat) -> LeqNat x (addNat x y);
-  }
-
-leqN :: (x :: Nat) -> LeqNat x x;
-leqN x = LeqNatProof x Zero;
-
 data NatOrdering :: (x y :: Nat) -> sort 0 where {
     LeNatOrd :: (x z :: Nat) -> NatOrdering x (addNat z x);
     GtNatOrd :: (x z :: Nat) -> NatOrdering (addNat (Succ z) x) x;  
@@ -157,8 +162,9 @@ incFin _ (FinVal b r) i =
                (Fin (Succ (addNat r (addNat i b))))
                (FinVal (addNat i b) r);
 
-leqFin :: (m :: Nat) -> Fin m -> (n :: Nat) -> LeqNat m n -> Fin n;
-leqFin _ (FinVal x r) _ (LeqNatProof _ d) =
+
+incFinLim :: (m :: Nat) -> Fin m -> (n :: Nat) -> Fin (addNat m n);
+incFinLim _ (FinVal x r) d =
   unsafeCoerce (Fin (addNat (Succ (addNat r x)) d))
                (Fin (Succ (addNat (addNat r d) x)))
                (FinVal x (addNat r d));
@@ -235,18 +241,27 @@ set :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e -> Vec n e;
 --TODO
 
 -- | Select a range [i,..,i+n] of values from the array.
-select :: (l :: Nat) -> (i n :: Nat) -> (e :: sort 0)
-       -> LeqNat (addNat i n) l
-       -> Vec l e -> Vec n e;
-select l i n e lh a = 
+slice :: (i n o :: Nat) -> (e :: sort 1)
+        -> Vec (addNat (addNat i n) o) e -> Vec n e;
+slice i n o e a = 
   let { eltFn :: Fin n -> e;
-        eltFn j = get l e a (leqFin (addNat i n) (incFin n j i) l lh);
+        eltFn j = get (addNat (addNat i n) o) e a (incFinLim (addNat i n) (incFin n j i) o);
       }
    in generate n e eltFn;
 
+-- | Returns a suffix of a vector after a given number of elements.
+vDrop :: (e :: sort 1) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec y e;
+vDrop e x y a = slice x y 0 e a;
+
 -- | Defines a function that maps array elements from one range to another.
-mapVec :: (n :: Nat) -> (s t :: sort 0) -> (s -> t) -> Vec n s -> Vec n t;
-mapVec n s t f v = generate n t (\(i :: Fin n) -> get n s v i);
+vMap :: (s t :: sort 0) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
+vMap s t f n v = generate n t (\(i :: Fin n) -> get n s v i);
+
+-- | Defines a function that maps array elements from one range to another.
+vZipWith :: (s t u :: sort 0)
+         -> (s -> t -> u)
+         -> (n :: Nat) -> Vec n s -> Vec n t -> Vec n u;
+vZipWith s t u f n x y = generate n u (\(i :: Fin n) -> f (get n s x i) (get n t y i));
 
 -- replicate n x returns an array with n copies of x.
 replicate :: (n :: Nat)
@@ -294,24 +309,86 @@ append m n e x y =
 bitvector :: (n :: Nat) -> sort 1;
 bitvector n = Vec n Bool;
 
+-- | Returns most-significant bit in a signed bitvector.
+msb :: (x :: Nat) -> bitvector (Succ x) -> Bool;
+msb x v = get (Succ x) Bool v (FinVal 0 x);
+
+bvNat :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+bvSub :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+bvMul :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+--TODO
+
+-- Unsigned division and remainder.
+--
+-- When the divisor is 0, bvUDiv returns a vector with all bits set.
+-- (Equal to 2^x - 1), and bvURem returns the divident unchanged.
+--
+-- These two functions satisfy the property that:
+--   bvAdd x (bvMul x (bvUDiv x u v) v) (bvURem x u v) == u
+bvUDiv :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+bvURem :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+--TODO
+
+-- Signed division.
+-- When the divisor is 0, bvSDiv returns 2^x - 1 when the dividend
+-- is non-negative, and -1 when the dividend is negative; bvSRem
+-- returns the dividend unchanged.
+--
+-- Otherwise, the sign of the quotient is the exclusive xor of
+-- the sign bit of the dividend and divisor; the remainder is negative
+-- if the dividend is negative.
+
+-- bvSDiv and bvSRem satisfy the property that:
+--
+--   bvAdd x (bvMul x (bvSDiv x u v) v) (bvSRem x u v) == u
+bvSDiv :: (x :: Nat) -> bitvector (Succ x) -> bitvector (Succ x) -> bitvector (Succ x);
+bvSRem :: (x :: Nat) -> bitvector (Succ x) -> bitvector (Succ x)
+       -> bitvector (Succ x);
+--TODO:
+
+-- | Shift left by the given number of bits.
+-- New bits are False.
+bvShl :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
+
+-- Logical right shift.  New bits are False.
+bvSShr :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
+
+-- | Signed right shift.  New bits are equal to most-significant bit.
+bvSShr :: (x :: Nat) -> bitvector (Succ x) -> Nat -> bitvector (Succ x);
+--TODO
+
+bvZipWith :: (Bool -> Bool -> Bool)
+          -> (n :: Nat)
+          -> bitvector n -> bitvector n -> bitvector n;
+bvZipWith = vZipWith Bool Bool Bool;
+
+bvAnd bvOr bvXor :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
+bvAnd = bvZipWith and;
+bvOr  = bvZipWith or;
+bvXor = bvZipWith xor;
+
+bvEq :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+--TODO
+
+-- | Truncates a vector a smaller size.
+bvTrunc :: (x y :: Nat) -> bitvector (addNat x y) -> bitvector y;
+bvTrunc = vDrop Bool;
+
+-- | Perform a signed extensgio  of the bitvector.
+bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (Succ (addNat x y));
+bvSExt x y a = append x (Succ y) ?Bool (replicate x Bool (msb y a)) a;
+
 -- | Convert between two signed representations.
 -- This is implemented by using arrays so that the result can still be bit-blasted.
-resizeSigned :: ?(x y :: Nat)
-             -> bitvector (Succ x) -> bitvector (Succ y);
+bvSResize :: ?(x y :: Nat) -> bitvector (Succ x) -> bitvector (Succ y);
 -- Simple definition (if bit-blasting doesn't matter)
 -- signedToSigned s = integerToSigned (signedToInteger s)
 -- Complex definition (supports bit-blasting).
-resizeSigned x y s =
+bvSResize x y s =
   let { compareFn :: (x y :: Nat) -> bitvector (Succ x) -> NatOrdering y x -> bitvector (Succ y); 
-        compareFn _ _ a (LeNatOrd l d) =
-          select (Succ (addNat d l)) d (Succ l) Bool (leqN (Succ (addNat d l))) a;
-        compareFn _ _ a (GtNatOrd l d) =
-          let { msb :: Bool;
-                msb = get (Succ l) Bool a (FinVal 0 l);
-                padding :: bitvector (Succ d);
-                padding = replicate (Succ d) Bool msb;
-              }
-           in (append (Succ d) (Succ l) ?Bool padding a);
+        compareFn _ _ a (LeNatOrd l d) = bvTrunc d (Succ l) a;
+        compareFn _ _ a (GtNatOrd l d) = bvSExt (Succ d) l a;
       }
    in compareFn x y s (compareNat y x);
 
