@@ -83,6 +83,12 @@ eitherCong0 t x _ (Refl _ _) = Refl (sort 0) (Either x t);
 eitherCong1 :: (t x y :: sort 0) -> Eq (sort 0) x y -> Eq (sort 0) (Either t x) (Either t y);
 eitherCong1 t x _ (Refl _ _) = Refl (sort 0) (Either t x);
 
+-- Maybe
+data Maybe :: sort 0 -> sort 0 where {
+    Nothing :: (a :: sort 0) -> Maybe a;
+    Just :: (a :: sort 0) -> a -> Maybe a;
+  }
+
 -- Nat
 data Nat :: sort 0 where {
     Zero :: Nat;
@@ -144,8 +150,12 @@ compareNat (Succ x) (Succ y) = succNatOrdering x y (compareNat x y);
 -- Unchecked assertion that two types are equal.
 assert :: (a :: sort 1) -> (x :: a) -> (y :: a) -> Eq a x y;
 
+coerce :: (y x :: sort 0) -> Eq (sort 0) x y -> x -> y;
+
 rcoerce :: (y x :: sort 0) -> Eq (sort 0) y x -> x -> y;
-unsafeCoerce :: (y x :: sort 1) -> x -> y;
+
+unsafeCoerce :: (y x :: sort 0) -> x -> y;
+unsafeCoerce y x = rcoerce y x (assert (sort 0) y x);
 
 --TODO
 
@@ -160,38 +170,60 @@ data Fin :: (n :: Nat) -> sort 0 where {
 finCong :: (m n :: Nat) -> Eq Nat m n -> Eq (sort 0) (Fin m) (Fin n);
 finCong _ _ (Refl _ v) = Refl (sort 0) (Fin v);
 
-forallNat :: (n :: Nat) -> (Fin n -> Bool) -> Bool;
-forallNat Zero _ = True;
-forallNat (Succ n0) p = 
-  let { go :: (n :: Nat) -> (Fin n -> Bool) -> Fin n -> Bool;
-        go _ p (FinVal i Zero) = p (FinVal i Zero);
-        go _ p (FinVal i (Succ n)) =
-           and (p (FinVal i (Succ n)))
-               (go (Succ (addNat (Succ n) i))
-                   p
-                   (rcoerce (Fin (Succ (addNat (Succ n) i)))
-                            (Fin (Succ (Succ (addNat n i)))) 
-                            (finCong (Succ (addNat (Succ n) i))
-                                     (Succ (Succ (addNat n i)))
-                                     (eqNatSucc (addNat (Succ n) i)
-                                                (Succ (addNat n i))
-                                                (eqNatAddS n i)))
-                           (FinVal (Succ i) n)));
-      }
-   in go (Succ n0) p (FinVal 0 n0);
 
-incFin :: (n :: Nat) -> Fin n -> (i :: Nat) -> Fin (addNat i n); 
-incFin _ (FinVal b r) i =
+piCong0 :: (r x y :: sort 0) -> Eq (sort 0) x y -> (Eq (sort 0) (x -> r) (y -> r));
+piCong0 r _ _ (Refl _ tp) = Refl (sort 0) (tp -> r);
+
+piCong1 :: (r x y :: sort 0) -> Eq (sort 0) x y -> (Eq (sort 0) (r -> x) (r -> y));
+piCong1 r _ _ (Refl _ tp) = Refl (sort 0) (r -> tp);
+
+finSucc :: (n :: Nat) -> Fin n -> Fin (Succ n); 
+finSucc _ (FinVal b r) = FinVal (Succ b) r;
+
+-- | Return maximum finite number less than given bound if any.
+finMax :: (n :: Nat) -> Maybe (Fin n);
+finMax Zero = Nothing (Fin Zero);
+finMax (Succ i) =
+   Just (Fin (Succ i)) 
+        (coerce (Fin (Succ i))
+                (Fin (Succ (addNat 0 i)))
+                (finCong (Succ (addNat 0 i))
+                         (Succ i)
+                         (eqNatSucc (addNat 0 i) i (eqNatAdd0 i)))
+                (FinVal i 0));
+
+finPred :: (n :: Nat) -> Fin n -> Maybe (Fin n);
+finPred _ (FinVal Zero r) = Nothing (Fin (Succ r));
+finPred _ (FinVal (Succ i) r) =
+  Just (Fin (Succ (Succ (addNat r i))))
+       (coerce (Fin (Succ (Succ (addNat r i))))
+               (Fin (Succ (addNat (Succ r) i)))
+               (finCong (Succ (addNat (Succ r) i))
+                        (Succ (Succ (addNat r i)))
+                        (eqNatSucc (addNat (Succ r) i) (Succ (addNat r i))
+                                   (eqNatAddS r i)))
+               (FinVal i (Succ r)));
+
+finInc :: (i n :: Nat) -> Fin n -> Fin (addNat i n); 
+finInc i _ (FinVal b r) =
   unsafeCoerce (Fin (Succ (addNat i (addNat r b))))
                (Fin (Succ (addNat r (addNat i b))))
                (FinVal (addNat i b) r);
 
-
-incFinLim :: (m :: Nat) -> Fin m -> (n :: Nat) -> Fin (addNat m n);
-incFinLim _ (FinVal x r) d =
+finIncLim :: (n :: Nat) -> (m :: Nat) -> Fin m -> Fin (addNat m n);
+finIncLim d _ (FinVal x r) =
   unsafeCoerce (Fin (addNat (Succ (addNat r x)) d))
                (Fin (Succ (addNat (addNat r d) x)))
                (FinVal x (addNat r d));
+
+-- | Check property for all numbers less than a given upper bound.
+forallFin :: (n :: Nat) -> (Fin n -> Bool) -> Bool;
+forallFin n p = 
+  let { go :: Maybe (Fin n) -> Bool;
+        go (Nothing _) = True;
+        go (Just _ v) = and (p v) (go (finPred n v));
+      }
+   in go (finMax n);
 
 finSplitSum :: (m n :: Nat) -> Fin (addNat m n) -> Either (Fin m) (Fin n);
 finSplitSum m n = 
@@ -264,19 +296,28 @@ get :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e;
 set :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e -> Vec n e;
 --TODO
 
+-- | Take a prefix of a vector.
+vMove :: (e :: sort 1)
+      -> (x y :: Nat)
+      -> (Fin y -> Fin x)
+      -> Vec x e
+      -> Vec y e;
+vMove e x y f a = generate y e (\(j :: Fin y) -> get x e a (f j));
+
+-- | Take a prefix of a vector.
+vTake :: (e :: sort 1) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec x e;
+vTake e n o a = vMove e (addNat n o) n (finIncLim o n) a;
+
+-- | Returns a suffix of a vector after a given number of elements.
+vDrop :: (e :: sort 1) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec y e;
+vDrop e i n a = vMove e (addNat i n) n (finInc i n) a;
+
 -- | Select a range [i,..,i+n] of values from the array.
 slice :: (e :: sort 1)
       -> (i n o :: Nat)
       -> Vec (addNat (addNat i n) o) e -> Vec n e;
-slice e i n o a = 
-  let { eltFn :: Fin n -> e;
-        eltFn j = get (addNat (addNat i n) o) e a (incFinLim (addNat i n) (incFin n j i) o);
-      }
-   in generate n e eltFn;
+slice e i n o a = vDrop e i n (vTake e (addNat i n) o a); 
 
--- | Returns a suffix of a vector after a given number of elements.
-vDrop :: (e :: sort 1) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec y e;
-vDrop e x y = slice e x y 0;
 
 -- | Defines a function that maps array elements from one range to another.
 vMap :: (s t :: sort 0) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
@@ -405,7 +446,7 @@ bvMbit n = get n Bool;
 
 -- | Return true if two bitvectors are equal.
 bvEq :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
-bvEq n x y = forallNat n (\(i :: Fin n) -> boolEq (bvMbit n x i) (bvMbit n y i)); 
+bvEq n x y = forallFin n (\(i :: Fin n) -> boolEq (bvMbit n x i) (bvMbit n y i)); 
 
 -- | Return true if two bitvectors are not equal.
 bvNe :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
