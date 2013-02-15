@@ -379,8 +379,6 @@ bitvector n = Vec n Bool;
 msb :: (x :: Nat) -> bitvector (Succ x) -> Bool;
 msb x v = get (Succ x) Bool v (FinVal 0 x);
 
-bvNat :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
-
 bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
 
 bvAddWithOverflow :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
