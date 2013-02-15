@@ -30,6 +30,7 @@ library
      Verifier.SAW.Export.SmtLibTrans
      Verifier.SAW.Export.SmtLibTrans2
      Verifier.SAW.Export.Yices
+     Verifier.SAW.Cache
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
      Verifier.SAW.ParserUtils
@@ -40,6 +41,10 @@ library
   other-modules:
      Verifier.SAW.Change
      Verifier.SAW.Position
+     Verifier.SAW.Typechecker.Context
+     Verifier.SAW.Typechecker.Monad
+     Verifier.SAW.Typechecker.Simplification
+     Verifier.SAW.Typechecker.Unification
      Verifier.SAW.UnionFind
      Verifier.SAW.UntypedAST
      Verifier.SAW.Utils
