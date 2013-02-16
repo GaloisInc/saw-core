@@ -320,7 +320,7 @@ slice e i n o a = vDrop e i n (vTake e (addNat i n) o a);
 
 
 -- | Defines a function that maps array elements from one range to another.
-vMap :: (s t :: sort 0) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
+vMap :: (s t :: sort 1) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
 vMap s t f n v = generate n t (\(i :: Fin n) -> get n s v i);
 
 -- | Defines a function that maps array elements from one range to another.
