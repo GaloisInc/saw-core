@@ -322,43 +322,44 @@ isPreludeType :: String -> T.Def t -> Bool
 isPreludeType n (T.Def i _ _) =
   T.identModule i == preludeMod && T.identName i == n
 
-isPreludeCtor :: String -> T.DataType T.Ident t -> Bool
-isPreludeCtor n (T.DataType i _ _) =
+isPreludeCtor :: String -> T.Ident -> Bool
+isPreludeCtor n i =
   T.identModule i == preludeMod && T.identName i == n
 
 preludeName :: T.SharedTerm t -> Maybe String
-preludeName (T.STApp _ (T.GlobalDef (T.Def i _ _)))
+preludeName (T.STApp _ (T.FTermF (T.GlobalDef i)))
   | T.identModule i == preludeMod = Just (T.identName i)
   | otherwise = Nothing
 preludeName _ = Nothing
 
-isBool, isInteger, isArray, isUnsigned :: T.DataType T.Ident t -> Bool
+isBool, isInteger, isArray, isUnsigned :: T.Ident -> Bool
 isArray = isPreludeCtor "Array"
 isBool = isPreludeCtor "Bool"
 isInteger = isPreludeCtor "Integer"
 isUnsigned = isPreludeCtor "Unsigned"
 
 cvtType :: T.SharedTerm s -> M s SmtType
-cvtType ty =
+cvtType (T.STApp _ (T.FTermF ty)) =
   case ty of
-    T.STApp _ (T.CtorType c []) | isBool c -> return TBool
-    T.STApp _ (T.CtorType c [T.STApp _ (T.IntLit n)]) | isUnsigned c ->
+    (T.DataTypeApp c []) | isBool c -> return TBool
+    (T.DataTypeApp c [T.STApp _ (T.FTermF (T.NatLit n))]) | isUnsigned c ->
       return $ TBitVec n
-    T.STApp _ (T.CtorType c [T.STApp _ (T.IntLit n), e]) | isArray c -> do
+    (T.DataTypeApp c [T.STApp _ (T.FTermF (T.NatLit n)), e]) | isArray c -> do
       et <- cvtType e
       case et of
         TBitVec m -> return $ TArray n m
         _ -> err "Complex nested array"
-    T.STApp _ (T.RecordType fs) -> do
+    (T.RecordType fs) -> do
       fts <- mapM cvtType (M.elems fs)
       let fields = zip (M.keys fs) fts
       return . TRecord . reverse . fst . foldl mkFldInfo ([], 0) $ fields
     -- We convert tuples like degenerate records.
-    T.STApp i (T.TupleType fs) -> do
+    (T.TupleType fs) -> do
       fts <- mapM cvtType fs
       let fields = zip (map show [(1::Integer)..]) fts
       return . TRecord . reverse . fst . foldl mkFldInfo ([], 0) $ fields
     _ -> err $ "Can't convert type to SMT-LIB"
+cvtType _ = err $ "Can't convert type to SMT-LIB"
 
 mkFldInfo :: ([FldInfo], Offset) -> (String, SmtType) -> ([FldInfo], Offset)
 mkFldInfo (acc, accOff) (fldNm, fldTy) = (fi : acc, accOff + fiWidth fi)
@@ -427,18 +428,21 @@ fromTerm ty t = FTerm { asForm = case ty of
 --------------------------------------------------------------------------------
 
 isConst :: T.SharedTerm s -> Bool
-isConst (T.STApp _ (T.ArrayValue _ _)) = True
-isConst (T.STApp _ (T.RecordValue _)) = True
-isConst (T.STApp _ (T.TupleValue _)) = True
-isConst (T.STApp _ (T.IntLit _)) = True
-isConst (T.STApp _ (T.CtorValue _ _)) = True
+isConst (T.STApp _ (T.FTermF t)) =
+  case t of
+    T.ArrayValue _ _ -> True
+    T.RecordValue _ -> True
+    T.TupleValue _ -> True
+    T.NatLit _ -> True
+    T.CtorApp _ _ -> True
+    _ -> False
 isConst _ = False
 
 unfoldApp :: T.SharedTerm s -> Maybe (T.SharedTerm s, [T.SharedTerm s])
-unfoldApp (T.STApp _ (T.App a@(T.STApp _ (T.App _ _)) b)) = do
+unfoldApp (T.STApp _ (T.FTermF (T.App a b))) = do
   (f, xs) <- unfoldApp a
   return (f, xs ++ [b])
-unfoldApp (T.STApp _ (T.App f b)) = return (f, [b])
+unfoldApp (T.STApp _ (T.FTermF (T.App f b))) = return (f, [b])
 unfoldApp t@(T.STApp _ _) = return (t, [])
 unfoldApp _ = Nothing
 
@@ -521,7 +525,7 @@ translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
   lift3 ts _ =  err $ "lift3 applied to " ++ show (length ts) ++ " arguments"
   fn = preludeName f
   args = map (translateTerm enabled) xs
-translateTerm _ (T.STApp _ (T.RecordSelector e n)) =
+translateTerm _ (T.STApp _ (T.FTermF (T.RecordSelector e n))) =
   err $ "Record selector not yet implemented (TODO)"
 translateTerm _ _ = err $ "Unhandled term in translation"
 
@@ -571,7 +575,7 @@ translateOps enabled = termSem
 -- TODO: this doesn't preserve sharing within constants.
 mkConst :: T.SharedTerm s -> M s FTerm
 mkConst (T.STVar _ _ _) = bug "mkConst" "mkConst applied to variable"
-mkConst (T.STApp _ v) =
+mkConst (T.STApp _ (T.FTermF v)) =
   case v of
     T.ArrayValue ety vs -> do
       ty <- cvtType ety 
@@ -602,6 +606,7 @@ mkConst (T.STApp _ v) =
 -}
     -- T.IntLit i ->
     _ -> bug "mkConst" "Internal---unhandled case shouldn't be possible."
+mkConst (T.STApp _ _) = bug "mkConst" "applied to non-flat term"
 
 -- NOTE: Arrays whose size is not a power of 2 are padded with 0s.
 -- This is needed because otherwise  we can detect fake differences
