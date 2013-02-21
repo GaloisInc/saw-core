@@ -455,9 +455,9 @@ translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
     [_] -> lift1 args $
       case fn of
         Just "not"         -> bNotOp
+        {-
         Just "inot"        -> iNotOp
         Just "neg"         -> negOp
-        {-
         OTrunc w        -> truncOp (numBits w)
         OSignedExt w    -> signedExtOp (numBits w)
         OSplit w1 w2    -> splitOp (numBits w1) (numBits w2)
@@ -469,30 +469,29 @@ translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
             where ?sc = transContext tparams
     [_, _] -> lift2 args $
       case fn of
-        Just "eq"          -> eqOp
+        Just "bvEq"        -> eqOp
         Just "and"         -> bAndOp
         Just "or"          -> bOrOp
         Just "xor"         -> bXorOp
-        Just "implies"     -> bImpliesOp
-        Just "iand"        -> iAndOp
-        Just "ior"         -> iOrOp
-        Just "ixor"        -> iXorOp
-        Just "shl"         -> shlOp
-        Just "shr"         -> shrOp
-        Just "ushr"        -> ushrOp
+        Just "bvAnd"       -> iAndOp
+        Just "bvOr"        -> iOrOp
+        Just "bvXor"       -> iXorOp
+        Just "bvShl"       -> shlOp
+        Just "bvSShr"      -> shrOp
+        Just "bvShr"       -> ushrOp
         Just "append"      -> appendOp
-        Just "add"         -> addOp
-        Just "mul"         -> mulOp
-        Just "sub"         -> subOp
-        Just "sdiv"        -> signedDivOp
-        Just "srem"        -> signedRemOp
-        Just "udiv"        -> unsignedDivOp
-        Just "urem"        -> unsignedRemOp
-        Just "sleq"        -> signedLeqOp
-        Just "slt"         -> signedLtOp
-        Just "uleq"        -> unsignedLeqOp
-        Just "ult"         -> unsignedLtOp
-        Just "aget"        -> getArrayValueOp
+        Just "bvAdd"       -> addOp
+        Just "bvMul"       -> mulOp
+        Just "bvSub"       -> subOp
+        Just "bvSdiv"      -> signedDivOp
+        Just "bvSrem"      -> signedRemOp
+        Just "bvUdiv"      -> unsignedDivOp
+        Just "bvUrem"      -> unsignedRemOp
+        Just "bvsle"       -> signedLeqOp
+        Just "bvslt"       -> signedLtOp
+        Just "bvule"       -> unsignedLeqOp
+        Just "bvult"       -> unsignedLtOp
+        Just "get"         -> getArrayValueOp
         Just i             -> \_ _ -> err $ "Unknown binary operator: " ++ i
         Nothing            ->
           \_ _ -> err $ "Malformed application: " ++ T.scPrettyTerm t
@@ -500,7 +499,7 @@ translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
     [_, _, _] -> lift3 args $
       case fn of
         Just "ite"         -> iteOp
-        Just "aset"        -> setArrayValueOp
+        Just "set"         -> setArrayValueOp
         Just i             -> \_ _ _ -> err $ "Unknown ternary operator: " ++ i
         Nothing            ->
           \_ _ _ -> err $ "Malformed application: " ++ T.scPrettyTerm t
