@@ -1,7 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE ImplicitParams #-}
 module Verifier.SAW.Export.SmtLibTrans (translate, TransParams(..), MetaData(..)) where
 
 import GHC.Exts(IsString(fromString))
@@ -465,8 +464,8 @@ translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
         -}
         Just i             -> \_ -> err $ "Unknown unary operator: " ++ i
         Nothing            ->
-          \_ -> err $ "Malformed application: " ++ T.scPrettyTerm t
-            where ?sc = transContext tparams
+          \_ -> err $ "Malformed application: " ++ T.scPrettyTerm sc t
+            where sc = transContext tparams
     [_, _] -> lift2 args $
       case fn of
         Just "bvEq"        -> eqOp
@@ -494,22 +493,22 @@ translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
         Just "get"         -> getArrayValueOp
         Just i             -> \_ _ -> err $ "Unknown binary operator: " ++ i
         Nothing            ->
-          \_ _ -> err $ "Malformed application: " ++ T.scPrettyTerm t
-            where ?sc = transContext tparams
+          \_ _ -> err $ "Malformed application: " ++ T.scPrettyTerm sc t
+            where sc = transContext tparams
     [_, _, _] -> lift3 args $
       case fn of
         Just "ite"         -> iteOp
         Just "set"         -> setArrayValueOp
         Just i             -> \_ _ _ -> err $ "Unknown ternary operator: " ++ i
         Nothing            ->
-          \_ _ _ -> err $ "Malformed application: " ++ T.scPrettyTerm t
-            where ?sc = transContext tparams
+          \_ _ _ -> err $ "Malformed application: " ++ T.scPrettyTerm sc t
+            where sc = transContext tparams
     _ -> liftV args $
       case fn of
         Just i             -> \_ -> err $ "Unknown operator: " ++ i
         Nothing            ->
-          \_  -> err $ "Malformed application: " ++ T.scPrettyTerm t
-            where ?sc = transContext tparams
+          \_  -> err $ "Malformed application: " ++ T.scPrettyTerm sc t
+            where sc = transContext tparams
   where
   liftV ts op = op =<< mapM (save =<<) ts
   lift1 [a] op = op =<< save =<< a
