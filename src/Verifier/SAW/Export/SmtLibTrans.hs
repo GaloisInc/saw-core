@@ -1,7 +1,11 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ViewPatterns #-}
-module Verifier.SAW.Export.SmtLibTrans (translate, TransParams(..), MetaData(..)) where
+module Verifier.SAW.Export.SmtLibTrans
+  ( translate
+  , TransParams(..)
+  , MetaData(..)
+  ) where
 
 import GHC.Exts(IsString(fromString))
 import SMTLib1.QF_AUFBV as BV
@@ -134,7 +138,7 @@ bug f x = M $ throwError $ unlines [ "Internal error."
 
 
 err :: String -> M s a
-err x = M $ throwError $ unlines [ "Error whilte translating to SMTLIB:"
+err x = M $ throwError $ unlines [ "Error while translating to SMTLIB:"
                                  , "*** " ++ x
                                  ]
         
@@ -317,33 +321,31 @@ data FldInfo = FldInfo { fiName  :: String
 preludeMod :: T.ModuleName
 preludeMod = T.mkModuleName ["Prelude"]
 
-isPreludeType :: String -> T.Def t -> Bool
-isPreludeType n (T.Def i _ _) =
-  T.identModule i == preludeMod && T.identName i == n
-
-isPreludeCtor :: String -> T.Ident -> Bool
-isPreludeCtor n i =
-  T.identModule i == preludeMod && T.identName i == n
-
-preludeName :: T.SharedTerm t -> Maybe String
-preludeName (T.STApp _ (T.FTermF (T.GlobalDef i)))
+preludeDef :: T.SharedTerm t -> Maybe String
+preludeDef (T.STApp _ (T.FTermF (T.GlobalDef i)))
   | T.identModule i == preludeMod = Just (T.identName i)
   | otherwise = Nothing
-preludeName _ = Nothing
+preludeDef _ = Nothing
 
-isBool, isInteger, isArray, isUnsigned :: T.Ident -> Bool
-isArray = isPreludeCtor "Array"
-isBool = isPreludeCtor "Bool"
-isInteger = isPreludeCtor "Integer"
-isUnsigned = isPreludeCtor "Unsigned"
+preludeIdent :: T.Ident -> Maybe String
+preludeIdent i
+  | T.identModule i == preludeMod = Just (T.identName i)
+  | otherwise = Nothing
+
+natValue :: T.SharedTerm t -> Maybe Integer
+natValue (T.STApp _ (T.FTermF (T.NatLit n))) = Just n
+natValue _ = Nothing
 
 cvtType :: T.SharedTerm s -> M s SmtType
-cvtType (T.STApp _ (T.FTermF ty)) =
+cvtType t@(T.STApp _ (T.FTermF ty)) =
   case ty of
-    (T.DataTypeApp c []) | isBool c -> return TBool
-    (T.DataTypeApp c [T.STApp _ (T.FTermF (T.NatLit n))]) | isUnsigned c ->
+    (T.App (preludeDef -> Just "bitvector") (natValue -> Just n)) ->
       return $ TBitVec n
-    (T.DataTypeApp c [T.STApp _ (T.FTermF (T.NatLit n)), e]) | isArray c -> do
+    (T.DataTypeApp (preludeIdent -> Just "Bool") []) -> return TBool
+    (T.DataTypeApp (preludeIdent -> Just "Vec") [natValue -> Just n,
+                                                 preludeDef -> Just "Bool"]) ->
+      return $ TBitVec n
+    (T.DataTypeApp (preludeIdent -> Just "Vec") [natValue -> Just n, e]) -> do
       et <- cvtType e
       case et of
         TBitVec m -> return $ TArray n m
@@ -357,8 +359,14 @@ cvtType (T.STApp _ (T.FTermF ty)) =
       fts <- mapM cvtType fs
       let fields = zip (map show [(1::Integer)..]) fts
       return . TRecord . reverse . fst . foldl mkFldInfo ([], 0) $ fields
-    _ -> err $ "Can't convert type to SMT-LIB"
-cvtType _ = err $ "Can't convert type to SMT-LIB"
+    _ -> do
+      tparams <- getTransParams
+      err $ "Can't convert type to SMT-LIB: " ++
+            T.scPrettyTerm (transContext tparams) t
+cvtType t = do
+  tparams <- getTransParams
+  err $ "Can't convert type to SMT-LIB: " ++
+        T.scPrettyTerm (transContext tparams) t
 
 mkFldInfo :: ([FldInfo], Offset) -> (String, SmtType) -> ([FldInfo], Offset)
 mkFldInfo (acc, accOff) (fldNm, fldTy) = (fi : acc, accOff + fiWidth fi)
@@ -469,6 +477,7 @@ translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
     [_, _] -> lift2 args $
       case fn of
         Just "bvEq"        -> eqOp
+        Just "bvNe"        -> neqOp
         Just "and"         -> bAndOp
         Just "or"          -> bOrOp
         Just "xor"         -> bXorOp
@@ -521,7 +530,7 @@ translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
     [a', b', c'] <- mapM (save =<<) ts
     op a' b' c'
   lift3 ts _ =  err $ "lift3 applied to " ++ show (length ts) ++ " arguments"
-  fn = preludeName f
+  fn = preludeDef f
   args = map (translateTerm enabled) xs
 translateTerm _ (T.STApp _ (T.FTermF (T.RecordSelector e n))) =
   err $ "Record selector not yet implemented (TODO)"
@@ -624,6 +633,9 @@ mkArray t xs =
                       }
 
     _ -> bug "mkArray" "Type error---the type of mkArray is not an array."
+
+neqOp :: FTerm -> FTerm -> M s FTerm
+neqOp t1 t2 = bNotOp =<< eqOp t1 t2
 
 eqOp :: FTerm -> FTerm -> M s FTerm
 eqOp t1 t2 =
