@@ -1,6 +1,7 @@
 module TestSmtLib where
 
 import qualified Data.Set as Set
+import Data.Traversable
 import SMTLib1.PP
 
 import Verifier.SAW.Export.SmtLibTrans
@@ -29,6 +30,7 @@ testSmtLib :: IO ()
 testSmtLib = do
   sc <- mkSharedContext preludeModule
   bv <- scApplyPreludeBitvector sc
+  {-
   i8 <- scFlatTermF sc (NatLit 8)
   i1 <- scFlatTermF sc (NatLit 1)
   w8 <- bv i8
@@ -43,15 +45,24 @@ testSmtLib = do
   chk <- bvNe i8 x' y'
   (scr, _) <- translate (exampleParams sc w8 assm [chk])
   print (pp scr)
+  -}
+  return ()
+
+defTerm :: Maybe TypedDef -> Term
+defTerm (Just (Def _ _ [DefEqn [] e])) = e
+
+scSharedTerm :: SharedContext s -> Term -> IO (SharedTerm s)
+scSharedTerm sc = go
+    where go (Term termf) = scTermF sc =<< traverse go termf
   
 testSmtLibFile :: IO ()
 testSmtLibFile = do
   m <- readModuleFromFile [preludeModule] "SMTTest.sawcore"
   sc <- mkSharedContext m
-  let get = scLookupDef sc . mkIdent (moduleName m)
-  x <- get "x"
-  w8 <- scTypeOf sc  x
-  assm <- get "assm"
-  chk <- get "chk"
+  let get = defTerm . findDef m . mkIdent (moduleName m)
+  assm <- scSharedTerm sc (get "assm")
+  chk <- scSharedTerm sc (get "chk")
+  x <- scLookupDef sc (mkIdent (moduleName m) "x")
+  w8 <- scTypeOf sc x
   (scr, _) <- translate (exampleParams sc w8 assm [chk])
   print (pp scr)
