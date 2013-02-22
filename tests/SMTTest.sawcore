@@ -1,0 +1,15 @@
+module SMTTest where
+
+import Prelude;
+
+x :: bitvector 8;
+y :: bitvector 8;
+
+bv1 :: bitvector 8;
+bv1 = bvNat 8 1;
+
+assm :: Bool;
+assm = bvNe 8 x y;
+
+chk :: Bool;
+chk = bvNe 8 (bvAdd 8 x bv1) (bvAdd 8 y bv1);
