@@ -15,7 +15,7 @@ exampleParams :: SharedContext s
               -> SharedTerm s
               -> [SharedTerm s]
               -> TransParams s
-exampleParams sc w8 assm chk = 
+exampleParams sc w8 assm chk =
   TransParams
   { transName     = "Example"
   , transInputs   = [w8, w8]
@@ -29,24 +29,26 @@ exampleParams sc w8 assm chk =
 testSmtLib :: IO ()
 testSmtLib = do
   sc <- mkSharedContext preludeModule
-  bv <- scApplyPreludeBitvector sc
-  {-
   i8 <- scFlatTermF sc (NatLit 8)
   i1 <- scFlatTermF sc (NatLit 1)
-  w8 <- bv i8
-  bvNe <- scApplyPreludeBvNe sc
-  bvAdd <- scApplyPreludeBvAdd sc
+  let bvIdent = mkIdent (moduleName preludeModule) "Bitvector"
+      eqIdent = mkIdent (moduleName preludeModule) "bvEq"
+      neIdent = mkIdent (moduleName preludeModule) "bvNe"
+      addIdent = mkIdent (moduleName preludeModule) "bvAdd"
+  bv <- scFlatTermF sc (GlobalDef bvIdent)
+  bvEq <- scFlatTermF sc (GlobalDef eqIdent)
+  bvNe <- scFlatTermF sc (GlobalDef neIdent)
+  bvAdd <- scFlatTermF sc (GlobalDef addIdent)
+  w8 <- scApply sc bv i8
   let m = mkModuleName ["Example"]
   x <- scFreshGlobal sc (mkIdent m "x") w8
   y <- scFreshGlobal sc (mkIdent m "y") w8
-  x' <- bvAdd i8 x i1
-  y' <- bvAdd i8 y i1
-  assm <- bvNe i8 x y
-  chk <- bvNe i8 x' y'
+  x' <- scApplyAll sc bvAdd [i8, x, i1]
+  y' <- scApplyAll sc bvAdd [i8, y, i1]
+  assm <- scApplyAll sc bvNe [i8, x, y]
+  chk <- scApplyAll sc bvNe [i8, x', y']
   (scr, _) <- translate (exampleParams sc w8 assm [chk])
   print (pp scr)
-  -}
-  return ()
 
 defTerm :: Maybe TypedDef -> Term
 defTerm (Just (Def _ _ [DefEqn [] e])) = e

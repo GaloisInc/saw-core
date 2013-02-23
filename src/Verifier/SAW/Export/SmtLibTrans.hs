@@ -339,7 +339,7 @@ natValue _ = Nothing
 cvtType :: T.SharedTerm s -> M s SmtType
 cvtType t@(T.STApp _ (T.FTermF ty)) =
   case ty of
-    (T.App (preludeDef -> Just "bitvector") (natValue -> Just n)) ->
+    (T.App (preludeDef -> Just "Bitvector") (natValue -> Just n)) ->
       return $ TBitVec n
     (T.DataTypeApp (preludeIdent -> Just "Bool") []) -> return TBool
     (T.DataTypeApp (preludeIdent -> Just "Vec") [natValue -> Just n,
@@ -458,80 +458,46 @@ translateTerm _ (T.STVar i n t) = err "translating variables not yet implemented
 translateTerm _ t | isConst t = mkConst t
 translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
   tparams <- getTransParams
-  case xs of
-    [_] -> lift1 args $
-      case fn of
-        Just "not"         -> bNotOp
-        {-
-        Just "inot"        -> iNotOp
-        Just "neg"         -> negOp
-        OTrunc w        -> truncOp (numBits w)
-        OSignedExt w    -> signedExtOp (numBits w)
-        OSplit w1 w2    -> splitOp (numBits w1) (numBits w2)
-        OJoin w1 w2     -> joinOp (numBits w1) (numBits w2)
-        -}
-        Just i             -> \_ -> err $ "Unknown unary operator: " ++ i
-        Nothing            ->
-          \_ -> err $ "Malformed application: " ++ T.scPrettyTerm sc t
-            where sc = transContext tparams
-    [_, _] -> lift2 args $
-      case fn of
-        Just "bvEq"        -> eqOp
-        Just "bvNe"        -> neqOp
-        Just "and"         -> bAndOp
-        Just "or"          -> bOrOp
-        Just "xor"         -> bXorOp
-        Just "bvAnd"       -> iAndOp
-        Just "bvOr"        -> iOrOp
-        Just "bvXor"       -> iXorOp
-        Just "bvShl"       -> shlOp
-        Just "bvSShr"      -> shrOp
-        Just "bvShr"       -> ushrOp
-        Just "append"      -> appendOp
-        Just "bvAdd"       -> addOp
-        Just "bvMul"       -> mulOp
-        Just "bvSub"       -> subOp
-        Just "bvSdiv"      -> signedDivOp
-        Just "bvSrem"      -> signedRemOp
-        Just "bvUdiv"      -> unsignedDivOp
-        Just "bvUrem"      -> unsignedRemOp
-        Just "bvsle"       -> signedLeqOp
-        Just "bvslt"       -> signedLtOp
-        Just "bvule"       -> unsignedLeqOp
-        Just "bvult"       -> unsignedLtOp
-        Just "get"         -> getArrayValueOp
-        Just i             -> \_ _ -> err $ "Unknown binary operator: " ++ i
-        Nothing            ->
-          \_ _ -> err $ "Malformed application: " ++ T.scPrettyTerm sc t
-            where sc = transContext tparams
-    [_, _, _] -> lift3 args $
-      case fn of
-        Just "ite"         -> iteOp
-        Just "set"         -> setArrayValueOp
-        Just i             -> \_ _ _ -> err $ "Unknown ternary operator: " ++ i
-        Nothing            ->
-          \_ _ _ -> err $ "Malformed application: " ++ T.scPrettyTerm sc t
-            where sc = transContext tparams
-    _ -> liftV args $
-      case fn of
-        Just i             -> \_ -> err $ "Unknown operator: " ++ i
-        Nothing            ->
-          \_  -> err $ "Malformed application: " ++ T.scPrettyTerm sc t
-            where sc = transContext tparams
+  case (preludeDef f, xs) of
+    (Just "not", [_, a])       -> lift1 bNotOp a
+    (Just "bvEq", [_, a, b])   -> lift2 eqOp a b
+    (Just "bvNe", [_, a, b])   -> lift2 neqOp a b
+    (Just "and", [_, a, b])    -> lift2 bAndOp a b
+    (Just "or", [_, a, b])     -> lift2 bOrOp a b
+    (Just "xor", [_, a, b])    -> lift2 bXorOp a b
+    (Just "bvAnd", [_, a, b])  -> lift2 iAndOp a b
+    (Just "bvOr", [_, a, b])   -> lift2 iOrOp a b
+    (Just "bvXor", [_, a, b])  -> lift2 iXorOp a b
+    (Just "bvShl", [_, a, b])  -> lift2 shlOp a b
+    (Just "bvSShr", [_, a, b]) -> lift2 shrOp a b
+    (Just "bvShr", [_, a, b])  -> lift2 ushrOp a b
+    (Just "append", [_, a, b]) -> lift2 appendOp a b
+    (Just "bvAdd", [_, a, b])  -> lift2 addOp a b
+    (Just "bvMul", [_, a, b])  -> lift2 mulOp a b
+    (Just "bvSub", [_, a, b])  -> lift2 subOp a b
+    (Just "bvSdiv", [_, a, b]) -> lift2 signedDivOp a b
+    (Just "bvSrem", [_, a, b]) -> lift2 signedRemOp a b
+    (Just "bvUdiv", [_, a, b]) -> lift2 unsignedDivOp a b
+    (Just "bvUrem", [_, a, b]) -> lift2 unsignedRemOp a b
+    (Just "bvsle", [_, a, b])  -> lift2 signedLeqOp a b
+    (Just "bvslt", [_, a, b])  -> lift2 signedLtOp a b
+    (Just "bvule", [_, a, b])  -> lift2 unsignedLeqOp a b
+    (Just "bvult", [_, a, b])  -> lift2 unsignedLtOp a b
+    (Just "get", [_, a, b])    -> lift2 getArrayValueOp a b
+    (Just "ite", [_, a, b, c]) -> lift3 iteOp a b c
+    (Just "set", [_, a, b, c]) -> lift3 setArrayValueOp a b c
+    _                   ->
+      err $ "Malformed application: " ++ T.scPrettyTerm sc t
+        where sc = transContext tparams
   where
-  liftV ts op = op =<< mapM (save =<<) ts
-  lift1 [a] op = op =<< save =<< a
-  lift1 ts _ = err $ "lift1 applied to " ++ show (length ts) ++ " arguments"
-  lift2 ts@[_, _] op = do
-    [a', b'] <- mapM (save =<<) ts
+  liftTerm = save <=< translateTerm enabled
+  lift1 op a = op =<< liftTerm a
+  lift2 op a b = do
+    [a', b'] <- mapM liftTerm [a, b]
     op a' b'
-  lift2 ts _ = err $ "lift2 applied to " ++ show (length ts) ++ " arguments"
-  lift3 ts@[_, _, _] op = do
-    [a', b', c'] <- mapM (save =<<) ts
+  lift3 op a b c = do
+    [a', b', c'] <- mapM liftTerm [a, b, c]
     op a' b' c'
-  lift3 ts _ =  err $ "lift3 applied to " ++ show (length ts) ++ " arguments"
-  fn = preludeDef f
-  args = map (translateTerm enabled) xs
 translateTerm _ (T.STApp _ (T.FTermF (T.RecordSelector e n))) =
   err $ "Record selector not yet implemented (TODO)"
 translateTerm _ _ = err $ "Unhandled term in translation"
@@ -614,11 +580,7 @@ mkConst (T.STApp _ (T.FTermF v)) =
                       , smtType = ty
                       }
 -}
-    T.NatLit i ->
-      return FTerm { asForm = Nothing
-                   , asTerm = Lit (LitNum i)
-                   , smtType = TBitVec 8 -- TODO
-                   }
+    T.NatLit i -> err "literal naturals not yet supported"
     _ -> bug "mkConst" "Internal---unhandled case shouldn't be possible."
 mkConst (T.STApp _ _) = bug "mkConst" "applied to non-flat term"
 
