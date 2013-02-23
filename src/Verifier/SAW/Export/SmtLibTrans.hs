@@ -585,9 +585,12 @@ mkConst (T.STVar _ _ _) = bug "mkConst" "mkConst applied to variable"
 mkConst (T.STApp _ (T.FTermF v)) =
   case v of
     T.ArrayValue ety vs -> do
-      ty <- cvtType ety 
       es <- mapM mkConst (V.toList vs)
-      mkArray ty es
+      ty <- cvtType ety
+      case ty of
+        TBool -> err "can't create bit vector constants yet"
+        TBitVec n -> mkArray (TArray (fromIntegral (V.length vs)) n) es
+        _ -> err "invalid array element type"
 
     T.RecordValue vs -> err "record values not yet implemented (TODO)"
 {-
@@ -611,7 +614,11 @@ mkConst (T.STApp _ (T.FTermF v)) =
                       , smtType = ty
                       }
 -}
-    -- T.IntLit i ->
+    T.NatLit i ->
+      return FTerm { asForm = Nothing
+                   , asTerm = Lit (LitNum i)
+                   , smtType = TBitVec 8 -- TODO
+                   }
     _ -> bug "mkConst" "Internal---unhandled case shouldn't be possible."
 mkConst (T.STApp _ _) = bug "mkConst" "applied to non-flat term"
 
