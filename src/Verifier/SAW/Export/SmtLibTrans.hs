@@ -45,7 +45,7 @@ translate :: TransParams s -> IO (Script, MetaData)
 translate ps =
   toScript ps (transName ps) (transExtArr ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
-     let eval = translateTerm (transEnabled ps)
+     let eval = translateTerm (transEnabled ps) ts
      as <- toForm =<< eval (transAssume ps)
      addAssumpt as
      gs <- mapM (toForm <=< eval) (transCheck ps)
@@ -141,7 +141,7 @@ err :: String -> M s a
 err x = M $ throwError $ unlines [ "Error while translating to SMTLIB:"
                                  , "*** " ++ x
                                  ]
-        
+
 toVar :: BV.Term -> M s Ident
 toVar (App x [])  = return x
 toVar _           = bug "translate.toVar" "Argument is not a variable"
@@ -453,13 +453,14 @@ unfoldApp (T.STApp _ (T.FTermF (T.App f b))) = return (f, [b])
 unfoldApp t@(T.STApp _ _) = return (t, [])
 unfoldApp _ = Nothing
 
-translateTerm :: S.Set Ident -> T.SharedTerm s -> M s FTerm
-translateTerm _ (T.STVar i n t) = err "translating variables not yet implemented"
-translateTerm _ t | isConst t = mkConst t
-translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
+translateTerm :: S.Set Ident -> [FTerm] -> T.SharedTerm s -> M s FTerm
+translateTerm _ inps (T.STVar n _ tp) = return (inps !! fromIntegral n)
+translateTerm _ _ t | isConst t = mkConst t
+translateTerm enabled inps t@(unfoldApp -> Just (f, xs)) = do
   tparams <- getTransParams
   case (preludeDef f, xs) of
     (Just "not", [_, a])       -> lift1 bNotOp a
+    --(Just "bvNat", [_, a])     -> lift1 natToBVOp a
     (Just "bvEq", [_, a, b])   -> lift2 eqOp a b
     (Just "bvNe", [_, a, b])   -> lift2 neqOp a b
     (Just "and", [_, a, b])    -> lift2 bAndOp a b
@@ -490,7 +491,7 @@ translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
       err $ "Malformed application: " ++ T.scPrettyTerm sc t
         where sc = transContext tparams
   where
-  liftTerm = save <=< translateTerm enabled
+  liftTerm = save <=< translateTerm enabled inps
   lift1 op a = op =<< liftTerm a
   lift2 op a b = do
     [a', b'] <- mapM liftTerm [a, b]
@@ -498,9 +499,9 @@ translateTerm enabled t@(unfoldApp -> Just (f, xs)) = do
   lift3 op a b c = do
     [a', b', c'] <- mapM liftTerm [a, b, c]
     op a' b' c'
-translateTerm _ (T.STApp _ (T.FTermF (T.RecordSelector e n))) =
+translateTerm _ inps (T.STApp _ (T.FTermF (T.RecordSelector e n))) =
   err $ "Record selector not yet implemented (TODO)"
-translateTerm _ _ = err $ "Unhandled term in translation"
+translateTerm _ _ _ = err $ "Unhandled term in translation"
 
 -- TODO: some cases from Verinf not currently handled
 {-
@@ -580,7 +581,7 @@ mkConst (T.STApp _ (T.FTermF v)) =
                       , smtType = ty
                       }
 -}
-    T.NatLit i -> err "literal naturals not yet supported"
+    T.NatLit i -> err $ "literal naturals not yet supported: " ++ show i
     _ -> bug "mkConst" "Internal---unhandled case shouldn't be possible."
 mkConst (T.STApp _ _) = bug "mkConst" "applied to non-flat term"
 
@@ -602,6 +603,15 @@ mkArray t xs =
                       }
 
     _ -> bug "mkArray" "Type error---the type of mkArray is not an array."
+
+{-
+natToBVOp :: Int -> Int -> M s FTerm
+natToBVOp w v =
+  return FTerm { asForm = Nothing
+               , asTerm = App ("nat2bv[" ++ show w ++ "]") [v]
+               , smtType = TBitVec w
+               }
+-}
 
 neqOp :: FTerm -> FTerm -> M s FTerm
 neqOp t1 t2 = bNotOp =<< eqOp t1 t2
