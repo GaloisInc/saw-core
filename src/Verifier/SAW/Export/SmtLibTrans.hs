@@ -75,13 +75,15 @@ translate ps =
   mkInp ty = do t    <- cvtType ty
                 term <- newConst t
                 x    <- toVar term
-                addNote $ text "input:" <+> pp term <+> text "::" <+> text (show t)
+                addNote $ text "input:" <+> pp term <+> text "::" <+>
+                          text (show t)
                 return (x, fromTerm t term)
 
 
 type X = String
 
-toScript :: TransParams s -> String -> Bool -> M s (Formula, a) -> IO (Script, a)
+toScript :: TransParams s -> String -> Bool -> M s (Formula, a)
+         -> IO (Script, a)
 toScript ps n extArr (M m) =
   do res <- runErrorT $ runStateT (runReaderT m r0) s0
      case res of

@@ -30,7 +30,6 @@ testSmtLib :: IO ()
 testSmtLib = do
   sc <- mkSharedContext preludeModule
   i8 <- scFlatTermF sc (NatLit 8)
-  i1 <- scFlatTermF sc (NatLit 1)
   let bvIdent = mkIdent (moduleName preludeModule) "Bitvector"
       eqIdent = mkIdent (moduleName preludeModule) "bvEq"
       neIdent = mkIdent (moduleName preludeModule) "bvNe"
@@ -43,8 +42,8 @@ testSmtLib = do
   let m = mkModuleName ["Example"]
   x <- scFreshGlobal sc (mkIdent m "x") w8
   y <- scFreshGlobal sc (mkIdent m "y") w8
-  x' <- scApplyAll sc bvAdd [i8, x, i1]
-  y' <- scApplyAll sc bvAdd [i8, y, i1]
+  x' <- scApplyAll sc bvAdd [i8, x, x]
+  y' <- scApplyAll sc bvAdd [i8, y, y]
   assm <- scApplyAll sc bvNe [i8, x, y]
   chk <- scApplyAll sc bvNe [i8, x', y']
   (scr, _) <- translate (exampleParams sc w8 assm [chk])
