@@ -382,6 +382,9 @@ msb x v = get (Succ x) Bool v (FinVal 0 x);
 -- | (bvNat x n) yields (n mod 2^x) as an x-bit vector.
 bvNat :: (x :: Nat) -> Nat -> bitvector x;
 
+-- | Satisfies @bvNat n (bvToNat n x) = x@.
+bvToNat :: (n :: Nat) -> bitvector n -> Nat;
+
 bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
 
 bvAddWithOverflow :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
