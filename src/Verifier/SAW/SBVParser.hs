@@ -57,10 +57,11 @@ parseSBVExpr sc nodes size (SBV.SBVApp operator sbvs) =
             [sbv1] ->
                 do (size1, arg1) <- parseSBV sc nodes sbv1
                    unless (size == hi - lo + 1) (fail $ "parseSBVExpr BVExt: size mismatch " ++ show (size, hi, lo))
-                   s1 <- scNat sc size1
-                   s2 <- scNat sc hi
-                   s3 <- scNat sc lo
-                   scBvExt sc s1 s2 s3 arg1
+                   b <- scBoolType sc
+                   s1 <- scNat sc lo
+                   s2 <- scNat sc size
+                   s3 <- scNat sc (size1 - 1 - hi)
+                   scSlice sc b s1 s2 s3 arg1
             _ -> fail "parseSBVExpr: wrong number of arguments for extract"
       SBV.BVAnd -> binop scBvAnd sbvs
       SBV.BVOr  -> binop scBvOr  sbvs
@@ -314,9 +315,10 @@ scBv1ToBool sc x = scGlobalApply sc (mkIdent preludeName "bv1ToBool") [x]
 scBoolToBv1 :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 scBoolToBv1 sc x = scGlobalApply sc (mkIdent preludeName "boolToBv1") [x]
 
--- FIXME: no such constant exists in prelude
-scBvExt :: SharedContext s -> SharedTerm s -> SharedTerm s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scBvExt sc s hi lo x = scGlobalApply sc (mkIdent preludeName "bvExtract") [s, hi, lo, x]
+-- | slice :: (e :: sort 1) -> (i n o :: Nat) -> Vec (addNat (addNat i n) o) e -> Vec n e;
+scSlice :: SharedContext s -> SharedTerm s -> SharedTerm s ->
+           SharedTerm s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
+scSlice sc e i n o a = scGlobalApply sc (mkIdent preludeName "slice") [e, i, n, o, a]
 
 -- | bvNat :: (x :: Nat) -> Nat -> bitvector x;
 scBvNat :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
