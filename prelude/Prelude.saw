@@ -426,7 +426,7 @@ bvSRem :: (x :: Nat) -> bitvector (Succ x) -> bitvector (Succ x)
 bvShl :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
 
 -- Logical right shift.  New bits are False.
-bvSShr :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
+bvShr :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
 
 -- | Signed right shift.  New bits are equal to most-significant bit.
 bvSShr :: (x :: Nat) -> bitvector (Succ x) -> Nat -> bitvector (Succ x);
