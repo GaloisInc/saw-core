@@ -435,6 +435,10 @@ bvZipWith :: (Bool -> Bool -> Bool)
           -> bitvector n -> bitvector n -> bitvector n;
 bvZipWith = vZipWith Bool Bool Bool;
 
+-- | Bitwise complement.
+bvNot :: (n :: Nat) -> bitvector n -> bitvector n;
+bvNot = vMap Bool Bool not;
+
 -- | Pairwise conjunction, disjunction, and exclusive or.
 bvAnd bvOr bvXor :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
 bvAnd = bvZipWith and;
