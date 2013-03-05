@@ -15,6 +15,7 @@ library
     directory,
     fgl >= 5.3,
     filepath,
+    lens,
     mtl,
     pretty,
     template-haskell,
