@@ -277,12 +277,6 @@ parseSBVPgm sc (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninter
 preludeName :: ModuleName
 preludeName = mkModuleName ["Prelude"]
 
-scLambda :: SharedContext s -> String -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scLambda sc varname ty body = scTermF sc (Lambda (PVar varname 0 ty) ty body)
-
-scLocalVar :: SharedContext s -> DeBruijnIndex -> SharedTerm s -> IO (SharedTerm s)
-scLocalVar sc i t = scTermF sc (LocalVar i t)
-
 scGlobalApply :: SharedContext s -> Ident -> [SharedTerm s] -> IO (SharedTerm s)
 scGlobalApply sc i ts =
     do c <- scGlobalDef sc i
@@ -291,9 +285,6 @@ scGlobalApply sc i ts =
 scAppend :: SharedContext s -> SharedTerm s -> SharedTerm s -> SharedTerm s ->
             SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 scAppend sc t m n x y = scGlobalApply sc (mkIdent preludeName "append") [m, n, t, x, y]
-
-scBoolType :: SharedContext s -> IO (SharedTerm s)
-scBoolType sc = scFlatTermF sc (DataTypeApp (mkIdent preludeName "Bool") [])
 
 -- | natBV :: (n : Nat) -> Nat -> Vec n Bool
 scNatBV :: SharedContext s -> IO (SharedTerm s)
@@ -356,9 +347,6 @@ scBvShr sc n x y = scGlobalApply sc (mkIdent preludeName "bvShr") [n, x, y]
 
 scIte :: SharedContext s -> SharedTerm s -> SharedTerm s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 scIte sc t b x y = scGlobalApply sc (mkIdent preludeName "ite") [t, b, x, y]
-
-scTupleSelector :: SharedContext s -> SharedTerm s -> Int -> IO (SharedTerm s)
-scTupleSelector sc t i = scFlatTermF sc (TupleSelector t i)
 
 loadSBV :: FilePath -> IO SBV.SBVPgm
 loadSBV = SBV.loadSBV
