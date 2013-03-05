@@ -286,10 +286,6 @@ scAppend :: SharedContext s -> SharedTerm s -> SharedTerm s -> SharedTerm s ->
             SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
 scAppend sc t m n x y = scGlobalApply sc (mkIdent preludeName "append") [m, n, t, x, y]
 
--- | natBV :: (n : Nat) -> Nat -> Vec n Bool
-scNatBV :: SharedContext s -> IO (SharedTerm s)
-scNatBV = error "scNatBV"
-
 -- | bitvector :: (n : Nat) -> sort 0
 -- bitvector n = Vec n Bool
 scBitVector :: SharedContext s -> SBV.Size -> IO (SharedTerm s)
