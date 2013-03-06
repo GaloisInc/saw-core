@@ -1,7 +1,10 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Verifier.SAW.SBVParser where
+module Verifier.SAW.SBVParser
+  ( loadSBV
+  , parseSBVPgm
+  ) where
 
 import Control.Monad (liftM, foldM, replicateM, unless)
 import Control.Monad.State
