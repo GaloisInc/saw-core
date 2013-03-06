@@ -115,9 +115,10 @@ parseSBVExpr sc nodes size (SBV.SBVApp operator sbvs) =
           do (size1, arg1) <- parseSBV sc nodes sbv1
              (size2, arg2) <- parseSBV sc nodes sbv2
              unless (size1 == size) (fail "parseSBVExpr shiftop: size mismatch")
-             s <- scNat sc size
-             amt <- scGlobalApply sc (mkIdent preludeName "bvToNat") [s, arg2]
-             scMkOp sc s arg1 amt
+             s1 <- scNat sc size1
+             s2 <- scNat sc size2
+             amt <- scGlobalApply sc (mkIdent preludeName "bvToNat") [s2, arg2]
+             scMkOp sc s1 arg1 amt
       shiftop scMkOp sbvs = fail "parseSBVExpr: wrong number of arguments for binop"
 
 ----------------------------------------------------------------------
