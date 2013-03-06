@@ -17,8 +17,8 @@ type NodeCache s = Map SBV.NodeId (SharedTerm s)
 
 parseSBV :: SharedContext s -> NodeCache s -> SBV.SBV -> IO (SBV.Size, SharedTerm s)
 parseSBV sc nodes (SBV.SBV size (Left num)) =
-    do x <- scLiteral sc size
-       y <- scLiteral sc num
+    do x <- scNat sc size
+       y <- scNat sc num
        t <- scBvNat sc x y
        return (size, t)
 parseSBV sc nodes (SBV.SBV size (Right nodeid)) =
