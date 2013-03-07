@@ -9,6 +9,7 @@ module Verifier.SAW.SBVParser
 import Control.Monad (liftM, foldM, replicateM, unless)
 import Control.Monad.State
 import Control.Applicative
+import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
 
