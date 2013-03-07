@@ -1,7 +1,10 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Verifier.SAW.SBVParser where
+module Verifier.SAW.SBVParser
+  ( loadSBV
+  , parseSBVPgm
+  ) where
 
 import Control.Monad (liftM, foldM, replicateM, unless)
 import Control.Monad.State
@@ -17,8 +20,8 @@ type NodeCache s = Map SBV.NodeId (SharedTerm s)
 
 parseSBV :: SharedContext s -> NodeCache s -> SBV.SBV -> IO (SBV.Size, SharedTerm s)
 parseSBV sc nodes (SBV.SBV size (Left num)) =
-    do x <- scLiteral sc size
-       y <- scLiteral sc num
+    do x <- scNat sc size
+       y <- scNat sc num
        t <- scBvNat sc x y
        return (size, t)
 parseSBV sc nodes (SBV.SBV size (Right nodeid)) =
@@ -44,7 +47,7 @@ parseSBVExpr sc nodes size (SBV.SBVApp operator sbvs) =
                    (size2, arg2) <- parseSBV sc nodes sbv2
                    (size3, arg3) <- parseSBV sc nodes sbv3
                    -- assert size1 == 1 && size2 == size && size3 == size
-                   s <- scBitVector sc size
+                   s <- scBitvector sc size
                    cond <- scBv1ToBool sc arg1
                    scIte sc s cond arg2 arg3
             _ -> fail "parseSBVExpr: wrong number of arguments for if-then-else"
@@ -115,9 +118,10 @@ parseSBVExpr sc nodes size (SBV.SBVApp operator sbvs) =
           do (size1, arg1) <- parseSBV sc nodes sbv1
              (size2, arg2) <- parseSBV sc nodes sbv2
              unless (size1 == size) (fail "parseSBVExpr shiftop: size mismatch")
-             s <- scNat sc size
-             amt <- scGlobalApply sc (mkIdent preludeName "bvToNat") [s, arg2]
-             scMkOp sc s arg1 amt
+             s1 <- scNat sc size1
+             s2 <- scNat sc size2
+             amt <- scGlobalApply sc (mkIdent preludeName "bvToNat") [s2, arg2]
+             scMkOp sc s1 arg1 amt
       shiftop scMkOp sbvs = fail "parseSBVExpr: wrong number of arguments for binop"
 
 ----------------------------------------------------------------------
@@ -184,7 +188,7 @@ scTyp sc (TFun a b) =
        t <- scTyp sc b
        scFun sc s t
 scTyp sc (TVec n TBool) =
-    do scBitVector sc n
+    do scBitvector sc n
 scTyp sc (TTuple as) =
     do ts <- mapM (scTyp sc) as
        scTupleType sc ts
@@ -277,88 +281,21 @@ parseSBVPgm sc (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninter
 preludeName :: ModuleName
 preludeName = mkModuleName ["Prelude"]
 
-scLambda :: SharedContext s -> String -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scLambda sc varname ty body = scTermF sc (Lambda (PVar varname 0 ty) ty body)
-
-scLocalVar :: SharedContext s -> DeBruijnIndex -> SharedTerm s -> IO (SharedTerm s)
-scLocalVar sc i t = scTermF sc (LocalVar i t)
-
-scGlobalApply :: SharedContext s -> Ident -> [SharedTerm s] -> IO (SharedTerm s)
-scGlobalApply sc i ts =
-    do c <- scGlobalDef sc i
-       scApplyAll sc c ts
-
-scAppend :: SharedContext s -> SharedTerm s -> SharedTerm s -> SharedTerm s ->
-            SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scAppend sc t m n x y = scGlobalApply sc (mkIdent preludeName "append") [m, n, t, x, y]
-
-scBoolType :: SharedContext s -> IO (SharedTerm s)
-scBoolType sc = scFlatTermF sc (DataTypeApp (mkIdent preludeName "Bool") [])
-
--- | natBV :: (n : Nat) -> Nat -> Vec n Bool
-scNatBV :: SharedContext s -> IO (SharedTerm s)
-scNatBV = error "scNatBV"
-
--- | bitvector :: (n : Nat) -> sort 0
--- bitvector n = Vec n Bool
-scBitVector :: SharedContext s -> SBV.Size -> IO (SharedTerm s)
-scBitVector sc size =
-    do s <- scNat sc size
-       c <- scGlobalDef sc (mkIdent preludeName "bitvector")
-       scApply sc c s
 
 -- | bv1ToBool :: bitvector 1 -> Bool
+-- bv1ToBool x = get 1 Bool x (FinVal 0 0)
 scBv1ToBool :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-scBv1ToBool sc x = scGlobalApply sc (mkIdent preludeName "bv1ToBool") [x]
+--scBv1ToBool sc x = scGlobalApply sc (mkIdent preludeName "bv1ToBool") [x]
+scBv1ToBool sc x =
+    do n0 <- scNat sc 0
+       n1 <- scNat sc 1
+       b <- scBoolType sc
+       f0 <- scFlatTermF sc (CtorApp (mkIdent preludeName "FinVal") [n0, n0])
+       scGlobalApply sc (mkIdent preludeName "get") [n1, b, x, f0]
 
 -- | boolToBv1 :: Bool -> bitvector 1
 scBoolToBv1 :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 scBoolToBv1 sc x = scGlobalApply sc (mkIdent preludeName "boolToBv1") [x]
-
--- | slice :: (e :: sort 1) -> (i n o :: Nat) -> Vec (addNat (addNat i n) o) e -> Vec n e;
-scSlice :: SharedContext s -> SharedTerm s -> SharedTerm s ->
-           SharedTerm s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scSlice sc e i n o a = scGlobalApply sc (mkIdent preludeName "slice") [e, i, n, o, a]
-
--- | bvNat :: (x :: Nat) -> Nat -> bitvector x;
-scBvNat :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scBvNat sc x y = scGlobalApply sc (mkIdent preludeName "bvNat") [x, y]
-
--- | bvAdd :: (x :: Nat) -> bitvector x -> bitvector x;
-scBvNot :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scBvNot sc n x = scGlobalApply sc (mkIdent preludeName "bvNot") [n, x]
-
--- | bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
-scBvAdd :: SharedContext s -> SharedTerm s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scBvAdd sc n x y = scGlobalApply sc (mkIdent preludeName "bvAdd") [n, x, y]
-
--- | bvSub :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
-scBvSub, scBvMul :: SharedContext s -> SharedTerm s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scBvSub sc n x y = scGlobalApply sc (mkIdent preludeName "bvSub") [n, x, y]
-scBvMul sc n x y = scGlobalApply sc (mkIdent preludeName "bvMul") [n, x, y]
-
-scBvOr, scBvAnd, scBvXor :: SharedContext s -> SharedTerm s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scBvAnd sc n x y = scGlobalApply sc (mkIdent preludeName "bvAnd") [n, x, y]
-scBvXor sc n x y = scGlobalApply sc (mkIdent preludeName "bvXor") [n, x, y]
-scBvOr sc n x y = scGlobalApply sc (mkIdent preludeName "bvOr") [n, x, y]
-
--- | bvEq :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
-scBvEq, scBvUGe, scBvUGt, scBvULe, scBvULt
-    :: SharedContext s -> SharedTerm s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scBvEq sc n x y = scGlobalApply sc (mkIdent preludeName "bvEq") [n, x, y]
-scBvUGe sc n x y = scGlobalApply sc (mkIdent preludeName "bvuge") [n, x, y]
-scBvULe sc n x y = scGlobalApply sc (mkIdent preludeName "bvule") [n, x, y]
-scBvUGt sc n x y = scGlobalApply sc (mkIdent preludeName "bvugt") [n, x, y]
-scBvULt sc n x y = scGlobalApply sc (mkIdent preludeName "bvult") [n, x, y]
-
-scBvShl sc n x y = scGlobalApply sc (mkIdent preludeName "bvShl") [n, x, y]
-scBvShr sc n x y = scGlobalApply sc (mkIdent preludeName "bvShr") [n, x, y]
-
-scIte :: SharedContext s -> SharedTerm s -> SharedTerm s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scIte sc t b x y = scGlobalApply sc (mkIdent preludeName "ite") [t, b, x, y]
-
-scTupleSelector :: SharedContext s -> SharedTerm s -> Int -> IO (SharedTerm s)
-scTupleSelector sc t i = scFlatTermF sc (TupleSelector t i)
 
 loadSBV :: FilePath -> IO SBV.SBVPgm
 loadSBV = SBV.loadSBV

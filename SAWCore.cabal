@@ -10,6 +10,7 @@ library
   build-depends:
     array,
     base >= 4,
+    binary,
     bytestring,
     containers,
     directory,
@@ -22,7 +23,7 @@ library
     transformers,
     utf8-string,
     vector
-  hs-source-dirs: src
+  hs-source-dirs: src ../Verinf/src
   exposed-modules:
      Verifier.SAW
      Verifier.SAW.Cache
@@ -30,6 +31,7 @@ library
      Verifier.SAW.Lexer
      Verifier.SAW.ParserUtils
      Verifier.SAW.Prelude
+     Verifier.SAW.SBVParser
      Verifier.SAW.SharedTerm
      Verifier.SAW.Typechecker
      Verifier.SAW.TypedAST
@@ -43,6 +45,7 @@ library
      Verifier.SAW.UnionFind
      Verifier.SAW.UntypedAST
      Verifier.SAW.Utils
+     Verinf.SBV.Model
   GHC-options: -Wall
   extensions:
     DeriveFunctor
