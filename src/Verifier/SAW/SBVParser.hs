@@ -318,17 +318,18 @@ preludeName = mkModuleName ["Prelude"]
 -- | bv1ToBool :: bitvector 1 -> Bool
 -- bv1ToBool x = get 1 Bool x (FinVal 0 0)
 scBv1ToBool :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
---scBv1ToBool sc x = scGlobalApply sc (mkIdent preludeName "bv1ToBool") [x]
 scBv1ToBool sc x =
     do n0 <- scNat sc 0
        n1 <- scNat sc 1
        b <- scBoolType sc
        f0 <- scFlatTermF sc (CtorApp (mkIdent preludeName "FinVal") [n0, n0])
-       scGlobalApply sc (mkIdent preludeName "get") [n1, b, x, f0]
+       scGet sc n1 b x f0
 
 -- | boolToBv1 :: Bool -> bitvector 1
 scBoolToBv1 :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-scBoolToBv1 sc x = scGlobalApply sc (mkIdent preludeName "boolToBv1") [x]
+scBooltoBv1 sc x =
+    do b <- scBoolType sc
+       scSingle sc b x
 
 scAppendAll :: SharedContext s -> [(SharedTerm s, Integer)] -> IO (SharedTerm s)
 scAppendAll sc [(x, _)] = return x

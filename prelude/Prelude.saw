@@ -296,6 +296,10 @@ get :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e;
 set :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e -> Vec n e;
 --TODO
 
+-- | Create a vector of length 1.
+single :: (e :: sort 1) -> e -> Vec 1 e;
+single e x = generate 1 e (\(i :: Fin 1) -> x);
+
 -- | Take a prefix of a vector.
 vMove :: (e :: sort 1)
       -> (x y :: Nat)
