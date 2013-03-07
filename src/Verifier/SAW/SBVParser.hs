@@ -327,7 +327,7 @@ scBv1ToBool sc x =
 
 -- | boolToBv1 :: Bool -> bitvector 1
 scBoolToBv1 :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-scBooltoBv1 sc x =
+scBoolToBv1 sc x =
     do b <- scBoolType sc
        scSingle sc b x
 
