@@ -30,10 +30,13 @@ parseSBV sc nodes (SBV.SBV size (Right nodeid)) =
       Just t -> return (size, t)
       Nothing -> fail "parseSBV"
 
-parseSBVExpr :: SharedContext s -> NodeCache s -> SBV.Size -> SBV.SBVExpr -> IO (SharedTerm s)
-parseSBVExpr sc nodes size (SBV.SBVAtom sbv) =
+type UnintMap s = String -> Typ -> Maybe (SharedTerm s)
+
+parseSBVExpr :: SharedContext s -> UnintMap s -> NodeCache s ->
+                SBV.Size -> SBV.SBVExpr -> IO (SharedTerm s)
+parseSBVExpr sc unint nodes size (SBV.SBVAtom sbv) =
     liftM snd $ parseSBV sc nodes sbv
-parseSBVExpr sc nodes size (SBV.SBVApp operator sbvs) =
+parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
     case operator of
       SBV.BVAdd -> binop scBvAdd sbvs
       SBV.BVSub -> binop scBvSub sbvs
@@ -103,7 +106,22 @@ parseSBVExpr sc nodes size (SBV.SBVApp operator sbvs) =
              vec <- scVector sc e args
              fin <- return arg1 -- FIXME: cast arg1 to type Fin n
              scGet sc n e vec fin
-      SBV.BVUnint _loc _codegen (name, typ) -> error ("BNUnint: " ++ show (name, parseIRType typ))
+      SBV.BVUnint _loc _codegen (name, irtyp) ->
+          let typ = parseIRType irtyp in
+          case unint name typ of
+            Nothing ->
+                do putStrLn ("WARNING: unknown uninterpreted function " ++ show (name, typ, size))
+                   (inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
+                   scGlobalApply sc (mkIdent preludeName name) args
+            Just t ->
+                do (inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
+                   let (TFun inTyp outTyp) = typ
+                   unless (typSizes inTyp == inSizes) (putStrLn ("ERROR parseSBVPgm: input size mismatch in " ++ name) >> print inTyp >> print inSizes)
+                   argument <- combineOutputs sc inTyp args
+                   result <- scApply sc t argument
+                   results <- splitInputs sc outTyp result
+                   let outSizes = typSizes outTyp
+                   scAppendAll sc (zip results outSizes)
     where
       -- | scMkOp :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
       binop scMkOp [sbv1, sbv2] =
@@ -156,10 +174,10 @@ partitionSBVCommands = foldr select ([], [], [])
                 (assigns, inputs, sbv : outputs)
 
 -- TODO: Should I use a state monad transformer?
-parseSBVAssign :: SharedContext s -> NodeCache s -> SBVAssign -> IO (NodeCache s)
-parseSBVAssign sc nodes arg@(SBVAssign size nodeid expr) =
+parseSBVAssign :: SharedContext s -> UnintMap s -> NodeCache s -> SBVAssign -> IO (NodeCache s)
+parseSBVAssign sc unint nodes arg@(SBVAssign size nodeid expr) =
     do --print arg --debug
-       term <- parseSBVExpr sc nodes size expr
+       term <- parseSBVExpr sc unint nodes size expr
        return (Map.insert nodeid term nodes)
 
 ----------------------------------------------------------------------
@@ -269,8 +287,8 @@ combineOutputs sc ty xs =
 irtypeOf (SBV.SBVPgm (_, irtype, _, _, _, _)) = irtype
 cmdsOf (SBV.SBVPgm (_, _, revcmds, _, _, _)) = reverse revcmds
 
-parseSBVPgm :: SharedContext s -> SBV.SBVPgm -> IO (SharedTerm s)
-parseSBVPgm sc (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninterps)) =
+parseSBVPgm :: SharedContext s -> UnintMap s -> SBV.SBVPgm -> IO (SharedTerm s)
+parseSBVPgm sc unint (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninterps)) =
     do let (TFun inTyp outTyp) = parseIRType irtype
        let cmds = reverse revcmds
        let (assigns, inputs, outputs) = partitionSBVCommands cmds
@@ -285,7 +303,7 @@ parseSBVPgm sc (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninter
        inputTerms <- splitInputs sc inTyp inputVar
        putStrLn "processing..."
        let nodes0 = Map.fromList (zip inNodes inputTerms)
-       nodes <- foldM (parseSBVAssign sc) nodes0 assigns
+       nodes <- foldM (parseSBVAssign sc unint) nodes0 assigns
        putStrLn "collecting output..."
        outputTerms <- mapM (liftM snd . parseSBV sc nodes) outputs
        outputTerm <- combineOutputs sc outTyp outputTerms
