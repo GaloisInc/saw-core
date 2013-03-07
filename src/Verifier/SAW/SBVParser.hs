@@ -161,7 +161,14 @@ data Typ
   | TVec SBV.Size Typ
   | TTuple [Typ]
   | TRecord [(String, Typ)]
-  deriving Show
+
+instance Show Typ where
+  show TBool = "."
+  show (TFun t1 t2) = "(" ++ show t1 ++ " -> " ++ show t2 ++ ")"
+  show (TVec size t) = "[" ++ show size ++ "]" ++ show t
+  show (TTuple ts) = "(" ++ intercalate "," (map show ts) ++ ")"
+  show (TRecord fields) = "{" ++ intercalate "," (map showField fields) ++ "}"
+    where showField (s, t) = s ++ ":" ++ show t
 
 parseIRType :: SBV.IRType -> Typ
 parseIRType (SBV.TApp "." []) = TBool
