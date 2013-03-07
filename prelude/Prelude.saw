@@ -59,7 +59,7 @@ boolEq True b = b;
 boolEq False b = not b;
 
 -- Could be derived from data declaration.
-ite :: ?(a :: sort 0) -> Bool -> a -> a -> a;
+ite :: ?(a :: sort 1) -> Bool -> a -> a -> a;
 ite _ (True)  t _ = t;
 ite _ (False) _ f = f;
 
