@@ -93,7 +93,15 @@ parseSBVExpr sc nodes size (SBV.SBVApp operator sbvs) =
                    b <- scBoolType sc
                    scAppend sc b s1 s2 arg1 arg2
             _ -> fail "parseSBVExpr: wrong number of arguments for append"
-      SBV.BVLkUp indexSize resultSize -> error "bvLookup"
+      SBV.BVLkUp indexSize resultSize ->
+          do (size1 : inSizes, arg1 : args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
+             unless (size1 == indexSize && all (== resultSize) inSizes)
+                        (fail $ "parseSBVExpr BVLkUp: size mismatch")
+             n <- scNat sc (toInteger (length args))
+             e <- scBitvector sc resultSize
+             vec <- scVector sc e args
+             fin <- return arg1 -- FIXME: cast arg1 to type Fin n
+             scGet sc n e vec fin
       SBV.BVUnint _loc _codegen (name, typ) -> error ("BNUnint: " ++ show (name, parseIRType typ))
     where
       -- | scMkOp :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
@@ -288,7 +296,6 @@ parseSBVPgm sc (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninter
 preludeName :: ModuleName
 preludeName = mkModuleName ["Prelude"]
 
-
 -- | bv1ToBool :: bitvector 1 -> Bool
 -- bv1ToBool x = get 1 Bool x (FinVal 0 0)
 scBv1ToBool :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
@@ -303,6 +310,32 @@ scBv1ToBool sc x =
 -- | boolToBv1 :: Bool -> bitvector 1
 scBoolToBv1 :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 scBoolToBv1 sc x = scGlobalApply sc (mkIdent preludeName "boolToBv1") [x]
+
+scAppendAll :: SharedContext s -> [(SharedTerm s, Integer)] -> IO (SharedTerm s)
+scAppendAll sc [(x, _)] = return x
+scAppendAll sc ((x, size1) : xs) =
+    do let size2 = sum (map snd xs)
+       b <- scBoolType sc
+       s1 <- scNat sc size1
+       s2 <- scNat sc size2
+       y <- scAppendAll sc xs
+       scAppend sc b s1 s2 x y
+
+-- | get :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e;
+scGet :: SharedContext s -> SharedTerm s -> SharedTerm s ->
+         SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
+scGet sc n e v i = scGlobalApply sc (mkIdent preludeName "get") [n, e, v, i]
+
+-- | single :: (e :: sort 1) -> e -> Vec 1 e;
+-- single e x = generate 1 e (\(i :: Fin 1) -> x);
+scSingle :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
+scSingle sc e x = scGlobalApply sc (mkIdent preludeName "single") [e, x]
+
+scVector :: SharedContext s -> SharedTerm s -> [SharedTerm s] -> IO (SharedTerm s)
+scVector sc e xs =
+  do n <- scNat sc (toInteger (length xs))
+     singles <- mapM (scSingle sc e) xs
+     scAppendAll sc [ (x, 1) | x <- singles ]
 
 loadSBV :: FilePath -> IO SBV.SBVPgm
 loadSBV = SBV.loadSBV
