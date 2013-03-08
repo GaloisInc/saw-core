@@ -107,21 +107,20 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
              fin <- return arg1 -- FIXME: cast arg1 to type Fin n
              scGet sc n e vec fin
       SBV.BVUnint _loc _codegen (name, irtyp) ->
-          let typ = parseIRType irtyp in
-          case unint name typ of
-            Nothing ->
-                do putStrLn ("WARNING: unknown uninterpreted function " ++ show (name, typ, size))
-                   (inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
-                   scGlobalApply sc (mkIdent preludeName name) args
-            Just t ->
-                do (inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
-                   let (TFun inTyp outTyp) = typ
-                   unless (typSizes inTyp == inSizes) (putStrLn ("ERROR parseSBVPgm: input size mismatch in " ++ name) >> print inTyp >> print inSizes)
-                   argument <- combineOutputs sc inTyp args
-                   result <- scApply sc t argument
-                   results <- splitInputs sc outTyp result
-                   let outSizes = typSizes outTyp
-                   scAppendAll sc (zip results outSizes)
+          do let typ = parseIRType irtyp
+             t <- case unint name typ of
+               Just t -> return t
+               Nothing ->
+                   do putStrLn ("WARNING: unknown uninterpreted function " ++ show (name, typ, size))
+                      scGlobalDef sc (mkIdent preludeName name)
+             (inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
+             let (TFun inTyp outTyp) = typ
+             unless (typSizes inTyp == inSizes) (putStrLn ("ERROR parseSBVPgm: input size mismatch in " ++ name) >> print inTyp >> print inSizes)
+             argument <- combineOutputs sc inTyp args
+             result <- scApply sc t argument
+             results <- splitInputs sc outTyp result
+             let outSizes = typSizes outTyp
+             scAppendAll sc (zip results outSizes)
     where
       -- | scMkOp :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
       binop scMkOp [sbv1, sbv2] =
