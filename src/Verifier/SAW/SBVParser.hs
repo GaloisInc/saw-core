@@ -9,6 +9,7 @@ module Verifier.SAW.SBVParser
 import Control.Monad (liftM, foldM, replicateM, unless)
 import Control.Monad.State
 import Control.Applicative
+import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
 
@@ -29,10 +30,13 @@ parseSBV sc nodes (SBV.SBV size (Right nodeid)) =
       Just t -> return (size, t)
       Nothing -> fail "parseSBV"
 
-parseSBVExpr :: SharedContext s -> NodeCache s -> SBV.Size -> SBV.SBVExpr -> IO (SharedTerm s)
-parseSBVExpr sc nodes size (SBV.SBVAtom sbv) =
+type UnintMap s = String -> Typ -> Maybe (SharedTerm s)
+
+parseSBVExpr :: SharedContext s -> UnintMap s -> NodeCache s ->
+                SBV.Size -> SBV.SBVExpr -> IO (SharedTerm s)
+parseSBVExpr sc unint nodes size (SBV.SBVAtom sbv) =
     liftM snd $ parseSBV sc nodes sbv
-parseSBVExpr sc nodes size (SBV.SBVApp operator sbvs) =
+parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
     case operator of
       SBV.BVAdd -> binop scBvAdd sbvs
       SBV.BVSub -> binop scBvSub sbvs
@@ -93,8 +97,30 @@ parseSBVExpr sc nodes size (SBV.SBVApp operator sbvs) =
                    b <- scBoolType sc
                    scAppend sc b s1 s2 arg1 arg2
             _ -> fail "parseSBVExpr: wrong number of arguments for append"
-      SBV.BVLkUp indexSize resultSize -> error "bvLookup"
-      SBV.BVUnint _loc _codegen (name, typ) -> error ("BNUnint: " ++ show (name, parseIRType typ))
+      SBV.BVLkUp indexSize resultSize ->
+          do (size1 : inSizes, arg1 : args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
+             unless (size1 == indexSize && all (== resultSize) inSizes)
+                        (fail $ "parseSBVExpr BVLkUp: size mismatch")
+             n <- scNat sc (toInteger (length args))
+             e <- scBitvector sc resultSize
+             vec <- scVector sc e args
+             fin <- return arg1 -- FIXME: cast arg1 to type Fin n
+             scGet sc n e vec fin
+      SBV.BVUnint _loc _codegen (name, irtyp) ->
+          do let typ = parseIRType irtyp
+             t <- case unint name typ of
+               Just t -> return t
+               Nothing ->
+                   do putStrLn ("WARNING: unknown uninterpreted function " ++ show (name, typ, size))
+                      scGlobalDef sc (mkIdent preludeName name)
+             (inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
+             let (TFun inTyp outTyp) = typ
+             unless (typSizes inTyp == inSizes) (putStrLn ("ERROR parseSBVPgm: input size mismatch in " ++ name) >> print inTyp >> print inSizes)
+             argument <- combineOutputs sc inTyp args
+             result <- scApply sc t argument
+             results <- splitInputs sc outTyp result
+             let outSizes = typSizes outTyp
+             scAppendAll sc (zip results outSizes)
     where
       -- | scMkOp :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
       binop scMkOp [sbv1, sbv2] =
@@ -147,10 +173,10 @@ partitionSBVCommands = foldr select ([], [], [])
                 (assigns, inputs, sbv : outputs)
 
 -- TODO: Should I use a state monad transformer?
-parseSBVAssign :: SharedContext s -> NodeCache s -> SBVAssign -> IO (NodeCache s)
-parseSBVAssign sc nodes arg@(SBVAssign size nodeid expr) =
+parseSBVAssign :: SharedContext s -> UnintMap s -> NodeCache s -> SBVAssign -> IO (NodeCache s)
+parseSBVAssign sc unint nodes arg@(SBVAssign size nodeid expr) =
     do --print arg --debug
-       term <- parseSBVExpr sc nodes size expr
+       term <- parseSBVExpr sc unint nodes size expr
        return (Map.insert nodeid term nodes)
 
 ----------------------------------------------------------------------
@@ -161,7 +187,14 @@ data Typ
   | TVec SBV.Size Typ
   | TTuple [Typ]
   | TRecord [(String, Typ)]
-  deriving Show
+
+instance Show Typ where
+  show TBool = "."
+  show (TFun t1 t2) = "(" ++ show t1 ++ " -> " ++ show t2 ++ ")"
+  show (TVec size t) = "[" ++ show size ++ "]" ++ show t
+  show (TTuple ts) = "(" ++ intercalate "," (map show ts) ++ ")"
+  show (TRecord fields) = "{" ++ intercalate "," (map showField fields) ++ "}"
+    where showField (s, t) = s ++ ":" ++ show t
 
 parseIRType :: SBV.IRType -> Typ
 parseIRType (SBV.TApp "." []) = TBool
@@ -253,8 +286,8 @@ combineOutputs sc ty xs =
 irtypeOf (SBV.SBVPgm (_, irtype, _, _, _, _)) = irtype
 cmdsOf (SBV.SBVPgm (_, _, revcmds, _, _, _)) = reverse revcmds
 
-parseSBVPgm :: SharedContext s -> SBV.SBVPgm -> IO (SharedTerm s)
-parseSBVPgm sc (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninterps)) =
+parseSBVPgm :: SharedContext s -> UnintMap s -> SBV.SBVPgm -> IO (SharedTerm s)
+parseSBVPgm sc unint (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninterps)) =
     do let (TFun inTyp outTyp) = parseIRType irtype
        let cmds = reverse revcmds
        let (assigns, inputs, outputs) = partitionSBVCommands cmds
@@ -269,7 +302,7 @@ parseSBVPgm sc (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninter
        inputTerms <- splitInputs sc inTyp inputVar
        putStrLn "processing..."
        let nodes0 = Map.fromList (zip inNodes inputTerms)
-       nodes <- foldM (parseSBVAssign sc) nodes0 assigns
+       nodes <- foldM (parseSBVAssign sc unint) nodes0 assigns
        putStrLn "collecting output..."
        outputTerms <- mapM (liftM snd . parseSBV sc nodes) outputs
        outputTerm <- combineOutputs sc outTyp outputTerms
@@ -281,21 +314,47 @@ parseSBVPgm sc (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninter
 preludeName :: ModuleName
 preludeName = mkModuleName ["Prelude"]
 
-
 -- | bv1ToBool :: bitvector 1 -> Bool
 -- bv1ToBool x = get 1 Bool x (FinVal 0 0)
 scBv1ToBool :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
---scBv1ToBool sc x = scGlobalApply sc (mkIdent preludeName "bv1ToBool") [x]
 scBv1ToBool sc x =
     do n0 <- scNat sc 0
        n1 <- scNat sc 1
        b <- scBoolType sc
        f0 <- scFlatTermF sc (CtorApp (mkIdent preludeName "FinVal") [n0, n0])
-       scGlobalApply sc (mkIdent preludeName "get") [n1, b, x, f0]
+       scGet sc n1 b x f0
 
 -- | boolToBv1 :: Bool -> bitvector 1
 scBoolToBv1 :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
-scBoolToBv1 sc x = scGlobalApply sc (mkIdent preludeName "boolToBv1") [x]
+scBoolToBv1 sc x =
+    do b <- scBoolType sc
+       scSingle sc b x
+
+scAppendAll :: SharedContext s -> [(SharedTerm s, Integer)] -> IO (SharedTerm s)
+scAppendAll sc [(x, _)] = return x
+scAppendAll sc ((x, size1) : xs) =
+    do let size2 = sum (map snd xs)
+       b <- scBoolType sc
+       s1 <- scNat sc size1
+       s2 <- scNat sc size2
+       y <- scAppendAll sc xs
+       scAppend sc b s1 s2 x y
+
+-- | get :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e;
+scGet :: SharedContext s -> SharedTerm s -> SharedTerm s ->
+         SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
+scGet sc n e v i = scGlobalApply sc (mkIdent preludeName "get") [n, e, v, i]
+
+-- | single :: (e :: sort 1) -> e -> Vec 1 e;
+-- single e x = generate 1 e (\(i :: Fin 1) -> x);
+scSingle :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
+scSingle sc e x = scGlobalApply sc (mkIdent preludeName "single") [e, x]
+
+scVector :: SharedContext s -> SharedTerm s -> [SharedTerm s] -> IO (SharedTerm s)
+scVector sc e xs =
+  do n <- scNat sc (toInteger (length xs))
+     singles <- mapM (scSingle sc e) xs
+     scAppendAll sc [ (x, 1) | x <- singles ]
 
 loadSBV :: FilePath -> IO SBV.SBVPgm
 loadSBV = SBV.loadSBV
