@@ -22,8 +22,9 @@ library
     template-haskell,
     transformers,
     utf8-string,
-    vector
-  hs-source-dirs: src ../Verinf/src
+    vector,
+    Verinf
+  hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
      Verifier.SAW.Cache
@@ -45,7 +46,6 @@ library
      Verifier.SAW.UnionFind
      Verifier.SAW.UntypedAST
      Verifier.SAW.Utils
-     Verinf.SBV.Model
   GHC-options: -Wall
   extensions:
     DeriveFunctor
