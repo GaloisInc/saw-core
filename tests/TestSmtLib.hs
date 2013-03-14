@@ -40,8 +40,8 @@ testSmtLib = do
   bvAdd <- scFlatTermF sc (GlobalDef addIdent)
   w8 <- scApply sc bv i8
   let m = mkModuleName ["Example"]
-  x <- scFreshGlobal sc (mkIdent m "x") w8
-  y <- scFreshGlobal sc (mkIdent m "y") w8
+  x <- scFreshGlobal sc "x" w8
+  y <- scFreshGlobal sc "y" w8
   x' <- scApplyAll sc bvAdd [i8, x, x]
   y' <- scApplyAll sc bvAdd [i8, y, y]
   assm <- scApplyAll sc bvNe [i8, x, y]
