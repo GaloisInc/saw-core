@@ -59,7 +59,7 @@ boolEq True b = b;
 boolEq False b = not b;
 
 -- Could be derived from data declaration.
-ite :: ?(a :: sort 0) -> Bool -> a -> a -> a;
+ite :: ?(a :: sort 1) -> Bool -> a -> a -> a;
 ite _ (True)  t _ = t;
 ite _ (False) _ f = f;
 
@@ -164,6 +164,7 @@ unsafeCoerce y x = rcoerce y x (assert (sort 0) y x);
 
 -- | Natural numbers less than a given bound.
 data Fin :: (n :: Nat) -> sort 0 where {
+    -- Fin value contains the value x and the number of additional values above it.
     FinVal :: (x r :: Nat) -> Fin (Succ (addNat r x));
   }
 
@@ -281,23 +282,29 @@ finSplitProduct :: (m n :: Nat) -> Fin (mulNat m n) -> #(Fin m, Fin n);
 --TODO
 
 -- "Vec n a" is an array of n elements, each with type "a".
-data Vec :: (n :: Nat) -> sort 1 -> sort 1 where {
+data Vec :: (n :: Nat) -> sort 0 -> sort 0 where {
+    EmptyVec :: (tp :: sort 0) -> Vec 0 tp;
+    ConsVec :: (tp :: sort 0) -> tp -> (n::Nat) -> Vec n tp -> Vec (Succ n) tp;
   }
 --TODO
 
 -- Function for generating an array.
-generate :: (n :: Nat) -> (e :: sort 1) -> (Fin n -> e) -> Vec n e;
+generate :: (n :: Nat) -> (e :: sort 0) -> (Fin n -> e) -> Vec n e;
 --TODO
 
 -- Get and set an individual element in an array.
-get :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e;
+get :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e;
 --TODO
 
-set :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e -> Vec n e;
+set :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e -> Vec n e;
 --TODO
+
+-- | Create a vector of length 1.
+single :: (e :: sort 0) -> e -> Vec 1 e;
+single e x = generate 1 e (\(i :: Fin 1) -> x);
 
 -- | Take a prefix of a vector.
-vMove :: (e :: sort 1)
+vMove :: (e :: sort 0)
       -> (x y :: Nat)
       -> (Fin y -> Fin x)
       -> Vec x e
@@ -305,23 +312,23 @@ vMove :: (e :: sort 1)
 vMove e x y f a = generate y e (\(j :: Fin y) -> get x e a (f j));
 
 -- | Take a prefix of a vector.
-vTake :: (e :: sort 1) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec x e;
+vTake :: (e :: sort 0) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec x e;
 vTake e n o a = vMove e (addNat n o) n (finIncLim o n) a;
 
 -- | Returns a suffix of a vector after a given number of elements.
-vDrop :: (e :: sort 1) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec y e;
+vDrop :: (e :: sort 0) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec y e;
 vDrop e i n a = vMove e (addNat i n) n (finInc i n) a;
 
 -- | Select a range [i,..,i+n] of values from the array.
-slice :: (e :: sort 1)
+slice :: (e :: sort 0)
       -> (i n o :: Nat)
       -> Vec (addNat (addNat i n) o) e -> Vec n e;
 slice e i n o a = vDrop e i n (vTake e (addNat i n) o a); 
 
 
 -- | Defines a function that maps array elements from one range to another.
-vMap :: (s t :: sort 1) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
-vMap s t f n v = generate n t (\(i :: Fin n) -> get n s v i);
+vMap :: (s t :: sort 0) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
+vMap s t f n v = generate n t (\(i :: Fin n) -> f (get n s v i));
 
 -- | Defines a function that maps array elements from one range to another.
 vZipWith :: (s t u :: sort 0)
@@ -372,7 +379,7 @@ append m n e x y =
       }
    in generate (addNat m n) e eltFn;
 
-bitvector :: (n :: Nat) -> sort 1;
+bitvector :: (n :: Nat) -> sort 0;
 bitvector n = Vec n Bool;
 
 -- | Returns most-significant bit in a signed bitvector.
@@ -381,6 +388,9 @@ msb x v = get (Succ x) Bool v (FinVal 0 x);
 
 -- | (bvNat x n) yields (n mod 2^x) as an x-bit vector.
 bvNat :: (x :: Nat) -> Nat -> bitvector x;
+
+-- | Satisfies @bvNat n (bvToNat n x) = x@.
+bvToNat :: (n :: Nat) -> bitvector n -> Nat;
 
 bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
 
@@ -423,7 +433,7 @@ bvSRem :: (x :: Nat) -> bitvector (Succ x) -> bitvector (Succ x)
 bvShl :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
 
 -- Logical right shift.  New bits are False.
-bvSShr :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
+bvShr :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
 
 -- | Signed right shift.  New bits are equal to most-significant bit.
 bvSShr :: (x :: Nat) -> bitvector (Succ x) -> Nat -> bitvector (Succ x);
@@ -434,6 +444,10 @@ bvZipWith :: (Bool -> Bool -> Bool)
           -> (n :: Nat)
           -> bitvector n -> bitvector n -> bitvector n;
 bvZipWith = vZipWith Bool Bool Bool;
+
+-- | Bitwise complement.
+bvNot :: (n :: Nat) -> bitvector n -> bitvector n;
+bvNot = vMap Bool Bool not;
 
 -- | Pairwise conjunction, disjunction, and exclusive or.
 bvAnd bvOr bvXor :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
@@ -458,37 +472,30 @@ bvugt bvuge bvult bvule :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
 bvsgt bvsge bvslt bvsle :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
 
 -- | Truncates a vector a smaller size.
-bvTrunc :: (x y :: Nat) -> bitvector (addNat x y) -> bitvector y;
-bvTrunc = vDrop Bool;
+-- lsb implementation:
+bvTrunc :: (x y :: Nat) -> bitvector (addNat y x) -> bitvector y;
+bvTrunc x y = vTake Bool y x;
+-- msb implementation:
+-- bvTrunc :: (x y :: Nat) -> bitvector (addNat x y) -> bitvector y;
+-- bvTrunc = vDrop Bool;
 
 -- | Perform a unsigned extension  of the bitvector.
-bvUExt :: (x y :: Nat) -> bitvector y -> bitvector (addNat x y);
-bvUExt x y a = append x y ?Bool (replicate x Bool False) a;
+-- @bvUExt x y v@ adds x bits of zeros to the most-significant bits of
+-- the y-bit vector v.
+-- lsb implementation:
+bvUExt :: (x y :: Nat) -> bitvector y -> bitvector (addNat y x);
+bvUExt x y a = append y x ?Bool a (replicate x Bool False);
+-- msb implementation:
+--bvUExt :: (x y :: Nat) -> bitvector y -> bitvector (addNat x y);
+--bvUExt x y a = append x y ?Bool (replicate x Bool False) a;
 
 -- | Perform a signed extension of the bitvector.
-bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (Succ (addNat x y));
-bvSExt x y a = append x (Succ y) ?Bool (replicate x Bool (msb y a)) a;
-
--- | Convert between two signed representations.
--- This is implemented by using arrays so that the result can still be bit-blasted.
-bvSResize :: ?(x y :: Nat) -> bitvector (Succ x) -> bitvector (Succ y);
--- Simple definition (if bit-blasting doesn't matter)
--- signedToSigned s = integerToSigned (signedToInteger s)
--- Complex definition (supports bit-blasting).
-bvSResize x y s =
-  let { compareFn :: (x y :: Nat) -> bitvector (Succ x) -> NatOrdering y x -> bitvector (Succ y); 
-        compareFn _ _ a (LeNatOrd l d) = bvTrunc d (Succ l) a;
-        compareFn _ _ a (GtNatOrd l d) = bvSExt (Succ d) l a;
-      }
-   in compareFn x y s (compareNat y x);
-
--- | An array where each element may have a different type.
-data Tuple :: (n :: Nat) -> (tps :: Vec n (sort 0)) -> sort 0 where {
-    MkTuple :: (n :: Nat)
-            -> (tps :: Vec n (sort 0))
-            -> ((i :: Fin n) -> get n (sort 0) tps i)
-            -> Tuple n tps;
-  }
+-- lsb implementation:
+bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat (Succ y) x);
+bvSExt x y a = append (Succ y) x ?Bool a (replicate x Bool (msb y a));
+-- msb implementation:
+--bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat x (Succ y));
+--bvSExt x y a = append x (Succ y) ?Bool (replicate x Bool (msb y a)) a;
 
 data Double :: sort 0 where { }
 

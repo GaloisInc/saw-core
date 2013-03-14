@@ -10,11 +10,13 @@ library
   build-depends:
     array,
     base >= 4,
+    binary,
     bytestring,
     containers,
     directory,
     fgl >= 5.3,
     filepath,
+    lens,
     mtl,
     parsec,
     pretty,
@@ -23,7 +25,8 @@ library
     template-haskell,
     transformers,
     utf8-string,
-    vector
+    vector,
+    Verinf
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
@@ -35,6 +38,7 @@ library
      Verifier.SAW.Lexer
      Verifier.SAW.ParserUtils
      Verifier.SAW.Prelude
+     Verifier.SAW.SBVParser
      Verifier.SAW.SharedTerm
      Verifier.SAW.Typechecker
      Verifier.SAW.TypedAST
