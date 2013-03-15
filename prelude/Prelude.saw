@@ -23,6 +23,7 @@ module Prelude where
 -- parameters that are not explicitly passed, but must be found to show that the expression
 -- is well formed.  This is used to ensure the index is valid when reading or updating an array.
 
+--------------------------------------------------------------------------------
 -- Equality proofs.
 
 data Eq :: (t :: sort 1) -> t -> t -> sort 1 where {
@@ -32,6 +33,7 @@ data Eq :: (t :: sort 1) -> t -> t -> sort 1 where {
 trans :: (a :: sort 1) -> (x y z :: a) -> Eq a x y -> Eq a y z -> Eq a x z;
 trans _ _ _ _ (Refl _ _) eq = eq;
 
+--------------------------------------------------------------------------------
 -- Booleans
 data Bool :: sort 0 where {
     True :: Bool;
@@ -63,6 +65,41 @@ ite :: ?(a :: sort 1) -> Bool -> a -> a -> a;
 ite _ (True)  t _ = t;
 ite _ (False) _ f = f;
 
+-- Rewrite rules for booleans.
+
+not_not :: (x :: Bool) -> Eq Bool (not (not x)) x;
+not_not True = Refl Bool True;
+not_not False = Refl Bool False;
+
+and_True :: (x :: Bool) -> Eq Bool (and x True) x;
+and_True True = Refl Bool True;
+and_True False = Refl Bool False;
+
+and_False :: (x :: Bool) -> Eq Bool (and x False) False;
+and_False True = Refl Bool False;
+and_False False = Refl Bool False;
+
+and_assoc :: (x y z :: Bool) -> Eq Bool (and x (and y z)) (and (and x y) z);
+and_assoc True y z = Refl Bool (and y z);
+and_assoc False _ _ = Refl Bool False;
+
+and_idem :: (x :: Bool) -> Eq Bool (and x x) x;
+and_idem True = Refl Bool True;
+and_idem False = Refl Bool False;
+
+not_or :: (x y :: Bool) -> Eq Bool (not (or x y)) (and (not x) (not y));
+not_or True _ = Refl Bool False;
+not_or False y = Refl Bool (not y);
+
+not_and :: (x y :: Bool) -> Eq Bool (not (and x y)) (or (not x) (not y));
+not_and True y = Refl Bool (not y);
+not_and False _ = Refl Bool True;
+
+ite_not :: (a :: sort 1) -> (b :: Bool) -> (x y :: a) -> Eq a (ite a (not b) x y) (ite a b y x);
+ite_not a True _ y = Refl a y;
+ite_not a False x _ = Refl a x;
+
+--------------------------------------------------------------------------------
 -- Pairs
 fst :: (x y :: sort 0) -> #(x,y) -> x;
 fst x y (l,h) = l;
