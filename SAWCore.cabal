@@ -18,7 +18,10 @@ library
     filepath,
     lens,
     mtl,
+    parsec,
     pretty,
+    process,
+    smtLib,
     template-haskell,
     transformers,
     utf8-string,
@@ -27,6 +30,9 @@ library
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
+     Verifier.SAW.Export.SmtLibTrans
+     Verifier.SAW.Export.SmtLibTrans2
+     Verifier.SAW.Export.Yices
      Verifier.SAW.Cache
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
