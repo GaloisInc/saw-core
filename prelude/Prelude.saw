@@ -36,6 +36,18 @@ trans _ _ _ _ (Refl _ _) eq = eq;
 sym :: (a :: sort 1) -> (x y :: a) -> Eq a x y -> Eq a y x;
 sym _ _ _ (Refl a x) = Refl a x;
 
+-- Unchecked assertion that two types are equal.
+assert :: (a :: sort 1) -> (x :: a) -> (y :: a) -> Eq a x y;
+
+coerce :: (y x :: sort 0) -> Eq (sort 0) x y -> x -> y;
+coerce _ _ (Refl _ _) x = x;
+
+rcoerce :: (y x :: sort 0) -> Eq (sort 0) y x -> x -> y;
+rcoerce y x eq = coerce y x (sym (sort 0) y x eq);
+
+unsafeCoerce :: (y x :: sort 0) -> x -> y;
+unsafeCoerce y x = rcoerce y x (assert (sort 0) y x);
+
 --------------------------------------------------------------------------------
 -- Booleans
 data Bool :: sort 0 where {
@@ -186,17 +198,6 @@ compareNat :: (x y :: Nat) -> NatOrdering x y;
 compareNat Zero y = LeNatOrd Zero y;
 compareNat (Succ x) Zero = GtNatOrd Zero x;
 compareNat (Succ x) (Succ y) = succNatOrdering x y (compareNat x y);
-
--- Unchecked assertion that two types are equal.
-assert :: (a :: sort 1) -> (x :: a) -> (y :: a) -> Eq a x y;
-
-coerce :: (y x :: sort 0) -> Eq (sort 0) x y -> x -> y;
-
-rcoerce :: (y x :: sort 0) -> Eq (sort 0) y x -> x -> y;
-rcoerce y x eq = coerce y x (sym (sort 0) y x eq);
-
-unsafeCoerce :: (y x :: sort 0) -> x -> y;
-unsafeCoerce y x = rcoerce y x (assert (sort 0) y x);
 
 --TODO
 
