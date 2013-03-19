@@ -134,6 +134,7 @@ fst x y (l,h) = l;
 snd :: (x y :: sort 0) -> #(x,y) -> y;
 snd x y (l,h) = h;
 
+--------------------------------------------------------------------------------
 -- Either
 
 data Either :: sort 0 -> sort 0 -> sort 0 where {
@@ -147,12 +148,14 @@ eitherCong0 t x _ (Refl _ _) = Refl (sort 0) (Either x t);
 eitherCong1 :: (t x y :: sort 0) -> Eq (sort 0) x y -> Eq (sort 0) (Either t x) (Either t y);
 eitherCong1 t x _ (Refl _ _) = Refl (sort 0) (Either t x);
 
+--------------------------------------------------------------------------------
 -- Maybe
 data Maybe :: sort 0 -> sort 0 where {
     Nothing :: (a :: sort 0) -> Maybe a;
     Just :: (a :: sort 0) -> a -> Maybe a;
   }
 
+--------------------------------------------------------------------------------
 -- Nat
 data Nat :: sort 0 where {
     Zero :: Nat;
@@ -168,6 +171,7 @@ eqNatSucc _ _ (Refl _ x) = Refl Nat (Succ x);
 eqNatPrec :: (x y :: Nat) -> eqNat (Succ x) (Succ y) -> eqNat x y;
 eqNatPrec _ _ (Refl _ (Succ x)) = Refl Nat x;
 
+-- | Addition
 addNat :: Nat -> Nat -> Nat; 
 addNat x Zero = x;
 addNat x (Succ y) = Succ (addNat x y);
@@ -190,6 +194,7 @@ eqNatAddComm (Succ x) y =
         (eqNatAddS x y)
         (eqNatSucc (addNat x y) (addNat y x) (eqNatAddComm x y));
 
+-- | Multiplication
 mulNat :: Nat -> Nat -> Nat;
 mulNat x Zero = 0;
 mulNat x (Succ y) = addNat x (mulNat x y);
@@ -206,6 +211,7 @@ succNatOrdering :: (x y :: Nat) -> NatOrdering x y -> NatOrdering (Succ x) (Succ
 succNatOrdering _ _ (LeNatOrd x d) = LeNatOrd (Succ x) d;
 succNatOrdering _ _ (GtNatOrd x d) = GtNatOrd (Succ x) d;
 
+-- | Comparison
 compareNat :: (x y :: Nat) -> NatOrdering x y;
 compareNat Zero y = LeNatOrd Zero y;
 compareNat (Succ x) Zero = GtNatOrd Zero x;
@@ -215,6 +221,9 @@ compareNat (Succ x) (Succ y) = succNatOrdering x y (compareNat x y);
 
 
 -- There are implicit constructors from integer literals.
+
+--------------------------------------------------------------------------------
+-- Fin
 
 -- | Natural numbers less than a given bound.
 data Fin :: (n :: Nat) -> sort 0 where {
@@ -318,6 +327,7 @@ finSplitSum2 n i (Succ v) (Succ p) r eq =
           (finSplitSum2 n (Succ i) v p r
             (eqNatPrec (addNat n p) (Succ (addNat r v)) eq));
 
+-- | Injection from (Fin m, Fin n) into Fin (m * n)
 finProduct :: (m :: Nat) -> Fin m -> (n :: Nat) -> Fin n -> Fin (mulNat m n);
 finProduct _ (FinVal mv mr) _ (FinVal nv nr) =
   rcoerce (Fin (mulNat (Succ (addNat mr mv)) (Succ (addNat nr nv))))
@@ -335,6 +345,7 @@ finProduct _ (FinVal mv mr) _ (FinVal nv nr) =
 finSplitProduct :: (m n :: Nat) -> Fin (mulNat m n) -> #(Fin m, Fin n);
 --TODO
 
+--------------------------------------------------------------------------------
 -- "Vec n a" is an array of n elements, each with type "a".
 data Vec :: (n :: Nat) -> sort 0 -> sort 0 where {
     EmptyVec :: (tp :: sort 0) -> Vec 0 tp;
@@ -463,6 +474,9 @@ append m n e x y =
         compareFn (Right _ _ i) = get n e y i;
       }
    in generate (addNat m n) e eltFn;
+
+--------------------------------------------------------------------------------
+-- Bitvectors
 
 bitvector :: (n :: Nat) -> sort 0;
 bitvector n = Vec n Bool;
@@ -609,6 +623,9 @@ bvSExt x y a = append (Succ y) x ?Bool a (replicate x Bool (msb y a));
 -- msb implementation:
 --bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat x (Succ y));
 --bvSExt x y a = append x (Succ y) ?Bool (replicate x Bool (msb y a)) a;
+
+--------------------------------------------------------------------------------
+-- Floating-point values
 
 data Double :: sort 0 where { }
 
