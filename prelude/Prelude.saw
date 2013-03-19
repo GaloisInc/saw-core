@@ -398,10 +398,13 @@ slice :: (e :: sort 0)
       -> Vec (addNat (addNat i n) o) e -> Vec n e;
 slice e i n o a = vDrop e i n (vTake e (addNat i n) o a); 
 
-
 -- | Defines a function that maps array elements from one range to another.
 vMap :: (s t :: sort 0) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
 vMap s t f n v = generate n t (\(i :: Fin n) -> f (get n s v i));
+
+get_vMap :: (s t :: sort 0) -> (f :: s -> t) -> (n :: Nat) -> (v :: Vec n s) -> (i :: Fin n) ->
+            Eq t (get n t (vMap s t f n v) i) (f (get n s v i));
+get_vMap s t f n v i = get_generate n t (\(i :: Fin n) -> f (get n s v i)) i;
 
 -- | Defines a function that maps array elements from one range to another.
 vZipWith :: (s t u :: sort 0)
@@ -539,6 +542,10 @@ get_bvZipWith = get_vZipWith Bool Bool Bool;
 -- | Bitwise complement.
 bvNot :: (n :: Nat) -> bitvector n -> bitvector n;
 bvNot = vMap Bool Bool not;
+
+get_bvNot :: (n :: Nat) -> (v :: bitvector n) -> (i :: Fin n) ->
+             Eq Bool (get n Bool (bvNot n v) i) (not (get n Bool v i));
+get_bvNot = get_vMap Bool Bool not;
 
 -- | Pairwise conjunction, disjunction, and exclusive or.
 bvAnd bvOr bvXor :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
