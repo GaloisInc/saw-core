@@ -49,18 +49,6 @@ unsafeCoerce :: (y x :: sort 0) -> x -> y;
 unsafeCoerce y x = rcoerce y x (assert (sort 0) y x);
 
 --------------------------------------------------------------------------------
--- Singleton types.
-
--- | Type @Single t x@ is a singleton type containing only the value
--- @MkSingle t x@. We use it to represent the lhs patterns of
--- conversions for primitive operations; type @Single t x@ can be
--- thought of as a variation of @Eq t x y@ without a right-hand side.
-
-data Single :: (t :: sort 1) -> t -> sort 1 where {
-    MkSingle :: (t :: sort 1) -> (x :: t) -> Single t x;
-  }
-
---------------------------------------------------------------------------------
 -- Booleans
 data Bool :: sort 0 where {
     True :: Bool;
@@ -488,14 +476,10 @@ msb x v = get (Succ x) Bool v (FinVal 0 x);
 -- | (bvNat x n) yields (n mod 2^x) as an x-bit vector.
 bvNat :: (x :: Nat) -> Nat -> bitvector x;
 
-append_bvNat :: (m n x y :: Nat) ->
-    Single (bitvector (addNat m n)) (append m n Bool (bvNat m x) (bvNat n y));
-
 -- | Satisfies @bvNat n (bvToNat n x) = x@.
 bvToNat :: (n :: Nat) -> bitvector n -> Nat;
 
 bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
-bvAdd_bvNat :: (n x y :: Nat) -> Single (bitvector n) (bvAdd n (bvNat n x) (bvNat n y));
 
 bvAddWithOverflow :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
 
@@ -594,9 +578,6 @@ bvNe n x y = not (bvEq n x y);
 -- | Unsigned and signed comparison functions.
 bvugt bvuge bvult bvule :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
 bvsgt bvsge bvslt bvsle :: (n :: Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
-
-bvule_bvNat :: (n x y :: Nat) -> Single Bool (bvule n (bvNat n x) (bvNat n y));
-bvult_bvNat :: (n x y :: Nat) -> Single Bool (bvult n (bvNat n x) (bvNat n y));
 
 -- | Truncates a vector a smaller size.
 -- lsb implementation:
