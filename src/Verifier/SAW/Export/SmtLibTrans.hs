@@ -152,7 +152,7 @@ toVar _           = bug "translate.toVar" "Argument is not a variable"
 -- The Monad
 
 newtype M s a = M (ReaderT R (StateT (S s) (ErrorT X IO)) a)
-              deriving (Functor, Monad)
+              deriving (Functor, Monad, MonadIO)
 
 data R = R { useExtArr :: Bool }
 
@@ -503,29 +503,8 @@ translateTerm enabled inps t@(unfoldApp -> Just (f, xs)) = do
     op a' b' c'
 translateTerm _ inps (T.STApp _ (T.FTermF (T.RecordSelector e n))) =
   err $ "Record selector not yet implemented (TODO)"
-translateTerm _ _ _ = err $ "Unhandled term in translation"
-
--- TODO: some cases from Verinf not currently handled
 {-
-translateOps :: S.Set OpIndex -> TermSemantics M s FTerm
-translateOps enabled = termSem
-
-        do as  <- mapM cvtType (V.toList (opArgTypes op))
-           rty <- cvtType (opResultType op)
-
-           let name       = opDefName op
-               rslt t     = fromTerm rty `fmap` padArray rty t
-               args'      = map asTerm (V.toList args)
-               isCtor nms = name == "{ " ++ L.intercalate ", " nms ++ " }"
-               isSel fis  = length args' == 1 && name `elem` map fiName fis
-
-           case (rty, as) of
-             -- Record constructor
-             (TRecord fis, _) | isCtor (map fiName fis) ->
-               rslt (foldr1 concat (reverse args'))
-
-             -- Record selector
-             (_, [TRecord fis]) | isSel fis ->
+             (_, [TRecord fis]) ->
                  case L.find (\FldInfo{ fiName = n } -> n == name) fis of
                    Nothing -> bug "dynOp" "Failed to find FldInfo as expected"
                    Just fi -> case args' of
@@ -533,17 +512,22 @@ translateOps enabled = termSem
                                      (fiOff fi) t
                      _   -> bug "dynOp" "Expected single op arg"
 
-             -- Uninterpreted ops
-             _ ->
-               do known <- getExtraOps
-                  f     <- case IM.lookup x known of
-                    Just (f,_) -> return f -- Already generated?
-                    Nothing    -> -- Generate a function for this op
-                      do f <- newFun as rty
-                         M $ state $ \s ->
-                           (f, s{ extraAbs = IM.insert x (f,name)
+-}
+translateTerm _ _ _ = err $ "Unhandled term in translation"
+
+-- TODO: some cases from Verinf not currently handled
+-- Uninterpreted functions
+{-
+  let rslt t     = fromTerm rty `fmap` padArray rty t
+  do known <- getExtraOps
+     f     <- case IM.lookup x known of
+                Just (f,_) -> return f -- Already generated?
+                Nothing    -> -- Generate a function for this op
+                  do f <- newFun as rty
+                     M $ state $ \s ->
+                       (f, s{ extraAbs = IM.insert x (f,name)
                                                (extraAbs s) })
-                  rslt $ App f (map asTerm (V.toList args))
+     rslt $ App f (map asTerm (V.toList args))
 -}
 --------------------------------------------------------------------------------
 -- Operations
@@ -551,38 +535,36 @@ translateOps enabled = termSem
 -- TODO: this doesn't preserve sharing within constants.
 mkConst :: T.SharedTerm s -> M s FTerm
 mkConst (T.STVar _ _ _) = bug "mkConst" "mkConst applied to variable"
-mkConst (T.STApp _ (T.FTermF v)) =
+mkConst t@(T.STApp _ (T.FTermF v)) = do
+  tparams <- getTransParams
+  let sc = transContext tparams
+  ty <- liftIO $ T.scTypeOf sc t
+  sty <- cvtType ty
   case v of
     T.ArrayValue ety vs -> do
       es <- mapM mkConst (V.toList vs)
-      ty <- cvtType ety
-      case ty of
-        TBool -> err "can't create bit vector constants yet"
-        TBitVec n -> mkArray (TArray (fromIntegral (V.length vs)) n) es
+      sety <- cvtType ety
+      let sz = fromIntegral (V.length vs)
+      case sety of
+        TBool ->  mkArray (TArray sz 1) es
+        TBitVec n -> mkArray (TArray sz n) es
         _ -> err "invalid array element type"
 
-    T.RecordValue vs -> err "record values not yet implemented (TODO)"
-{-
-      do let ts = map (TBitVec . fiWidth) (M.keys vs)
-         xs <- mapM mkConst (M.elems vs)
-         let ty = ArrayType TODO
-         return FTerm { asForm = Nothing
-                      , asTerm = foldr1 concat (reverse $ map asTerm xs)
-                      , smtType = ty
-                      }
--}
+    T.RecordValue vs -> do
+      xs <- mapM mkConst (M.elems vs)
+      return FTerm { asForm = Nothing
+                   , asTerm = foldr1 concat (reverse $ map asTerm xs)
+                   , smtType = sty
+                   }
 
     -- We convert tuples like degenerate records.
-    T.TupleValue vs -> err "tuple values not yet implemented (TODO)"
-{-
-      do let ts = map (TBitVec . fiWidth) (map show [1..])
-         xs <- mapM (uncurry mkConst) (zip vs ts)
-         let ty = RecordType TODO
-         return FTerm { asForm = Nothing
-                      , asTerm = foldr1 concat (reverse $ map asTerm xs)
-                      , smtType = ty
-                      }
--}
+    T.TupleValue vs -> do
+      xs <- mapM mkConst vs
+      return FTerm { asForm = Nothing
+                   , asTerm = foldr1 concat (reverse $ map asTerm xs)
+                   , smtType = sty
+                   }
+
     T.NatLit i -> err $ "literal naturals not yet supported: " ++ show i
     _ -> bug "mkConst" "Internal---unhandled case shouldn't be possible."
 mkConst (T.STApp _ _) = bug "mkConst" "applied to non-flat term"
