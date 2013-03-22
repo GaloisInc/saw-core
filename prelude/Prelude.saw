@@ -182,6 +182,11 @@ eqNatAddComm (Succ x) y =
         (eqNatAddS x y)
         (eqNatSucc (addNat x y) (addNat y x) (eqNatAddComm x y));
 
+addNat_assoc :: (x y z :: Nat) -> eqNat (addNat x (addNat y z)) (addNat (addNat x y) z);
+addNat_assoc x y Zero = Refl Nat (addNat x y);
+addNat_assoc x y (Succ z) =
+    eqNatSucc (addNat x (addNat y z)) (addNat (addNat x y) z) (addNat_assoc x y z);
+
 -- | Multiplication
 mulNat :: Nat -> Nat -> Nat;
 mulNat x Zero = 0;
@@ -397,6 +402,12 @@ slice :: (e :: sort 0)
       -> Vec (addNat (addNat i n) o) e -> Vec n e;
 slice e i n o a = vDrop e i n (vTake e (addNat i n) o a); 
 
+get_slice :: (e :: sort 0) -> (m n o :: Nat) -> (v :: Vec (addNat (addNat m n) o) e) ->
+             (i :: Fin n) ->
+             Eq e (get n e (slice e m n o v) i)
+             (get (addNat (addNat m n) o) e v (finIncLim o (addNat m n) (finInc m n i)));
+-- TODO
+
 -- | Defines a function that maps array elements from one range to another.
 vMap :: (s t :: sort 0) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
 vMap s t f n v = generate n t (\(i :: Fin n) -> f (get n s v i));
@@ -480,6 +491,9 @@ bvNat :: (x :: Nat) -> Nat -> bitvector x;
 bvToNat :: (n :: Nat) -> bitvector n -> Nat;
 
 bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+
+bvAddZeroL :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvAdd n (bvNat n 0) x) x;
+bvAddZeroR :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvAdd n x (bvNat n 0)) x;
 
 bvAddWithOverflow :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
 
