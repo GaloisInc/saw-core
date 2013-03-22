@@ -320,18 +320,15 @@ data FldInfo = FldInfo { fiName  :: String
                        }
                deriving (Eq,Ord,Show)
 
-preludeMod :: T.ModuleName
-preludeMod = T.mkModuleName ["Prelude"]
-
 preludeDef :: T.SharedTerm t -> Maybe String
 preludeDef (T.STApp _ (T.FTermF (T.GlobalDef i)))
-  | T.identModule i == preludeMod = Just (T.identName i)
+  | T.identModule i == T.preludeName = Just (T.identName i)
   | otherwise = Nothing
 preludeDef _ = Nothing
 
 preludeIdent :: T.Ident -> Maybe String
 preludeIdent i
-  | T.identModule i == preludeMod = Just (T.identName i)
+  | T.identModule i == T.preludeName = Just (T.identName i)
   | otherwise = Nothing
 
 natValue :: T.SharedTerm t -> Maybe Integer

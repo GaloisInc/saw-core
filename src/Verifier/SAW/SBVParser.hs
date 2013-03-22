@@ -311,9 +311,6 @@ parseSBVPgm sc unint (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _u
 ----------------------------------------------------------------------
 -- New SharedContext operations; should eventually move to SharedTerm.hs.
 
-preludeName :: ModuleName
-preludeName = mkModuleName ["Prelude"]
-
 -- | bv1ToBool :: bitvector 1 -> Bool
 -- bv1ToBool x = get 1 Bool x (FinVal 0 0)
 scBv1ToBool :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
