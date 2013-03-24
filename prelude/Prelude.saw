@@ -24,6 +24,12 @@ module Prelude where
 -- is well formed.  This is used to ensure the index is valid when reading or updating an array.
 
 --------------------------------------------------------------------------------
+-- The Unit type
+data TUnit :: sort 0 where {
+    Unit :: TUnit;
+  }
+
+--------------------------------------------------------------------------------
 -- Equality proofs.
 
 data Eq :: (t :: sort 1) -> t -> t -> sort 1 where {
