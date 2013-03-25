@@ -32,6 +32,7 @@ library
      Verifier.SAW.Lexer
      Verifier.SAW.ParserUtils
      Verifier.SAW.Prelude
+     Verifier.SAW.Prelude.Constants
      Verifier.SAW.SBVParser
      Verifier.SAW.SharedTerm
      Verifier.SAW.Typechecker

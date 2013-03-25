@@ -325,7 +325,6 @@ slice :: (e :: sort 0)
       -> Vec (addNat (addNat i n) o) e -> Vec n e;
 slice e i n o a = vDrop e i n (vTake e (addNat i n) o a); 
 
-
 -- | Defines a function that maps array elements from one range to another.
 vMap :: (s t :: sort 0) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
 vMap s t f n v = generate n t (\(i :: Fin n) -> f (get n s v i));
@@ -497,6 +496,7 @@ bvSExt x y a = append (Succ y) x ?Bool a (replicate x Bool (msb y a));
 --bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat x (Succ y));
 --bvSExt x y a = append x (Succ y) ?Bool (replicate x Bool (msb y a)) a;
 
+data Float :: sort 0 where { }
+
 data Double :: sort 0 where { }
 
-data Float :: sort 0 where { }
