@@ -16,6 +16,7 @@ library
     directory,
     fgl >= 5.3,
     filepath,
+    hashable,
     lens,
     mtl,
     parsec,
@@ -24,6 +25,7 @@ library
     smtLib,
     template-haskell,
     transformers,
+    unordered-containers,
     utf8-string,
     vector,
     Verinf
