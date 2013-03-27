@@ -17,7 +17,7 @@ library
     fgl >= 5.3,
     filepath,
     hashable,
-    lens,
+    lens >= 3.8,
     mtl,
     parsec,
     pretty,
