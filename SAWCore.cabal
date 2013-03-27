@@ -16,7 +16,7 @@ library
     directory,
     fgl >= 5.3,
     filepath,
-    hashable,
+    hashable < 1.2,
     lens >= 3.8,
     mtl,
     parsec,
