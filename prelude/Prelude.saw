@@ -23,6 +23,13 @@ module Prelude where
 -- parameters that are not explicitly passed, but must be found to show that the expression
 -- is well formed.  This is used to ensure the index is valid when reading or updating an array.
 
+--------------------------------------------------------------------------------
+-- The Unit type
+data TUnit :: sort 0 where {
+    Unit :: TUnit;
+  }
+
+--------------------------------------------------------------------------------
 -- Equality proofs.
 
 data Eq :: (t :: sort 1) -> t -> t -> sort 1 where {
@@ -32,6 +39,22 @@ data Eq :: (t :: sort 1) -> t -> t -> sort 1 where {
 trans :: (a :: sort 1) -> (x y z :: a) -> Eq a x y -> Eq a y z -> Eq a x z;
 trans _ _ _ _ (Refl _ _) eq = eq;
 
+sym :: (a :: sort 1) -> (x y :: a) -> Eq a x y -> Eq a y x;
+sym _ _ _ (Refl a x) = Refl a x;
+
+-- Unchecked assertion that two types are equal.
+assert :: (a :: sort 1) -> (x :: a) -> (y :: a) -> Eq a x y;
+
+coerce :: (y x :: sort 0) -> Eq (sort 0) x y -> x -> y;
+coerce _ _ (Refl _ _) x = x;
+
+rcoerce :: (y x :: sort 0) -> Eq (sort 0) y x -> x -> y;
+rcoerce y x eq = coerce y x (sym (sort 0) y x eq);
+
+unsafeCoerce :: (y x :: sort 0) -> x -> y;
+unsafeCoerce y x = rcoerce y x (assert (sort 0) y x);
+
+--------------------------------------------------------------------------------
 -- Booleans
 data Bool :: sort 0 where {
     True :: Bool;
@@ -63,6 +86,41 @@ ite :: ?(a :: sort 1) -> Bool -> a -> a -> a;
 ite _ (True)  t _ = t;
 ite _ (False) _ f = f;
 
+-- Rewrite rules for booleans.
+
+not_not :: (x :: Bool) -> Eq Bool (not (not x)) x;
+not_not True = Refl Bool True;
+not_not False = Refl Bool False;
+
+and_True :: (x :: Bool) -> Eq Bool (and x True) x;
+and_True True = Refl Bool True;
+and_True False = Refl Bool False;
+
+and_False :: (x :: Bool) -> Eq Bool (and x False) False;
+and_False True = Refl Bool False;
+and_False False = Refl Bool False;
+
+and_assoc :: (x y z :: Bool) -> Eq Bool (and x (and y z)) (and (and x y) z);
+and_assoc True y z = Refl Bool (and y z);
+and_assoc False _ _ = Refl Bool False;
+
+and_idem :: (x :: Bool) -> Eq Bool (and x x) x;
+and_idem True = Refl Bool True;
+and_idem False = Refl Bool False;
+
+not_or :: (x y :: Bool) -> Eq Bool (not (or x y)) (and (not x) (not y));
+not_or True _ = Refl Bool False;
+not_or False y = Refl Bool (not y);
+
+not_and :: (x y :: Bool) -> Eq Bool (not (and x y)) (or (not x) (not y));
+not_and True y = Refl Bool (not y);
+not_and False _ = Refl Bool True;
+
+ite_not :: (a :: sort 1) -> (b :: Bool) -> (x y :: a) -> Eq a (ite a (not b) x y) (ite a b y x);
+ite_not a True _ y = Refl a y;
+ite_not a False x _ = Refl a x;
+
+--------------------------------------------------------------------------------
 -- Pairs
 fst :: (x y :: sort 0) -> #(x,y) -> x;
 fst x y (l,h) = l;
@@ -70,6 +128,7 @@ fst x y (l,h) = l;
 snd :: (x y :: sort 0) -> #(x,y) -> y;
 snd x y (l,h) = h;
 
+--------------------------------------------------------------------------------
 -- Either
 
 data Either :: sort 0 -> sort 0 -> sort 0 where {
@@ -83,12 +142,14 @@ eitherCong0 t x _ (Refl _ _) = Refl (sort 0) (Either x t);
 eitherCong1 :: (t x y :: sort 0) -> Eq (sort 0) x y -> Eq (sort 0) (Either t x) (Either t y);
 eitherCong1 t x _ (Refl _ _) = Refl (sort 0) (Either t x);
 
+--------------------------------------------------------------------------------
 -- Maybe
 data Maybe :: sort 0 -> sort 0 where {
     Nothing :: (a :: sort 0) -> Maybe a;
     Just :: (a :: sort 0) -> a -> Maybe a;
   }
 
+--------------------------------------------------------------------------------
 -- Nat
 data Nat :: sort 0 where {
     Zero :: Nat;
@@ -104,6 +165,7 @@ eqNatSucc _ _ (Refl _ x) = Refl Nat (Succ x);
 eqNatPrec :: (x y :: Nat) -> eqNat (Succ x) (Succ y) -> eqNat x y;
 eqNatPrec _ _ (Refl _ (Succ x)) = Refl Nat x;
 
+-- | Addition
 addNat :: Nat -> Nat -> Nat; 
 addNat x Zero = x;
 addNat x (Succ y) = Succ (addNat x y);
@@ -126,6 +188,12 @@ eqNatAddComm (Succ x) y =
         (eqNatAddS x y)
         (eqNatSucc (addNat x y) (addNat y x) (eqNatAddComm x y));
 
+addNat_assoc :: (x y z :: Nat) -> eqNat (addNat x (addNat y z)) (addNat (addNat x y) z);
+addNat_assoc x y Zero = Refl Nat (addNat x y);
+addNat_assoc x y (Succ z) =
+    eqNatSucc (addNat x (addNat y z)) (addNat (addNat x y) z) (addNat_assoc x y z);
+
+-- | Multiplication
 mulNat :: Nat -> Nat -> Nat;
 mulNat x Zero = 0;
 mulNat x (Succ y) = addNat x (mulNat x y);
@@ -142,25 +210,19 @@ succNatOrdering :: (x y :: Nat) -> NatOrdering x y -> NatOrdering (Succ x) (Succ
 succNatOrdering _ _ (LeNatOrd x d) = LeNatOrd (Succ x) d;
 succNatOrdering _ _ (GtNatOrd x d) = GtNatOrd (Succ x) d;
 
+-- | Comparison
 compareNat :: (x y :: Nat) -> NatOrdering x y;
 compareNat Zero y = LeNatOrd Zero y;
 compareNat (Succ x) Zero = GtNatOrd Zero x;
 compareNat (Succ x) (Succ y) = succNatOrdering x y (compareNat x y);
 
--- Unchecked assertion that two types are equal.
-assert :: (a :: sort 1) -> (x :: a) -> (y :: a) -> Eq a x y;
-
-coerce :: (y x :: sort 0) -> Eq (sort 0) x y -> x -> y;
-
-rcoerce :: (y x :: sort 0) -> Eq (sort 0) y x -> x -> y;
-
-unsafeCoerce :: (y x :: sort 0) -> x -> y;
-unsafeCoerce y x = rcoerce y x (assert (sort 0) y x);
-
 --TODO
 
 
 -- There are implicit constructors from integer literals.
+
+--------------------------------------------------------------------------------
+-- Fin
 
 -- | Natural numbers less than a given bound.
 data Fin :: (n :: Nat) -> sort 0 where {
@@ -264,6 +326,7 @@ finSplitSum2 n i (Succ v) (Succ p) r eq =
           (finSplitSum2 n (Succ i) v p r
             (eqNatPrec (addNat n p) (Succ (addNat r v)) eq));
 
+-- | Injection from (Fin m, Fin n) into Fin (m * n)
 finProduct :: (m :: Nat) -> Fin m -> (n :: Nat) -> Fin n -> Fin (mulNat m n);
 finProduct _ (FinVal mv mr) _ (FinVal nv nr) =
   rcoerce (Fin (mulNat (Succ (addNat mr mv)) (Succ (addNat nr nv))))
@@ -281,6 +344,7 @@ finProduct _ (FinVal mv mr) _ (FinVal nv nr) =
 finSplitProduct :: (m n :: Nat) -> Fin (mulNat m n) -> #(Fin m, Fin n);
 --TODO
 
+--------------------------------------------------------------------------------
 -- "Vec n a" is an array of n elements, each with type "a".
 data Vec :: (n :: Nat) -> sort 0 -> sort 0 where {
     EmptyVec :: (tp :: sort 0) -> Vec 0 tp;
@@ -296,12 +360,12 @@ generate :: (n :: Nat) -> (e :: sort 0) -> (Fin n -> e) -> Vec n e;
 get :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e;
 --TODO
 
+-- | Axiomatic rewrite rule.
+get_generate :: (n :: Nat) -> (e :: sort 0) -> (f :: Fin n -> e) -> (i :: Fin n) ->
+                Eq e (get n e (generate n e f) i) (f i);
+
 set :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e -> Vec n e;
 --TODO
-
--- | Create a vector of length 1.
-single :: (e :: sort 0) -> e -> Vec 1 e;
-single e x = generate 1 e (\(i :: Fin 1) -> x);
 
 -- | Take a prefix of a vector.
 vMove :: (e :: sort 0)
@@ -311,13 +375,25 @@ vMove :: (e :: sort 0)
       -> Vec y e;
 vMove e x y f a = generate y e (\(j :: Fin y) -> get x e a (f j));
 
+get_vMove :: (e :: sort 0) -> (m n :: Nat) -> (f :: Fin n -> Fin m) -> (v :: Vec m e) ->
+             (i :: Fin n) -> Eq e (get n e (vMove e m n f v) i) (get m e v (f i));
+get_vMove e m n f v i = get_generate n e (\(j :: Fin n) -> get m e v (f j)) i;
+
 -- | Take a prefix of a vector.
 vTake :: (e :: sort 0) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec x e;
 vTake e n o a = vMove e (addNat n o) n (finIncLim o n) a;
 
+get_vTake :: (e :: sort 0) -> (m n :: Nat) -> (v :: Vec (addNat m n) e) -> (i :: Fin m) ->
+             Eq e (get m e (vTake e m n v) i) (get (addNat m n) e v (finIncLim n m i));
+get_vTake e m n v i = get_vMove e (addNat m n) m (finIncLim n m) v i;
+
 -- | Returns a suffix of a vector after a given number of elements.
 vDrop :: (e :: sort 0) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec y e;
 vDrop e i n a = vMove e (addNat i n) n (finInc i n) a;
+
+get_vDrop :: (e :: sort 0) -> (m n :: Nat) -> (v :: Vec (addNat m n) e) -> (i :: Fin n) ->
+             Eq e (get n e (vDrop e m n v) i) (get (addNat m n) e v (finInc m n i));
+get_vDrop e m n v i = get_vMove e (addNat m n) n (finInc m n) v i;
 
 -- | Select a range [i,..,i+n] of values from the array.
 slice :: (e :: sort 0)
@@ -325,9 +401,19 @@ slice :: (e :: sort 0)
       -> Vec (addNat (addNat i n) o) e -> Vec n e;
 slice e i n o a = vDrop e i n (vTake e (addNat i n) o a); 
 
+get_slice :: (e :: sort 0) -> (m n o :: Nat) -> (v :: Vec (addNat (addNat m n) o) e) ->
+             (i :: Fin n) ->
+             Eq e (get n e (slice e m n o v) i)
+             (get (addNat (addNat m n) o) e v (finIncLim o (addNat m n) (finInc m n i)));
+-- TODO
+
 -- | Defines a function that maps array elements from one range to another.
 vMap :: (s t :: sort 0) -> (s -> t) -> (n :: Nat) -> Vec n s -> Vec n t;
 vMap s t f n v = generate n t (\(i :: Fin n) -> f (get n s v i));
+
+get_vMap :: (s t :: sort 0) -> (f :: s -> t) -> (n :: Nat) -> (v :: Vec n s) -> (i :: Fin n) ->
+            Eq t (get n t (vMap s t f n v) i) (f (get n s v i));
+get_vMap s t f n v i = get_generate n t (\(i :: Fin n) -> f (get n s v i)) i;
 
 -- | Defines a function that maps array elements from one range to another.
 vZipWith :: (s t u :: sort 0)
@@ -335,10 +421,26 @@ vZipWith :: (s t u :: sort 0)
          -> (n :: Nat) -> Vec n s -> Vec n t -> Vec n u;
 vZipWith s t u f n x y = generate n u (\(i :: Fin n) -> f (get n s x i) (get n t y i));
 
+get_vZipWith :: (s t u :: sort 0) -> (f :: s -> t -> u) -> (n :: Nat) ->
+                (x :: Vec n s) -> (y :: Vec n t) -> (i :: Fin n) ->
+                Eq u (get n u (vZipWith s t u f n x y) i) (f (get n s x i) (get n t y i));
+get_vZipWith s t u f n x y = get_generate n u (\(i :: Fin n) -> f (get n s x i) (get n t y i));
+
 -- replicate n x returns an array with n copies of x.
 replicate :: (n :: Nat)
           -> ?(e :: sort 0) -> e -> Vec n e;
 replicate n e v = generate n e (\(_ :: Fin n) -> v);
+
+get_replicate :: (n :: Nat) -> (e :: sort 0) -> (x :: e) -> (i :: Fin n) ->
+                 Eq e (get n e (replicate n e x) i) x;
+get_replicate n e x i = get_generate n e (\(_ :: Fin n) -> x) i;
+
+-- | Create a vector of length 1.
+single :: (e :: sort 0) -> e -> Vec 1 e;
+single = replicate 1;
+
+get_single :: (e :: sort 0) -> (x :: e) -> (i :: Fin 1) -> Eq e (get 1 e (single e x) i) x;
+get_single = get_replicate 1;
 
 -- Concatenate arrays together.
 join  :: (m n :: Nat)
@@ -378,6 +480,9 @@ append m n e x y =
       }
    in generate (addNat m n) e eltFn;
 
+--------------------------------------------------------------------------------
+-- Bitvectors
+
 bitvector :: (n :: Nat) -> sort 0;
 bitvector n = Vec n Bool;
 
@@ -392,6 +497,9 @@ bvNat :: (x :: Nat) -> Nat -> bitvector x;
 bvToNat :: (n :: Nat) -> bitvector n -> Nat;
 
 bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
+
+bvAddZeroL :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvAdd n (bvNat n 0) x) x;
+bvAddZeroR :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvAdd n x (bvNat n 0)) x;
 
 bvAddWithOverflow :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
 
@@ -444,15 +552,36 @@ bvZipWith :: (Bool -> Bool -> Bool)
           -> bitvector n -> bitvector n -> bitvector n;
 bvZipWith = vZipWith Bool Bool Bool;
 
+get_bvZipWith :: (f :: Bool -> Bool -> Bool) -> (n :: Nat) ->
+                 (x :: bitvector n) -> (y :: bitvector n) -> (i :: Fin n) ->
+                 Eq Bool (get n Bool (bvZipWith f n x y) i) (f (get n Bool x i) (get n Bool y i));
+get_bvZipWith = get_vZipWith Bool Bool Bool;
+
 -- | Bitwise complement.
 bvNot :: (n :: Nat) -> bitvector n -> bitvector n;
 bvNot = vMap Bool Bool not;
+
+get_bvNot :: (n :: Nat) -> (v :: bitvector n) -> (i :: Fin n) ->
+             Eq Bool (get n Bool (bvNot n v) i) (not (get n Bool v i));
+get_bvNot = get_vMap Bool Bool not;
 
 -- | Pairwise conjunction, disjunction, and exclusive or.
 bvAnd bvOr bvXor :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
 bvAnd = bvZipWith and;
 bvOr  = bvZipWith or;
 bvXor = bvZipWith xor;
+
+get_bvAnd :: (n :: Nat) -> (x :: bitvector n) -> (y :: bitvector n) -> (i :: Fin n) ->
+             Eq Bool (get n Bool (bvAnd n x y) i) (and (get n Bool x i) (get n Bool y i));
+get_bvAnd = get_bvZipWith and;
+
+get_bvOr :: (n :: Nat) -> (x :: bitvector n) -> (y :: bitvector n) -> (i :: Fin n) ->
+             Eq Bool (get n Bool (bvOr n x y) i) (or (get n Bool x i) (get n Bool y i));
+get_bvOr = get_bvZipWith or;
+
+get_bvXor :: (n :: Nat) -> (x :: bitvector n) -> (y :: bitvector n) -> (i :: Fin n) ->
+             Eq Bool (get n Bool (bvXor n x y) i) (xor (get n Bool x i) (get n Bool y i));
+get_bvXor = get_bvZipWith xor;
 
 -- | Get bit in vector by index with most significant bit at index 0.
 bvMbit :: (n :: Nat) -> bitvector n -> Fin n -> Bool;
@@ -495,6 +624,9 @@ bvSExt x y a = append (Succ y) x ?Bool a (replicate x Bool (msb y a));
 -- msb implementation:
 --bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat x (Succ y));
 --bvSExt x y a = append x (Succ y) ?Bool (replicate x Bool (msb y a)) a;
+
+--------------------------------------------------------------------------------
+-- Floating-point values
 
 data Float :: sort 0 where { }
 

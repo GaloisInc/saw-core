@@ -68,6 +68,7 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
                    s1 <- scNat sc lo
                    s2 <- scNat sc size
                    s3 <- scNat sc (size1 - 1 - hi)
+                   -- SBV indexes bits starting with 0 = lsb.
                    scSlice sc b s1 s2 s3 arg1
             _ -> fail "parseSBVExpr: wrong number of arguments for extract"
       SBV.BVAnd -> binop scBvAnd sbvs
@@ -95,7 +96,11 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
                    s2 <- scNat sc size2
                    unless (size == size1 + size2) (fail $ "parseSBVExpr BVApp: size mismatch " ++ show (size, size1, size2))
                    b <- scBoolType sc
-                   scAppend sc b s1 s2 arg1 arg2
+                   -- SBV append takes the most-significant argument
+                   -- first. This is in contrast to SAWCore, which
+                   -- appends bitvectors in lsb-order; thus we have to
+                   -- swap the arguments.
+                   scAppend sc b s2 s1 arg2 arg1
             _ -> fail "parseSBVExpr: wrong number of arguments for append"
       SBV.BVLkUp indexSize resultSize ->
           do (size1 : inSizes, arg1 : args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
@@ -310,9 +315,6 @@ parseSBVPgm sc unint (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _u
 
 ----------------------------------------------------------------------
 -- New SharedContext operations; should eventually move to SharedTerm.hs.
-
-preludeName :: ModuleName
-preludeName = mkModuleName ["Prelude"]
 
 -- | bv1ToBool :: bitvector 1 -> Bool
 -- bv1ToBool x = get 1 Bool x (FinVal 0 0)
