@@ -361,11 +361,11 @@ cvtType t@(T.STApp _ (T.FTermF ty)) =
     _ -> do
       tparams <- getTransParams
       err $ "Can't convert type to SMT-LIB: " ++
-            T.scPrettyTerm (transContext tparams) t
+            T.scPrettyTerm t
 cvtType t = do
   tparams <- getTransParams
   err $ "Can't convert type to SMT-LIB: " ++
-        T.scPrettyTerm (transContext tparams) t
+        T.scPrettyTerm t
 
 mkFldInfo :: ([FldInfo], Offset) -> (String, SmtType) -> ([FldInfo], Offset)
 mkFldInfo (acc, accOff) (fldNm, fldTy) = (fi : acc, accOff + fiWidth fi)
@@ -487,7 +487,7 @@ translateTerm enabled inps t@(unfoldApp -> Just (f, xs)) = do
     (Just "ite", [_, a, b, c]) -> lift3 iteOp a b c
     (Just "set", [_, a, b, c]) -> lift3 setArrayValueOp a b c
     _                   ->
-      err $ "Malformed application: " ++ T.scPrettyTerm sc t
+      err $ "Malformed application: " ++ T.scPrettyTerm t
         where sc = transContext tparams
   where
   liftTerm = save <=< translateTerm enabled inps

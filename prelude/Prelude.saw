@@ -216,9 +216,6 @@ compareNat Zero y = LeNatOrd Zero y;
 compareNat (Succ x) Zero = GtNatOrd Zero x;
 compareNat (Succ x) (Succ y) = succNatOrdering x y (compareNat x y);
 
---TODO
-
-
 -- There are implicit constructors from integer literals.
 
 --------------------------------------------------------------------------------
@@ -358,7 +355,9 @@ generate :: (n :: Nat) -> (e :: sort 0) -> (Fin n -> e) -> Vec n e;
 
 -- Get and set an individual element in an array.
 get :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e;
---TODO
+get _ _ (ConsVec _ e _ _) (FinVal Zero _) = e;
+get _ tp (ConsVec _ _ _ r) (FinVal (Succ i) j) =
+  get (Succ (addNat j i)) tp r (FinVal i j);
 
 -- | Axiomatic rewrite rule.
 get_generate :: (n :: Nat) -> (e :: sort 0) -> (f :: Fin n -> e) -> (i :: Fin n) ->
@@ -498,10 +497,10 @@ bvToNat :: (n :: Nat) -> bitvector n -> Nat;
 
 bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
 
+bvAddWithCarry :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
+
 bvAddZeroL :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvAdd n (bvNat n 0) x) x;
 bvAddZeroR :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvAdd n x (bvNat n 0)) x;
-
-bvAddWithOverflow :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
 
 bvSub :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
 bvMul :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
@@ -571,12 +570,12 @@ bvAnd = bvZipWith and;
 bvOr  = bvZipWith or;
 bvXor = bvZipWith xor;
 
-get_bvAnd :: (n :: Nat) -> (x :: bitvector n) -> (y :: bitvector n) -> (i :: Fin n) ->
-             Eq Bool (get n Bool (bvAnd n x y) i) (and (get n Bool x i) (get n Bool y i));
+get_bvAnd :: (n :: Nat) -> (x y :: bitvector n) -> (i :: Fin n)
+          -> Eq Bool (get n Bool (bvAnd n x y) i) (and (get n Bool x i) (get n Bool y i));
 get_bvAnd = get_bvZipWith and;
 
-get_bvOr :: (n :: Nat) -> (x :: bitvector n) -> (y :: bitvector n) -> (i :: Fin n) ->
-             Eq Bool (get n Bool (bvOr n x y) i) (or (get n Bool x i) (get n Bool y i));
+get_bvOr :: (n :: Nat) -> (x y :: bitvector n) -> (i :: Fin n)
+         -> Eq Bool (get n Bool (bvOr n x y) i) (or (get n Bool x i) (get n Bool y i));
 get_bvOr = get_bvZipWith or;
 
 get_bvXor :: (n :: Nat) -> (x :: bitvector n) -> (y :: bitvector n) -> (i :: Fin n) ->
@@ -630,5 +629,10 @@ bvSExt x y a = append (Succ y) x ?Bool a (replicate x Bool (msb y a));
 
 data Float :: sort 0 where { }
 
+bvToFloat :: bitvector 32 -> Float;
+floatToBV :: Float -> bitvector 32;
+
 data Double :: sort 0 where { }
 
+bvToDouble :: bitvector 64 -> Double;
+doubleToBV :: Double -> bitvector 64;

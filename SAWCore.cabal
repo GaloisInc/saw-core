@@ -17,7 +17,7 @@ library
     fgl >= 5.3,
     filepath,
     ghc-prim,
-    hashable,
+    hashable >= 1.2,
     lens >= 3.8,
     mtl,
     parsec,
@@ -33,6 +33,7 @@ library
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
+     Verifier.SAW.Conversion
      Verifier.SAW.Export.SmtLibTrans
      Verifier.SAW.Export.SmtLibTrans2
      Verifier.SAW.Export.Yices
@@ -42,8 +43,10 @@ library
      Verifier.SAW.ParserUtils
      Verifier.SAW.Prelude
      Verifier.SAW.Prelude.Constants
+     Verifier.SAW.Rewriter  
      Verifier.SAW.SBVParser
      Verifier.SAW.SharedTerm
+     Verifier.SAW.TermNet
      Verifier.SAW.Typechecker
      Verifier.SAW.TypedAST
   other-modules:
@@ -62,3 +65,15 @@ library
     GeneralizedNewtypeDeriving
     ImplicitParams
     ViewPatterns
+
+test-suite test-sawcore
+  type: exitcode-stdio-1.0
+  main-is: Tests.hs
+  hs-source-dirs: tests/src
+  build-depends:
+      base >= 4
+    , QuickCheck
+    , saw-core
+  other-modules:
+    Tests.SharedTerm
+ 
