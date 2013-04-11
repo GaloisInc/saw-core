@@ -29,10 +29,12 @@ library
     unordered-containers,
     utf8-string,
     vector,
+    MaybeT,
     Verinf
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
+     Verifier.SAW.BitBlast
      Verifier.SAW.Export.SmtLibTrans
      Verifier.SAW.Export.SmtLibTrans2
      Verifier.SAW.Export.Yices
