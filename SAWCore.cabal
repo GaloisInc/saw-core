@@ -78,4 +78,3 @@ test-suite test-sawcore
     , saw-core
   other-modules:
     Tests.SharedTerm
- 
