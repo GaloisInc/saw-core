@@ -49,11 +49,13 @@ bitBlastWith vmap0 tmap0 be t = runMaybeT $ do
           do ls <- liftIO (sequence (replicate (fromIntegral n) (beMakeInputLit be)))
              return (BVector (LV.fromList ls))
       newVars _ = liftMaybe Nothing
-  let go (STVar varidx _ ty) = useCache vcache varidx (newVars ty)
+  let 
       go (STApp _ (FTermF (NatLit n))) = return (BNat n)
+      --go (STVar varidx _ ty) = useCache vcache varidx (newVars ty)
       go (STApp _ (FTermF (CtorApp ident [])))
           | ident == mkIdent preludeName "False" = return (BBool (beFalse be))
           | ident == mkIdent preludeName "True" = return (BBool (beTrue be))
+      go (STApp _ (FTermF (ExtCns ec))) = useCache vcache (ecVarIndex ec) (newVars (ecType ec))
       go t@(STApp termidx _) =
         useCache tcache termidx $
           let (c, xs) = asApplyAll t in

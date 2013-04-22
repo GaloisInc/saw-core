@@ -30,7 +30,8 @@ library
     utf8-string,
     vector,
     MaybeT,
-    Verinf
+    Verinf,
+    wl-pprint
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
@@ -74,7 +75,14 @@ test-suite test-sawcore
   hs-source-dirs: tests/src
   build-depends:
       base >= 4
+    , containers
+    , hashable
+    , lens
+    , mtl
     , QuickCheck
     , saw-core
+    , time
+    , unordered-containers
+    , wl-pprint
   other-modules:
     Tests.SharedTerm

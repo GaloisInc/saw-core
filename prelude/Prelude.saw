@@ -450,7 +450,7 @@ join m n e a =
   let { eltFn :: Fin (mulNat m n) -> e;
         eltFn i = splitFn (finSplitProduct m n i);
         splitFn :: #(Fin m, Fin n) -> e;
-        splitFn (i,j) = get n e (get ?m ?(Vec n e) a i) j;
+        splitFn (i,j) = get n e (get m (Vec n e) a i) j;
       }
    in generate (mulNat m n) e eltFn;
 

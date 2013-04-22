@@ -453,8 +453,9 @@ unfoldApp t@(T.STApp _ _) = return (t, [])
 unfoldApp _ = Nothing
 
 translateTerm :: S.Set Ident -> [FTerm] -> T.SharedTerm s -> M s FTerm
-translateTerm _ inps (T.STVar n _ tp) = return (inps !! fromIntegral n)
 translateTerm _ _ t | isConst t = mkConst t
+translateTerm _ inps (T.STApp n (T.FTermF (T.ExtCns ec))) =
+  return (inps !! fromIntegral (T.ecVarIndex ec))
 translateTerm enabled inps t@(unfoldApp -> Just (f, xs)) = do
   tparams <- getTransParams
   case (preludeDef f, xs) of
@@ -531,7 +532,6 @@ translateTerm _ _ _ = err $ "Unhandled term in translation"
 
 -- TODO: this doesn't preserve sharing within constants.
 mkConst :: T.SharedTerm s -> M s FTerm
-mkConst (T.STVar _ _ _) = bug "mkConst" "mkConst applied to variable"
 mkConst t@(T.STApp _ (T.FTermF v)) = do
   tparams <- getTransParams
   let sc = transContext tparams
