@@ -230,7 +230,6 @@ data Fin :: (n :: Nat) -> sort 0 where {
 finCong :: (m n :: Nat) -> Eq Nat m n -> Eq (sort 0) (Fin m) (Fin n);
 finCong _ _ (Refl _ v) = Refl (sort 0) (Fin v);
 
-
 piCong0 :: (r x y :: sort 0) -> Eq (sort 0) x y -> (Eq (sort 0) (x -> r) (y -> r));
 piCong0 r _ _ (Refl _ tp) = Refl (sort 0) (tp -> r);
 
@@ -487,7 +486,7 @@ bitvector n = Vec n Bool;
 
 -- | Returns most-significant bit in a signed bitvector.
 msb :: (x :: Nat) -> bitvector (Succ x) -> Bool;
-msb x v = get (Succ x) Bool v (FinVal 0 x);
+msb x v = bvMbit (Succ x) v (FinVal 0 x);
 
 -- | (bvNat x n) yields (n mod 2^x) as an x-bit vector.
 bvNat :: (x :: Nat) -> Nat -> bitvector x;
@@ -584,7 +583,7 @@ get_bvXor = get_bvZipWith xor;
 
 -- | Get bit in vector by index with most significant bit at index 0.
 bvMbit :: (n :: Nat) -> bitvector n -> Fin n -> Bool;
-bvMbit n = get n Bool;
+--bvMbit _ v (FinVal i r) = get (Succ (addNat r i)) Bool v (FinVal r i);
 
 -- | Return true if two bitvectors are equal.
 bvEq :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
