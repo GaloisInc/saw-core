@@ -46,14 +46,15 @@ library
      Verifier.SAW.ParserUtils
      Verifier.SAW.Prelude
      Verifier.SAW.Prelude.Constants
+     Verifier.SAW.Recognizer
      Verifier.SAW.Rewriter  
      Verifier.SAW.SBVParser
      Verifier.SAW.SharedTerm
      Verifier.SAW.TermNet
      Verifier.SAW.Typechecker
      Verifier.SAW.TypedAST
-  other-modules:
      Verifier.SAW.Change
+  other-modules:
      Verifier.SAW.Position
      Verifier.SAW.Typechecker.Context
      Verifier.SAW.Typechecker.Monad

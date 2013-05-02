@@ -378,7 +378,7 @@ get_vMove :: (e :: sort 0) -> (m n :: Nat) -> (f :: Fin n -> Fin m) -> (v :: Vec
 get_vMove e m n f v i = get_generate n e (\(j :: Fin n) -> get m e v (f j)) i;
 
 -- | Take a prefix of a vector.
-vTake :: (e :: sort 0) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec x e;
+vTake :: (e :: sort 0) -> (m n :: Nat) -> Vec (addNat m n) e -> Vec m e;
 vTake e n o a = vMove e (addNat n o) n (finIncLim o n) a;
 
 get_vTake :: (e :: sort 0) -> (m n :: Nat) -> (v :: Vec (addNat m n) e) -> (i :: Fin m) ->
@@ -386,7 +386,7 @@ get_vTake :: (e :: sort 0) -> (m n :: Nat) -> (v :: Vec (addNat m n) e) -> (i ::
 get_vTake e m n v i = get_vMove e (addNat m n) m (finIncLim n m) v i;
 
 -- | Returns a suffix of a vector after a given number of elements.
-vDrop :: (e :: sort 0) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec y e;
+vDrop :: (e :: sort 0) -> (m n :: Nat) -> Vec (addNat m n) e -> Vec n e;
 vDrop e i n a = vMove e (addNat i n) n (finInc i n) a;
 
 get_vDrop :: (e :: sort 0) -> (m n :: Nat) -> (v :: Vec (addNat m n) e) -> (i :: Fin n) ->
