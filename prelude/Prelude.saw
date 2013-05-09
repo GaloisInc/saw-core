@@ -216,9 +216,6 @@ compareNat Zero y = LeNatOrd Zero y;
 compareNat (Succ x) Zero = GtNatOrd Zero x;
 compareNat (Succ x) (Succ y) = succNatOrdering x y (compareNat x y);
 
---TODO
-
-
 -- There are implicit constructors from integer literals.
 
 --------------------------------------------------------------------------------
@@ -232,7 +229,6 @@ data Fin :: (n :: Nat) -> sort 0 where {
 
 finCong :: (m n :: Nat) -> Eq Nat m n -> Eq (sort 0) (Fin m) (Fin n);
 finCong _ _ (Refl _ v) = Refl (sort 0) (Fin v);
-
 
 piCong0 :: (r x y :: sort 0) -> Eq (sort 0) x y -> (Eq (sort 0) (x -> r) (y -> r));
 piCong0 r _ _ (Refl _ tp) = Refl (sort 0) (tp -> r);
@@ -358,7 +354,9 @@ generate :: (n :: Nat) -> (e :: sort 0) -> (Fin n -> e) -> Vec n e;
 
 -- Get and set an individual element in an array.
 get :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e;
---TODO
+get _ _ (ConsVec _ e _ _) (FinVal Zero _) = e;
+get _ tp (ConsVec _ _ _ r) (FinVal (Succ i) j) =
+  get (Succ (addNat j i)) tp r (FinVal i j);
 
 -- | Axiomatic rewrite rule.
 get_generate :: (n :: Nat) -> (e :: sort 0) -> (f :: Fin n -> e) -> (i :: Fin n) ->
@@ -380,7 +378,7 @@ get_vMove :: (e :: sort 0) -> (m n :: Nat) -> (f :: Fin n -> Fin m) -> (v :: Vec
 get_vMove e m n f v i = get_generate n e (\(j :: Fin n) -> get m e v (f j)) i;
 
 -- | Take a prefix of a vector.
-vTake :: (e :: sort 0) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec x e;
+vTake :: (e :: sort 0) -> (m n :: Nat) -> Vec (addNat m n) e -> Vec m e;
 vTake e n o a = vMove e (addNat n o) n (finIncLim o n) a;
 
 get_vTake :: (e :: sort 0) -> (m n :: Nat) -> (v :: Vec (addNat m n) e) -> (i :: Fin m) ->
@@ -388,7 +386,7 @@ get_vTake :: (e :: sort 0) -> (m n :: Nat) -> (v :: Vec (addNat m n) e) -> (i ::
 get_vTake e m n v i = get_vMove e (addNat m n) m (finIncLim n m) v i;
 
 -- | Returns a suffix of a vector after a given number of elements.
-vDrop :: (e :: sort 0) -> (x y :: Nat) -> Vec (addNat x y) e -> Vec y e;
+vDrop :: (e :: sort 0) -> (m n :: Nat) -> Vec (addNat m n) e -> Vec n e;
 vDrop e i n a = vMove e (addNat i n) n (finInc i n) a;
 
 get_vDrop :: (e :: sort 0) -> (m n :: Nat) -> (v :: Vec (addNat m n) e) -> (i :: Fin n) ->
@@ -451,7 +449,7 @@ join m n e a =
   let { eltFn :: Fin (mulNat m n) -> e;
         eltFn i = splitFn (finSplitProduct m n i);
         splitFn :: #(Fin m, Fin n) -> e;
-        splitFn (i,j) = get n e (get ?m ?(Vec n e) a i) j;
+        splitFn (i,j) = get n e (get m (Vec n e) a i) j;
       }
    in generate (mulNat m n) e eltFn;
 
@@ -488,7 +486,7 @@ bitvector n = Vec n Bool;
 
 -- | Returns most-significant bit in a signed bitvector.
 msb :: (x :: Nat) -> bitvector (Succ x) -> Bool;
-msb x v = get (Succ x) Bool v (FinVal 0 x);
+msb x v = bvMbit (Succ x) v (FinVal 0 x);
 
 -- | (bvNat x n) yields (n mod 2^x) as an x-bit vector.
 bvNat :: (x :: Nat) -> Nat -> bitvector x;
@@ -498,10 +496,10 @@ bvToNat :: (n :: Nat) -> bitvector n -> Nat;
 
 bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
 
+bvAddWithCarry :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
+
 bvAddZeroL :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvAdd n (bvNat n 0) x) x;
 bvAddZeroR :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvAdd n x (bvNat n 0)) x;
-
-bvAddWithOverflow :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
 
 bvSub :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
 bvMul :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
@@ -571,12 +569,12 @@ bvAnd = bvZipWith and;
 bvOr  = bvZipWith or;
 bvXor = bvZipWith xor;
 
-get_bvAnd :: (n :: Nat) -> (x :: bitvector n) -> (y :: bitvector n) -> (i :: Fin n) ->
-             Eq Bool (get n Bool (bvAnd n x y) i) (and (get n Bool x i) (get n Bool y i));
+get_bvAnd :: (n :: Nat) -> (x y :: bitvector n) -> (i :: Fin n)
+          -> Eq Bool (get n Bool (bvAnd n x y) i) (and (get n Bool x i) (get n Bool y i));
 get_bvAnd = get_bvZipWith and;
 
-get_bvOr :: (n :: Nat) -> (x :: bitvector n) -> (y :: bitvector n) -> (i :: Fin n) ->
-             Eq Bool (get n Bool (bvOr n x y) i) (or (get n Bool x i) (get n Bool y i));
+get_bvOr :: (n :: Nat) -> (x y :: bitvector n) -> (i :: Fin n)
+         -> Eq Bool (get n Bool (bvOr n x y) i) (or (get n Bool x i) (get n Bool y i));
 get_bvOr = get_bvZipWith or;
 
 get_bvXor :: (n :: Nat) -> (x :: bitvector n) -> (y :: bitvector n) -> (i :: Fin n) ->
@@ -585,7 +583,7 @@ get_bvXor = get_bvZipWith xor;
 
 -- | Get bit in vector by index with most significant bit at index 0.
 bvMbit :: (n :: Nat) -> bitvector n -> Fin n -> Bool;
-bvMbit n = get n Bool;
+--bvMbit _ v (FinVal i r) = get (Succ (addNat r i)) Bool v (FinVal r i);
 
 -- | Return true if two bitvectors are equal.
 bvEq :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
@@ -630,5 +628,10 @@ bvSExt x y a = append (Succ y) x ?Bool a (replicate x Bool (msb y a));
 
 data Float :: sort 0 where { }
 
+bvToFloat :: bitvector 32 -> Float;
+floatToBV :: Float -> bitvector 32;
+
 data Double :: sort 0 where { }
 
+bvToDouble :: bitvector 64 -> Double;
+doubleToBV :: Double -> bitvector 64;

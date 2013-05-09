@@ -4,6 +4,8 @@
 module Verifier.SAW.SBVParser
   ( loadSBV
   , parseSBVPgm
+  , UnintMap
+  , Typ(..)
   ) where
 
 import Control.Monad (liftM, foldM, replicateM, unless)
