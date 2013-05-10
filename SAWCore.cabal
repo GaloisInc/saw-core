@@ -23,6 +23,7 @@ library
     parsec,
     pretty,
     process,
+    ref-fd,
     smtLib,
     template-haskell,
     transformers,
