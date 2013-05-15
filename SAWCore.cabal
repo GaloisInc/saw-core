@@ -36,6 +36,7 @@ library
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
+     Verifier.SAW.BitBlast
      Verifier.SAW.Conversion
      Verifier.SAW.Export.SmtLibTrans
      Verifier.SAW.Export.SmtLibTrans2
@@ -46,7 +47,8 @@ library
      Verifier.SAW.ParserUtils
      Verifier.SAW.Prelude
      Verifier.SAW.Prelude.Constants
-     Verifier.SAW.Rewriter  
+     Verifier.SAW.Recognizer
+     Verifier.SAW.Rewriter
      Verifier.SAW.SBVParser
      Verifier.SAW.SharedTerm
      Verifier.SAW.TermNet
