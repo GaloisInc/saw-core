@@ -23,13 +23,13 @@ library
     parsec,
     pretty,
     process,
+    ref-fd,
     smtLib,
     template-haskell,
     transformers,
     unordered-containers,
     utf8-string,
     vector,
-    MaybeT,
     Verinf,
     wl-pprint
   hs-source-dirs: src
@@ -47,7 +47,7 @@ library
      Verifier.SAW.Prelude
      Verifier.SAW.Prelude.Constants
      Verifier.SAW.Recognizer
-     Verifier.SAW.Rewriter  
+     Verifier.SAW.Rewriter
      Verifier.SAW.SBVParser
      Verifier.SAW.SharedTerm
      Verifier.SAW.TermNet
