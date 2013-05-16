@@ -23,6 +23,7 @@ module Prelude where
 -- parameters that are not explicitly passed, but must be found to show that the expression
 -- is well formed.  This is used to ensure the index is valid when reading or updating an array.
 
+
 --------------------------------------------------------------------------------
 -- The Unit type
 data TUnit :: sort 0 where {
@@ -53,6 +54,13 @@ rcoerce y x eq = coerce y x (sym (sort 0) y x eq);
 
 unsafeCoerce :: (y x :: sort 0) -> x -> y;
 unsafeCoerce y x = rcoerce y x (assert (sort 0) y x);
+
+
+piCong0 :: (r x y :: sort 0) -> Eq (sort 0) x y -> (Eq (sort 0) (x -> r) (y -> r));
+piCong0 r _ _ (Refl _ tp) = Refl (sort 0) (tp -> r);
+
+piCong1 :: (r x y :: sort 0) -> Eq (sort 0) x y -> (Eq (sort 0) (r -> x) (r -> y));
+piCong1 r _ _ (Refl _ tp) = Refl (sort 0) (r -> tp);
 
 --------------------------------------------------------------------------------
 -- Booleans
@@ -198,6 +206,13 @@ mulNat :: Nat -> Nat -> Nat;
 mulNat x Zero = 0;
 mulNat x (Succ y) = addNat x (mulNat x y);
 
+data NatDiff :: Nat -> sort 0 where {
+    Greater :: (n::Nat) -> NatDiff n;
+    DiffResult :: (d p :: Nat) -> NatDiff (addNat d p);
+  }
+
+natSub :: (n :: Nat) -> Nat -> NatDiff n;
+
 data NatOrdering :: (x y :: Nat) -> sort 0 where {
     LeNatOrd :: (x z :: Nat) -> NatOrdering x (addNat z x);
     GtNatOrd :: (x z :: Nat) -> NatOrdering (addNat (Succ z) x) x;  
@@ -216,6 +231,7 @@ compareNat Zero y = LeNatOrd Zero y;
 compareNat (Succ x) Zero = GtNatOrd Zero x;
 compareNat (Succ x) (Succ y) = succNatOrdering x y (compareNat x y);
 
+
 -- There are implicit constructors from integer literals.
 
 --------------------------------------------------------------------------------
@@ -229,12 +245,6 @@ data Fin :: (n :: Nat) -> sort 0 where {
 
 finCong :: (m n :: Nat) -> Eq Nat m n -> Eq (sort 0) (Fin m) (Fin n);
 finCong _ _ (Refl _ v) = Refl (sort 0) (Fin v);
-
-piCong0 :: (r x y :: sort 0) -> Eq (sort 0) x y -> (Eq (sort 0) (x -> r) (y -> r));
-piCong0 r _ _ (Refl _ tp) = Refl (sort 0) (tp -> r);
-
-piCong1 :: (r x y :: sort 0) -> Eq (sort 0) x y -> (Eq (sort 0) (r -> x) (r -> y));
-piCong1 r _ _ (Refl _ tp) = Refl (sort 0) (r -> tp);
 
 finSucc :: (n :: Nat) -> Fin n -> Fin (Succ n); 
 finSucc _ (FinVal b r) = FinVal (Succ b) r;
@@ -251,6 +261,7 @@ finMax (Succ i) =
                          (eqNatSucc (addNat 0 i) i (eqNatAdd0 i)))
                 (FinVal i 0));
 
+--
 finPred :: (n :: Nat) -> Fin n -> Maybe (Fin n);
 finPred _ (FinVal Zero r) = Nothing (Fin (Succ r));
 finPred _ (FinVal (Succ i) r) =
@@ -263,12 +274,15 @@ finPred _ (FinVal (Succ i) r) =
                                    (eqNatAddS r i)))
                (FinVal i (Succ r)));
 
+-- | Incretement the value and limit of a finite number.
 finInc :: (i n :: Nat) -> Fin n -> Fin (addNat i n); 
 finInc i _ (FinVal b r) =
   unsafeCoerce (Fin (Succ (addNat i (addNat r b))))
                (Fin (Succ (addNat r (addNat i b))))
                (FinVal (addNat i b) r);
 
+-- | Increment the bound of a finite number without changing
+-- the value.
 finIncLim :: (n :: Nat) -> (m :: Nat) -> Fin m -> Fin (addNat m n);
 finIncLim d _ (FinVal x r) =
   unsafeCoerce (Fin (addNat (Succ (addNat r x)) d))
@@ -284,6 +298,8 @@ forallFin n p =
       }
    in go (finMax n);
 
+-- | Given a Fin value @i@ and a number @m@, returns @Left i@ if @i@ is
+-- less than @m@, and @Right (i - m)@ if @i@ > @m@. 
 finSplitSum :: (m n :: Nat) -> Fin (addNat m n) -> Either (Fin m) (Fin n);
 finSplitSum m n = 
   let { go :: (x :: Nat) -> eqNat (addNat n m) x -> Fin x -> Either (Fin m) (Fin n);
@@ -342,7 +358,7 @@ finSplitProduct :: (m n :: Nat) -> Fin (mulNat m n) -> #(Fin m, Fin n);
 
 --------------------------------------------------------------------------------
 -- "Vec n a" is an array of n elements, each with type "a".
-data Vec :: (n :: Nat) -> sort 0 -> sort 0 where {
+data Vec :: Nat -> sort 0 -> sort 0 where {
     EmptyVec :: (tp :: sort 0) -> Vec 0 tp;
     ConsVec :: (tp :: sort 0) -> tp -> (n::Nat) -> Vec n tp -> Vec (Succ n) tp;
   }
@@ -536,6 +552,16 @@ bvSRem :: (x :: Nat) -> bitvector (Succ x) -> bitvector (Succ x)
 -- | Shift left by the given number of bits.
 -- New bits are False.
 bvShl :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
+bvShl n x j =
+  let { go :: (i m :: Nat) -> bitvector m -> NatOrdering i m -> bitvector m;
+        go _ _ y (LeNatOrd i ni) =
+          unsafeCoerce (bitvector (addNat ni i))
+                       (bitvector (addNat i ni))
+                       (append i ni Bool (replicate i Bool False)
+                                         (vTake Bool ni i y));
+        go _ _ y (GtNatOrd m _) = replicate m Bool False;
+      }
+   in go j n x (compareNat j n);
 
 -- Logical right shift.  New bits are False.
 bvShr :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
