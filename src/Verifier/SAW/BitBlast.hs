@@ -17,7 +17,8 @@ module Verifier.SAW.BitBlast
 
 import Control.Applicative
 import Control.Monad.IO.Class
-import Control.Monad.Maybe
+import Control.Monad.Trans.Maybe
+import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Vector.Storable as LV
@@ -50,16 +51,16 @@ bitBlast be t = do
   bitBlastWith bc t
 
 data BCache l = BCache { bcEngine :: BitEngine l
-                       , bcVarCache :: Cache BBMonad VarIndex (BValue l)
-                       , bcTermCache :: Cache BBMonad TermIndex (BValue l)
+                       , bcVarCache :: Cache IORef VarIndex (BValue l)
+                       , bcTermCache :: Cache IORef TermIndex (BValue l)
                        }
 
 newBCache :: BitEngine l
           -> Map VarIndex (BValue l)
           -> IO (BCache l)
 newBCache be vmap0 = do
-  vcache <- newCacheIORefMap' vmap0
-  tcache <- newCacheIORefMap' Map.empty
+  vcache <- newCacheMap' vmap0
+  tcache <- newCacheMap' Map.empty
   return BCache { bcEngine = be
                 , bcVarCache = vcache
                 , bcTermCache = tcache

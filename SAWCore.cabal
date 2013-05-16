@@ -30,7 +30,6 @@ library
     unordered-containers,
     utf8-string,
     vector,
-    MaybeT,
     Verinf,
     wl-pprint
   hs-source-dirs: src
