@@ -9,6 +9,7 @@ module Verifier.SAW.SBVParser
   ) where
 
 import Control.Monad.State
+import Control.Monad.ST
 import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -19,24 +20,24 @@ import qualified Verinf.SBV.Model as SBV
 
 type NodeCache s = Map SBV.NodeId (SharedTerm s)
 
-parseSBV :: NodeCache s -> SBV.SBV -> SC s (SBV.Size, SharedTerm s)
-parseSBV _ (SBV.SBV size (Left num)) =
-    do x <- scNat size
-       y <- scNat num
-       t <- scBvNat x y
+parseSBV :: SharedContext s -> NodeCache s -> SBV.SBV -> ST s (SBV.Size, SharedTerm s)
+parseSBV sc _ (SBV.SBV size (Left num)) =
+    do x <- scNat sc size
+       y <- scNat sc num
+       t <- scBvNat sc x y
        return (size, t)
-parseSBV nodes (SBV.SBV size (Right nodeid)) =
+parseSBV _ nodes (SBV.SBV size (Right nodeid)) =
     case Map.lookup nodeid nodes of
       Just t -> return (size, t)
       Nothing -> fail "parseSBV"
 
 type UnintMap s = String -> Typ -> Maybe (SharedTerm s)
 
-parseSBVExpr :: UnintMap s -> NodeCache s ->
-                SBV.Size -> SBV.SBVExpr -> SC s (SharedTerm s)
-parseSBVExpr _unint nodes _size (SBV.SBVAtom sbv) =
-    liftM snd $ parseSBV nodes sbv
-parseSBVExpr unint nodes size (SBV.SBVApp operator sbvs) =
+parseSBVExpr :: SharedContext s -> UnintMap s -> NodeCache s ->
+                SBV.Size -> SBV.SBVExpr -> ST s (SharedTerm s)
+parseSBVExpr sc _unint nodes _size (SBV.SBVAtom sbv) =
+    liftM snd $ parseSBV sc nodes sbv
+parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
     case operator of
       SBV.BVAdd -> binop scBvAdd sbvs
       SBV.BVSub -> binop scBvSub sbvs
@@ -47,13 +48,13 @@ parseSBVExpr unint nodes size (SBV.SBVApp operator sbvs) =
       SBV.BVIte ->
           case sbvs of
             [sbv1, sbv2, sbv3] ->
-                do (_size1, arg1) <- parseSBV nodes sbv1
-                   (_size2, arg2) <- parseSBV nodes sbv2
-                   (_size3, arg3) <- parseSBV nodes sbv3
+                do (_size1, arg1) <- parseSBV sc nodes sbv1
+                   (_size2, arg2) <- parseSBV sc nodes sbv2
+                   (_size3, arg3) <- parseSBV sc nodes sbv3
                    -- assert size1 == 1 && size2 == size && size3 == size
-                   s <- scBitvector size
-                   cond <- scBv1ToBool arg1
-                   scIte s cond arg2 arg3
+                   s <- scBitvector sc size
+                   cond <- scBv1ToBool sc arg1
+                   scIte sc s cond arg2 arg3
             _ -> fail "parseSBVExpr: wrong number of arguments for if-then-else"
       SBV.BVShl -> shiftop scBvShl sbvs
       SBV.BVShr -> shiftop scBvShr sbvs
@@ -62,14 +63,14 @@ parseSBVExpr unint nodes size (SBV.SBVApp operator sbvs) =
       SBV.BVExt hi lo ->
           case sbvs of
             [sbv1] ->
-                do (size1, arg1) <- parseSBV nodes sbv1
+                do (size1, arg1) <- parseSBV sc nodes sbv1
                    unless (size == hi - lo + 1) (fail $ "parseSBVExpr BVExt: size mismatch " ++ show (size, hi, lo))
-                   b <- scBoolType
-                   s1 <- scNat lo
-                   s2 <- scNat size
-                   s3 <- scNat (size1 - 1 - hi)
+                   b <- scBoolType sc
+                   s1 <- scNat sc lo
+                   s2 <- scNat sc size
+                   s3 <- scNat sc (size1 - 1 - hi)
                    -- SBV indexes bits starting with 0 = lsb.
-                   scSlice b s1 s2 s3 arg1
+                   scSlice sc b s1 s2 s3 arg1
             _ -> fail "parseSBVExpr: wrong number of arguments for extract"
       SBV.BVAnd -> binop scBvAnd sbvs
       SBV.BVOr  -> binop scBvOr  sbvs
@@ -77,10 +78,10 @@ parseSBVExpr unint nodes size (SBV.SBVApp operator sbvs) =
       SBV.BVNot ->
           case sbvs of
             [sbv1] ->
-                do (size1, arg1) <- parseSBV nodes sbv1
-                   s1 <- scNat size1
+                do (size1, arg1) <- parseSBV sc nodes sbv1
+                   s1 <- scNat sc size1
                    unless (size == size1) (fail $ "parseSBVExpr BVNot: size mismatch " ++ show (size, size1))
-                   scBvNot s1 arg1
+                   scBvNot sc s1 arg1
             _ -> fail "parseSBVExpr: wrong number of arguments for Not"
       SBV.BVEq  -> binrel scBvEq  sbvs
       SBV.BVGeq -> binrel scBvUGe sbvs
@@ -90,69 +91,69 @@ parseSBVExpr unint nodes size (SBV.SBVApp operator sbvs) =
       SBV.BVApp ->
           case sbvs of
             [sbv1, sbv2] ->
-                do (size1, arg1) <- parseSBV nodes sbv1
-                   (size2, arg2) <- parseSBV nodes sbv2
-                   s1 <- scNat size1
-                   s2 <- scNat size2
+                do (size1, arg1) <- parseSBV sc nodes sbv1
+                   (size2, arg2) <- parseSBV sc nodes sbv2
+                   s1 <- scNat sc size1
+                   s2 <- scNat sc size2
                    unless (size == size1 + size2) (fail $ "parseSBVExpr BVApp: size mismatch " ++ show (size, size1, size2))
-                   b <- scBoolType
+                   b <- scBoolType sc
                    -- SBV append takes the most-significant argument
                    -- first. This is in contrast to SAWCore, which
                    -- appends bitvectors in lsb-order; thus we have to
                    -- swap the arguments.
-                   scAppend b s2 s1 arg2 arg1
+                   scAppend sc b s2 s1 arg2 arg1
             _ -> fail "parseSBVExpr: wrong number of arguments for append"
       SBV.BVLkUp indexSize resultSize ->
-          do (size1 : inSizes, arg1 : args) <- liftM unzip $ mapM (parseSBV nodes) sbvs
+          do (size1 : inSizes, arg1 : args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
              unless (size1 == indexSize && all (== resultSize) inSizes)
                         (fail $ "parseSBVExpr BVLkUp: size mismatch")
-             n <- scNat (toInteger (length args))
-             e <- scBitvector resultSize
-             vec <- scVector e args
+             n <- scNat sc (toInteger (length args))
+             e <- scBitvector sc resultSize
+             vec <- scVector sc e args
              fin <- return arg1 -- FIXME: cast arg1 to type Fin n
-             scGet n e vec fin
+             scGet sc n e vec fin
       SBV.BVUnint _loc _codegen (name, irtyp) ->
           do let typ = parseIRType irtyp
              t <- case unint name typ of
                Just t -> return t
                Nothing ->
                    do -- putStrLn ("WARNING: unknown uninterpreted function " ++ show (name, typ, size))
-                      scGlobalDef (mkIdent preludeName name)
-             (inSizes, args) <- liftM unzip $ mapM (parseSBV nodes) sbvs
+                      scGlobalDef sc (mkIdent preludeName name)
+             (inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
              let (TFun inTyp outTyp) = typ
              -- unless (typSizes inTyp == inSizes) (putStrLn ("ERROR parseSBVPgm: input size mismatch in " ++ name) >> print inTyp >> print inSizes)
-             argument <- combineOutputs inTyp args
-             result <- scApply t argument
-             results <- splitInputs outTyp result
+             argument <- combineOutputs sc inTyp args
+             result <- scApply sc t argument
+             results <- splitInputs sc outTyp result
              let outSizes = typSizes outTyp
-             scAppendAll (zip results outSizes)
+             scAppendAll sc (zip results outSizes)
     where
       -- | scMkOp :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
       binop scMkOp [sbv1, sbv2] =
-          do (size1, arg1) <- parseSBV nodes sbv1
-             (size2, arg2) <- parseSBV nodes sbv2
+          do (size1, arg1) <- parseSBV sc nodes sbv1
+             (size2, arg2) <- parseSBV sc nodes sbv2
              unless (size1 == size && size2 == size) (fail $ "parseSBVExpr binop: size mismatch " ++ show (size, size1, size2))
-             s <- scNat size
-             scMkOp s arg1 arg2
+             s <- scNat sc size
+             scMkOp sc s arg1 arg2
       binop _ _ = fail "parseSBVExpr: wrong number of arguments for binop"
       -- | scMkRel :: (x :: Nat) -> bitvector x -> bitvector x -> Bool;
       binrel scMkRel [sbv1, sbv2] =
-          do (size1, arg1) <- parseSBV nodes sbv1
-             (size2, arg2) <- parseSBV nodes sbv2
+          do (size1, arg1) <- parseSBV sc nodes sbv1
+             (size2, arg2) <- parseSBV sc nodes sbv2
              unless (size == 1 && size1 == size2) (fail $ "parseSBVExpr binrel: size mismatch " ++ show (size, size1, size2))
-             s <- scNat size1
-             t <- scMkRel s arg1 arg2
-             scBoolToBv1 t
+             s <- scNat sc size1
+             t <- scMkRel sc s arg1 arg2
+             scBoolToBv1 sc t
       binrel _ _ = fail "parseSBVExpr: wrong number of arguments for binrel"
       -- | scMkOp :: (x :: Nat) -> bitvector x -> Nat -> bitvector x;
       shiftop scMkOp [sbv1, sbv2] =
-          do (size1, arg1) <- parseSBV nodes sbv1
-             (size2, arg2) <- parseSBV nodes sbv2
+          do (size1, arg1) <- parseSBV sc nodes sbv1
+             (size2, arg2) <- parseSBV sc nodes sbv2
              unless (size1 == size) (fail "parseSBVExpr shiftop: size mismatch")
-             s1 <- scNat size1
-             s2 <- scNat size2
-             amt <- scGlobalApply (mkIdent preludeName "bvToNat") [s2, arg2]
-             scMkOp s1 arg1 amt
+             s1 <- scNat sc size1
+             s2 <- scNat sc size2
+             amt <- scGlobalApply sc (mkIdent preludeName "bvToNat") [s2, arg2]
+             scMkOp sc s1 arg1 amt
       shiftop _ _ = fail "parseSBVExpr: wrong number of arguments for binop"
 
 ----------------------------------------------------------------------
@@ -178,9 +179,9 @@ partitionSBVCommands = foldr select ([], [], [])
                 (assigns, inputs, sbv : outputs)
 
 -- TODO: Should I use a state monad transformer?
-parseSBVAssign :: UnintMap s -> NodeCache s -> SBVAssign -> SC s (NodeCache s)
-parseSBVAssign unint nodes (SBVAssign size nodeid expr) =
-    do term <- parseSBVExpr unint nodes size expr
+parseSBVAssign :: SharedContext s -> UnintMap s -> NodeCache s -> SBVAssign -> ST s (NodeCache s)
+parseSBVAssign sc unint nodes (SBVAssign size nodeid expr) =
+    do term <- parseSBVExpr sc unint nodes size expr
        return (Map.insert nodeid term nodes)
 
 ----------------------------------------------------------------------
@@ -218,64 +219,64 @@ typSizes (TVec n t) = concat (replicate (fromIntegral n) (typSizes t))
 typSizes (TRecord fields) = concatMap (typSizes . snd) fields
 typSizes (TFun _ _) = error "typSizes: not a first-order type"
 
-scTyp :: Typ -> SC s (SharedTerm s)
-scTyp TBool = scBoolType
-scTyp (TFun a b) =
-    do s <- scTyp a
-       t <- scTyp b
-       scFun s t
-scTyp (TVec n TBool) =
-    do scBitvector n
-scTyp (TVec _ _) =
+scTyp :: SharedContext s -> Typ -> ST s (SharedTerm s)
+scTyp sc TBool = scBoolType sc
+scTyp sc (TFun a b) =
+    do s <- scTyp sc a
+       t <- scTyp sc b
+       scFun sc s t
+scTyp sc (TVec n TBool) =
+    do scBitvector sc n
+scTyp _ (TVec _ _) =
     error "scTyp: unimplemented"
-scTyp (TTuple as) =
-    do ts <- mapM scTyp as
-       scTupleType ts
-scTyp (TRecord fields) =
+scTyp sc (TTuple as) =
+    do ts <- mapM (scTyp sc) as
+       scTupleType sc ts
+scTyp sc (TRecord fields) =
     do let (names, as) = unzip fields
-       ts <-mapM scTyp as
-       scRecordType (Map.fromList (zip names ts))
+       ts <-mapM (scTyp sc) as
+       scRecordType sc (Map.fromList (zip names ts))
 
 -- | projects all the components out of the input term
 -- TODO: rename to splitInput?
-splitInputs :: Typ -> SharedTerm s -> SC s [SharedTerm s]
-splitInputs TBool x =
+splitInputs :: SharedContext s -> Typ -> SharedTerm s -> ST s [SharedTerm s]
+splitInputs _sc TBool x =
     do t <- error "Bool -> bitvector 1" x
        return [t]
-splitInputs (TTuple ts) x =
-    do xs <- mapM (scTupleSelector x) [1 .. length ts]
-       yss <- sequence (zipWith splitInputs ts xs)
+splitInputs sc (TTuple ts) x =
+    do xs <- mapM (scTupleSelector sc x) [1 .. length ts]
+       yss <- sequence (zipWith (splitInputs sc) ts xs)
        return (concat yss)
-splitInputs (TVec _ TBool) x = return [x]
-splitInputs (TVec _ _) _ = error "splitInputs TVec: unimplemented"
-splitInputs (TFun _ _) _ = error "splitInputs TFun: not a first-order type"
-splitInputs (TRecord fields) x =
+splitInputs _ (TVec _ TBool) x = return [x]
+splitInputs _ (TVec _ _) _ = error "splitInputs TVec: unimplemented"
+splitInputs _ (TFun _ _) _ = error "splitInputs TFun: not a first-order type"
+splitInputs sc (TRecord fields) x =
     do let (names, ts) = unzip fields
-       xs <- mapM (scRecordSelect x) names
-       yss <- sequence (zipWith splitInputs ts xs)
+       xs <- mapM (scRecordSelect sc x) names
+       yss <- sequence (zipWith (splitInputs sc) ts xs)
        return (concat yss)
 
 ----------------------------------------------------------------------
 
 -- | Combines outputs into a data structure according to Typ
-combineOutputs :: forall s. Typ -> [SharedTerm s] -> SC s (SharedTerm s)
-combineOutputs ty xs0 =
+combineOutputs :: forall s. SharedContext s -> Typ -> [SharedTerm s] -> ST s (SharedTerm s)
+combineOutputs sc ty xs0 =
     do (z, ys) <- runStateT (go ty) xs0
        unless (null ys) (fail "combineOutputs: too many outputs")
        return z
     where
-      pop :: StateT [SharedTerm s] (SC s) (SharedTerm s)
+      pop :: StateT [SharedTerm s] (ST s) (SharedTerm s)
       pop = do xs <- get
                case xs of
                  [] -> fail "combineOutputs: too few outputs"
                  y : ys -> put ys >> return y
-      go :: Typ -> StateT [SharedTerm s] (SC s) (SharedTerm s)
+      go :: Typ -> StateT [SharedTerm s] (ST s) (SharedTerm s)
       go TBool =
           do x <- pop
-             lift (scBv1ToBool x)
+             lift (scBv1ToBool sc x)
       go (TTuple ts) =
           do xs <- mapM go ts
-             lift (scTuple xs)
+             lift (scTuple sc xs)
       go (TVec _ TBool) = pop
       go (TVec n t) =
           do xs <- replicateM (fromIntegral n) (go t)
@@ -283,14 +284,14 @@ combineOutputs ty xs0 =
       go (TRecord fields) =
           do let (names, ts) = unzip fields
              xs <- mapM go ts
-             lift (scMkRecord (Map.fromList (zip names xs)))
+             lift (scMkRecord sc (Map.fromList (zip names xs)))
       go (TFun _ _) =
           fail "combineOutputs: not a first-order type"
 
 ----------------------------------------------------------------------
 
-parseSBVPgm :: UnintMap s -> SBV.SBVPgm -> SC s (SharedTerm s)
-parseSBVPgm unint (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninterps)) =
+parseSBVPgm :: SharedContext s -> UnintMap s -> SBV.SBVPgm -> ST s (SharedTerm s)
+parseSBVPgm sc unint (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _uninterps)) =
     do let (TFun inTyp outTyp) = parseIRType irtype
        let cmds = reverse revcmds
        let (assigns, inputs, outputs) = partitionSBVCommands cmds
@@ -300,61 +301,61 @@ parseSBVPgm unint (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _unin
        --putStrLn ("outTyp: " ++ show outTyp)
        --putStrLn ("inSizes: " ++ show inSizes)
        unless (typSizes inTyp == inSizes) (fail "parseSBVPgm: input size mismatch")
-       inputType <- scTyp inTyp
-       inputVar <- scLocalVar 0 inputType
-       inputTerms <- splitInputs inTyp inputVar
+       inputType <- scTyp sc inTyp
+       inputVar <- scLocalVar sc 0 inputType
+       inputTerms <- splitInputs sc inTyp inputVar
        --putStrLn "processing..."
        let nodes0 = Map.fromList (zip inNodes inputTerms)
-       nodes <- foldM (parseSBVAssign unint) nodes0 assigns
+       nodes <- foldM (parseSBVAssign sc unint) nodes0 assigns
        --putStrLn "collecting output..."
-       outputTerms <- mapM (liftM snd . parseSBV nodes) outputs
-       outputTerm <- combineOutputs outTyp outputTerms
-       scLambda "x" inputType outputTerm
+       outputTerms <- mapM (liftM snd . parseSBV sc nodes) outputs
+       outputTerm <- combineOutputs sc outTyp outputTerms
+       scLambda sc "x" inputType outputTerm
 
 ----------------------------------------------------------------------
 -- New SharedContext operations; should eventually move to SharedTerm.hs.
 
 -- | bv1ToBool :: bitvector 1 -> Bool
 -- bv1ToBool x = get 1 Bool x (FinVal 0 0)
-scBv1ToBool :: SharedTerm s -> SC s (SharedTerm s)
-scBv1ToBool x =
-    do n0 <- scNat 0
-       n1 <- scNat 1
-       b <- scBoolType
-       f0 <- scFlatTermF (CtorApp (mkIdent preludeName "FinVal") [n0, n0])
-       scGet n1 b x f0
+scBv1ToBool :: SharedContext s -> SharedTerm s -> ST s (SharedTerm s)
+scBv1ToBool sc x =
+    do n0 <- scNat sc 0
+       n1 <- scNat sc 1
+       b <- scBoolType sc
+       f0 <- scFlatTermF sc (CtorApp (mkIdent preludeName "FinVal") [n0, n0])
+       scGet sc n1 b x f0
 
 -- | boolToBv1 :: Bool -> bitvector 1
-scBoolToBv1 :: SharedTerm s -> SC s (SharedTerm s)
-scBoolToBv1 x =
-    do b <- scBoolType
-       scSingle b x
+scBoolToBv1 :: SharedContext s -> SharedTerm s -> ST s (SharedTerm s)
+scBoolToBv1 sc x =
+    do b <- scBoolType sc
+       scSingle sc b x
 
-scAppendAll :: [(SharedTerm s, Integer)] -> SC s (SharedTerm s)
-scAppendAll [] = error "scAppendAll: unimplemented"
-scAppendAll [(x, _)] = return x
-scAppendAll ((x, size1) : xs) =
+scAppendAll :: SharedContext s -> [(SharedTerm s, Integer)] -> ST s (SharedTerm s)
+scAppendAll _ [] = error "scAppendAll: unimplemented"
+scAppendAll _ [(x, _)] = return x
+scAppendAll sc ((x, size1) : xs) =
     do let size2 = sum (map snd xs)
-       b <- scBoolType
-       s1 <- scNat size1
-       s2 <- scNat size2
-       y <- scAppendAll xs
-       scAppend b s1 s2 x y
+       b <- scBoolType sc
+       s1 <- scNat sc size1
+       s2 <- scNat sc size2
+       y <- scAppendAll sc xs
+       scAppend sc b s1 s2 x y
 
 -- | get :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e;
-scGet :: SharedTerm s -> SharedTerm s ->
-         SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-scGet n e v i = scGlobalApply (mkIdent preludeName "get") [n, e, v, i]
+scGet :: SharedContext s -> SharedTerm s -> SharedTerm s ->
+         SharedTerm s -> SharedTerm s -> ST s (SharedTerm s)
+scGet sc n e v i = scGlobalApply sc (mkIdent preludeName "get") [n, e, v, i]
 
 -- | single :: (e :: sort 1) -> e -> Vec 1 e;
 -- single e x = generate 1 e (\(i :: Fin 1) -> x);
-scSingle :: SharedTerm s -> SharedTerm s -> SC s (SharedTerm s)
-scSingle e x = scGlobalApply (mkIdent preludeName "single") [e, x]
+scSingle :: SharedContext s -> SharedTerm s -> SharedTerm s -> ST s (SharedTerm s)
+scSingle sc e x = scGlobalApply sc (mkIdent preludeName "single") [e, x]
 
-scVector :: SharedTerm s -> [SharedTerm s] -> SC s (SharedTerm s)
-scVector e xs =
-  do singles <- mapM (scSingle e) xs
-     scAppendAll [ (x, 1) | x <- singles ]
+scVector :: SharedContext s -> SharedTerm s -> [SharedTerm s] -> ST s (SharedTerm s)
+scVector sc e xs =
+  do singles <- mapM (scSingle sc e) xs
+     scAppendAll sc [ (x, 1) | x <- singles ]
 
 loadSBV :: FilePath -> IO SBV.SBVPgm
 loadSBV = SBV.loadSBV

@@ -539,7 +539,7 @@ mkConst :: T.SharedTerm s -> M s FTerm
 mkConst t@(T.STApp _ (T.FTermF v)) = do
   tparams <- getTransParams
   let sc = transContext tparams
-  ty <- liftSTtoM $ T.runSC (T.scTypeOf t) sc
+  ty <- liftSTtoM $ T.scTypeOf sc t
   sty <- cvtType ty
   case v of
     T.ArrayValue ety vs -> do
