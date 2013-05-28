@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module Verifier.SAW.BitBlast
@@ -12,18 +13,19 @@ module Verifier.SAW.BitBlast
   , BCache
   , bcEngine
   , newBCache
+  , addCut
   , bitBlastWith
   ) where
 
 import Control.Applicative
-import Control.Monad.IO.Class
+import Control.Monad
+import Control.Monad.Trans
 import Control.Monad.Trans.Maybe
 import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Vector.Storable as LV
 
-import Verifier.SAW.Cache
 import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
@@ -47,24 +49,27 @@ liftMaybe m = MaybeT (return m)
 
 bitBlast :: (Eq l, LV.Storable l) => BitEngine l -> SharedTerm s -> IO (Maybe (BValue l))
 bitBlast be t = do
-  bc <- newBCache be Map.empty
+  bc <- newBCache be
   bitBlastWith bc t
 
-data BCache l = BCache { bcEngine :: BitEngine l
-                       , bcVarCache :: Cache IORef VarIndex (BValue l)
-                       , bcTermCache :: Cache IORef TermIndex (BValue l)
+data BCache l = BCache { bcEngine :: !(BitEngine l)
+                       , bcTermCache :: !(IORef (Map TermIndex (BValue l)))
                        }
 
 newBCache :: BitEngine l
-          -> Map VarIndex (BValue l)
           -> IO (BCache l)
-newBCache be vmap0 = do
-  vcache <- newCacheMap' vmap0
-  tcache <- newCacheMap' Map.empty
+newBCache be = do
+  tcache <- newIORef Map.empty
   return BCache { bcEngine = be
-                , bcVarCache = vcache
                 , bcTermCache = tcache
                 }
+
+addCut :: BCache l -> SharedTerm s -> BValue l -> IO ()
+addCut bc (STApp t _) bits = do
+  m <- readIORef (bcTermCache bc)
+  when (Map.member t m) $
+    fail "internal: addCut given term that has already been bitblasted."
+  writeIORef (bcTermCache bc) $! Map.insert t bits m
 
 bitBlastWith :: (Eq l, LV.Storable l) => BCache l -> SharedTerm s -> IO (Maybe (BValue l))
 bitBlastWith bc t0 = runMaybeT (go t0)
@@ -77,17 +82,18 @@ bitBlastWith bc t0 = runMaybeT (go t0)
         go (asCtor -> Just (ident, []))
           | ident == "Prelude.False" = return (BBool (beFalse be))
           | ident == "Prelude.True"  = return (BBool (beTrue be))
-        go (STApp _ (FTermF (ExtCns ec))) =
-          useCache (bcVarCache bc) (ecVarIndex ec) (newVars (ecType ec))
-        go t@(STApp termidx _) =
-          useCache (bcTermCache bc) termidx $
-            let (c, xs) = asApplyAll t in
-            case c of
-              STApp _ (FTermF (GlobalDef ident)) ->
-                case Map.lookup ident opTable of
-                  Just op -> op be go xs
-                  Nothing -> liftMaybe Nothing
-              _ -> liftMaybe Nothing
+        go t@(STApp termidx tf) = do
+          let pushNew r = r <$ lift (addCut bc t r)
+          m <- lift $ readIORef (bcTermCache bc)
+          case Map.lookup termidx m of
+            Just r -> return r
+            Nothing
+              | FTermF (ExtCns ec) <- tf ->
+                  pushNew =<< newVars (ecType ec)
+              | (STApp _ (FTermF (GlobalDef ident)), xs) <- asApplyAll t
+              , Just op <- Map.lookup ident opTable ->
+                  pushNew =<< op be go xs
+              | otherwise -> liftMaybe Nothing
 
 type BValueOp s l
   = BitEngine l
