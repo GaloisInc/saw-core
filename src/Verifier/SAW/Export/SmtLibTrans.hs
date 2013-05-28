@@ -12,7 +12,6 @@ import SMTLib1.QF_AUFBV as BV
 import Control.Monad.Error
 import Control.Monad.Reader
 import Control.Monad.State
-import Control.Monad.ST
 import qualified Data.Vector as V
 import qualified Data.Set as S
 import qualified Data.IntMap as IM
@@ -42,7 +41,7 @@ data MetaData = MetaData
   , trArrays   :: M.Map Ident [Ident]
   }
 
-translate :: TransParams s -> ST s (Script, MetaData)
+translate :: TransParams s -> IO (Script, MetaData)
 translate ps =
   toScript ps (transName ps) (transExtArr ps) $
   do (xs,ts) <- unzip `fmap` mapM mkInp (transInputs ps)
@@ -84,7 +83,7 @@ translate ps =
 type X = String
 
 toScript :: TransParams s -> String -> Bool -> M s (Formula, a)
-         -> ST s (Script, a)
+         -> IO (Script, a)
 toScript ps n extArr (M m) =
   do res <- runErrorT $ runStateT (runReaderT m r0) s0
      case res of
@@ -152,8 +151,8 @@ toVar _           = bug "translate.toVar" "Argument is not a variable"
 --------------------------------------------------------------------------------
 -- The Monad
 
-newtype M s a = M (ReaderT R (StateT (S s) (ErrorT X (ST s))) a)
-              deriving (Functor, Monad)
+newtype M s a = M (ReaderT R (StateT (S s) (ErrorT X IO)) a)
+              deriving (Functor, Monad, MonadIO)
 
 data R = R { useExtArr :: Bool }
 
@@ -172,9 +171,6 @@ data S s = S { names        :: !Int
              , notes        :: Doc
              , transParams  :: TransParams s
              }
-
-liftSTtoM :: ST s a -> M s a
-liftSTtoM s = M (lift (lift (lift s)))
 
 useExtArrays :: M s Bool
 useExtArrays = M (useExtArr `fmap` ask)
@@ -539,7 +535,7 @@ mkConst :: T.SharedTerm s -> M s FTerm
 mkConst t@(T.STApp _ (T.FTermF v)) = do
   tparams <- getTransParams
   let sc = transContext tparams
-  ty <- liftSTtoM $ T.scTypeOf sc t
+  ty <- liftIO $ T.scTypeOf sc t
   sty <- cvtType ty
   case v of
     T.ArrayValue ety vs -> do

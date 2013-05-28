@@ -10,7 +10,6 @@ import SMTLib2.BitVector
 import SMTLib2.Array
 import SMTLib2.Compat1
 import Control.Applicative
-import Control.Monad.ST
 import qualified Data.Map as M
 import qualified Data.Vector as V
 import Data.Traversable(traverse)
@@ -27,7 +26,7 @@ data MetaData = MetaData
 
 
 
-translate :: SMT1.TransParams s -> ST s (Script, MetaData)
+translate :: SMT1.TransParams s -> IO (Script, MetaData)
 translate ps =
   do (s1,m1) <- SMT1.translate ps
      case toEither (script s1) of
