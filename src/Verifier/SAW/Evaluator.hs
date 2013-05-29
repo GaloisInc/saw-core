@@ -103,17 +103,40 @@ evalDef rec (Def ident _ eqns) = vFuns arity (tryEqns eqns)
            let env = reverse (Map.elems inst)
            return (rec env e)
 
+-- FIXME: unify types @Def e@ and @LocalDef e@ to avoid this duplication.
+evalLocalDef :: forall e. ([Value] -> e -> Value) -> LocalDef e -> Value
+evalLocalDef rec (LocalFnDef name _ eqns) = vFuns arity (tryEqns eqns)
+  where
+    arity :: Int
+    arity = lengthDefEqn (head eqns)
+    lengthDefEqn :: DefEqn e -> Int
+    lengthDefEqn (DefEqn ps _) = length ps
+    vFuns :: Int -> ([Value] -> Value) -> Value
+    vFuns 0 f = f []
+    vFuns n f = VFun (\x -> vFuns (n - 1) (\xs -> f (x : xs)))
+    tryEqns :: [DefEqn e] -> [Value] -> Value
+    tryEqns (eqn : eqns') xs = fromMaybe (tryEqns eqns' xs) (tryEqn eqn xs)
+    tryEqns [] _ = error $ "Pattern match failure: " ++ name
+    tryEqn :: DefEqn e -> [Value] -> Maybe Value
+    tryEqn (DefEqn ps e) xs =
+        do inst <- matchValues ps xs
+           let env = reverse (Map.elems inst)
+           return (rec env e)
+
 ------------------------------------------------------------
 
 -- | Generic applicative evaluator for TermFs.
-evalTermF :: Applicative f => (Ident -> Value) -> (t -> Value -> Value)
+evalTermF :: (Show t, Applicative f) => (Ident -> Value) -> ([Value] -> t -> Value)
               -> (t -> f Value) -> [Value] -> TermF t -> f Value
 evalTermF global lam rec env tf =
   case tf of
-    Lambda (PVar _ 0 _) _ t -> pure $ VFun (lam t)
+    Lambda (PVar _ 0 _) _ t -> pure $ VFun (\x -> lam (x : env) t)
     Lambda _ _ _            -> error "evalTermF Lambda (non-var) unimplemented"
     Pi {}                   -> pure $ VType
-    Let {}                  -> error "evalTermF Let unimplemented"
+    Let ds t                -> pure $ lam env' t
+                                 where
+                                   env' = reverse vs ++ env
+                                   vs = map (evalLocalDef (\xs -> lam (xs ++ env'))) ds
     LocalVar i _            -> pure $ (env !! i)
     FTermF ftf              ->
       case ftf of
@@ -138,7 +161,7 @@ evalTermF global lam rec env tf =
 evalTerm :: (Ident -> Value) -> [Value] -> Term -> Value
 evalTerm global env (Term tf) = runIdentity (evalTermF global lam rec env tf)
   where
-    lam t v = evalTerm global (v : env) t
+    lam = evalTerm global
     rec t = pure (evalTerm global env t)
 
 evalTypedDef :: (Ident -> Value) -> TypedDef -> Value
@@ -156,7 +179,7 @@ evalTypedDef global = evalDef (evalTerm global)
 
 -- | Evaluator for shared terms.
 evalSharedTerm :: (Ident -> Value) -> SharedTerm s -> Value
-evalSharedTerm global t = evalOpen global (mkMemoClosed global t) t []
+evalSharedTerm global t = evalOpen global (mkMemoClosed global t) [] t
 
 -- | Precomputing the memo table for closed subterms.
 mkMemoClosed :: forall s. (Ident -> Value) -> SharedTerm s -> Map TermIndex Value
@@ -179,15 +202,15 @@ mkMemoClosed global t = memoClosed
 evalClosedTermF :: (Ident -> Value) -> Map TermIndex Value -> TermF (SharedTerm s) -> Value
 evalClosedTermF global memoClosed tf = runIdentity (evalTermF global lam rec [] tf)
   where
-    lam t v = evalOpen global memoClosed t [v]
+    lam = evalOpen global memoClosed
     rec (STApp i _) =
       case Map.lookup i memoClosed of
         Just v -> pure v
         Nothing -> error "evalClosedTermF: internal error"
 
 -- | Evaluator for open terms; parameterized by a precomputed table @memoClosed@.
-evalOpen :: forall s. (Ident -> Value) -> Map TermIndex Value -> SharedTerm s -> [Value] -> Value
-evalOpen global memoClosed t env = State.evalState (go t) Map.empty
+evalOpen :: forall s. (Ident -> Value) -> Map TermIndex Value -> [Value] -> SharedTerm s -> Value
+evalOpen global memoClosed env t = State.evalState (go t) Map.empty
   where
     go :: SharedTerm s -> State.State (Map TermIndex Value) Value
     go (STApp i tf) =
@@ -202,7 +225,7 @@ evalOpen global memoClosed t env = State.evalState (go t) Map.empty
               State.modify (Map.insert i v)
               return v
     evalF :: TermF (SharedTerm s) -> State.State (Map TermIndex Value) Value
-    evalF tf = evalTermF global (\t' v -> evalOpen global memoClosed t' (v : env)) go env tf
+    evalF tf = evalTermF global (evalOpen global memoClosed) go env tf
 
 ------------------------------------------------------------
 -- Representing primitives as Values
