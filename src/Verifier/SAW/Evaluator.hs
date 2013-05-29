@@ -84,7 +84,7 @@ matchValues (p : ps) (x : xs) = Map.union <$> matchValue p x <*> matchValues ps 
 
 -- | Evaluator for pattern-matching function definitions,
 -- parameterized by an evaluator for right-hand sides.
-evalDef :: forall e. ([Value] -> e -> Value) -> Def e -> Value
+evalDef :: forall n e. Show n => ([Value] -> e -> Value) -> GenericDef n e -> Value
 evalDef rec (Def ident _ eqns) = vFuns arity (tryEqns eqns)
   where
     arity :: Int
@@ -97,26 +97,6 @@ evalDef rec (Def ident _ eqns) = vFuns arity (tryEqns eqns)
     tryEqns :: [DefEqn e] -> [Value] -> Value
     tryEqns (eqn : eqns') xs = fromMaybe (tryEqns eqns' xs) (tryEqn eqn xs)
     tryEqns [] _ = error $ "Pattern match failure: " ++ show ident
-    tryEqn :: DefEqn e -> [Value] -> Maybe Value
-    tryEqn (DefEqn ps e) xs =
-        do inst <- matchValues ps xs
-           let env = reverse (Map.elems inst)
-           return (rec env e)
-
--- FIXME: unify types @Def e@ and @LocalDef e@ to avoid this duplication.
-evalLocalDef :: forall e. ([Value] -> e -> Value) -> LocalDef e -> Value
-evalLocalDef rec (LocalFnDef name _ eqns) = vFuns arity (tryEqns eqns)
-  where
-    arity :: Int
-    arity = lengthDefEqn (head eqns)
-    lengthDefEqn :: DefEqn e -> Int
-    lengthDefEqn (DefEqn ps _) = length ps
-    vFuns :: Int -> ([Value] -> Value) -> Value
-    vFuns 0 f = f []
-    vFuns n f = VFun (\x -> vFuns (n - 1) (\xs -> f (x : xs)))
-    tryEqns :: [DefEqn e] -> [Value] -> Value
-    tryEqns (eqn : eqns') xs = fromMaybe (tryEqns eqns' xs) (tryEqn eqn xs)
-    tryEqns [] _ = error $ "Pattern match failure: " ++ name
     tryEqn :: DefEqn e -> [Value] -> Maybe Value
     tryEqn (DefEqn ps e) xs =
         do inst <- matchValues ps xs
@@ -136,7 +116,7 @@ evalTermF global lam rec env tf =
     Let ds t                -> pure $ lam env' t
                                  where
                                    env' = reverse vs ++ env
-                                   vs = map (evalLocalDef (\xs -> lam (xs ++ env'))) ds
+                                   vs = map (evalDef (\xs -> lam (xs ++ env'))) ds
     LocalVar i _            -> pure $ (env !! i)
     FTermF ftf              ->
       case ftf of
