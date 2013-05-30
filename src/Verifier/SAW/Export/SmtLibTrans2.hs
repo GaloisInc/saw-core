@@ -24,8 +24,6 @@ data MetaData = MetaData
   , trArrays   :: M.Map Ident [Ident]
   }
 
-
-
 translate :: SMT1.TransParams s -> IO (Script, MetaData)
 translate ps =
   do (s1,m1) <- SMT1.translate ps

@@ -7,7 +7,8 @@ module Verifier.SAW.Export.SmtLibTrans
   , MetaData(..)
   ) where
 
-import GHC.Exts(IsString(fromString))
+import Control.Applicative
+import Data.String (fromString)
 import SMTLib1.QF_AUFBV as BV
 import Control.Monad.Error
 import Control.Monad.Reader
@@ -190,14 +191,15 @@ addArrayUpdate old new =
                                                           (arrayUpdates s) }
 
 getArrayUpdates :: M s (M.Map Ident [Ident])
-getArrayUpdates = M $ arrayUpdates `fmap` get
+getArrayUpdates = M $ arrayUpdates <$> get
 
 getTransParams :: M s (TransParams s)
-getTransParams = M $ transParams `fmap` get
+getTransParams = M $ transParams <$> get
 
 getDefinedOps :: M s (IM.IntMap (String, M.Map (V.Vector FTerm) FTerm))
-getDefinedOps = M $ extraDef `fmap` get
+getDefinedOps = M $ extraDef <$> get
 
+{-
 lkpDefinedOp :: Int -> V.Vector FTerm -> M s (Maybe FTerm)
 lkpDefinedOp x ts =
   do mp <- getDefinedOps
@@ -209,6 +211,7 @@ addDefinedOp x name ts t = M $ state_ $
   where upd val = Just (case val of
                           Nothing -> (name,M.singleton ts t)
                           Just (n,mp) -> (n,M.insert ts t mp))
+-}
 
 padArray :: SmtType -> BV.Term -> M s BV.Term
 padArray ty@(TArray n w) t =
@@ -313,8 +316,8 @@ data SmtType = TBool
 type Offset = Integer
 type Width  = Integer
 
-data FldInfo = FldInfo { fiName  :: String
-                       , fiOff   :: Offset
+data FldInfo = FldInfo { _fiName  :: String
+                       , _fiOff   :: Offset
                        , fiWidth :: Width
                        , _fiType :: SmtType
                        }
@@ -359,11 +362,11 @@ cvtType t@(T.STApp _ (T.FTermF ty)) =
       let fields = zip (map show [(1::Integer)..]) fts
       return . TRecord . reverse . fst . foldl mkFldInfo ([], 0) $ fields
     _ -> do
-      tparams <- getTransParams
+      _tparams <- getTransParams
       err $ "Can't convert type to SMT-LIB: " ++
             T.scPrettyTerm t
 cvtType t = do
-  tparams <- getTransParams
+  _tparams <- getTransParams
   err $ "Can't convert type to SMT-LIB: " ++
         T.scPrettyTerm t
 
@@ -448,13 +451,12 @@ unfoldApp :: T.SharedTerm s -> Maybe (T.SharedTerm s, [T.SharedTerm s])
 unfoldApp (T.STApp _ (T.FTermF (T.App a b))) = do
   (f, xs) <- unfoldApp a
   return (f, xs ++ [b])
-unfoldApp (T.STApp _ (T.FTermF (T.App f b))) = return (f, [b])
+--unfoldApp (T.STApp _ (T.FTermF (T.App f b))) = return (f, [b])
 unfoldApp t@(T.STApp _ _) = return (t, [])
-unfoldApp _ = Nothing
 
 translateTerm :: S.Set Ident -> [FTerm] -> T.SharedTerm s -> M s FTerm
 translateTerm _ _ t | isConst t = mkConst t
-translateTerm _ inps (T.STApp n (T.FTermF (T.ExtCns ec))) =
+translateTerm _ inps (T.STApp _n (T.FTermF (T.ExtCns ec))) =
   return (inps !! fromIntegral (T.ecVarIndex ec))
 translateTerm enabled inps t@(unfoldApp -> Just (f, xs)) = do
   tparams <- getTransParams
@@ -489,7 +491,7 @@ translateTerm enabled inps t@(unfoldApp -> Just (f, xs)) = do
     (Just "set", [_, a, b, c]) -> lift3 setArrayValueOp a b c
     _                   ->
       err $ "Malformed application: " ++ T.scPrettyTerm t
-        where sc = transContext tparams
+        where _sc = transContext tparams
   where
   liftTerm = save <=< translateTerm enabled inps
   lift1 op a = op =<< liftTerm a
@@ -499,7 +501,7 @@ translateTerm enabled inps t@(unfoldApp -> Just (f, xs)) = do
   lift3 op a b c = do
     [a', b', c'] <- mapM liftTerm [a, b, c]
     op a' b' c'
-translateTerm _ inps (T.STApp _ (T.FTermF (T.RecordSelector e n))) =
+translateTerm _ _inps (T.STApp _ (T.FTermF (T.RecordSelector _e _n))) =
   err $ "Record selector not yet implemented (TODO)"
 {-
              (_, [TRecord fis]) ->
@@ -627,6 +629,7 @@ eqOp t1 t2 =
 
               _ -> return $ toTerm (asTerm t1 === asTerm t2)
 
+
 iteOp :: FTerm -> FTerm -> FTerm -> M s FTerm
 iteOp t1 t2 t3 =
   case asForm t1 of
@@ -648,6 +651,7 @@ truncOp n t =
                , smtType = TBitVec n
                }
 
+{-
 signedExtOp :: Integer -> FTerm -> M s FTerm
 signedExtOp n t =
   case smtType t of
@@ -658,6 +662,7 @@ signedExtOp n t =
               | m == n -> return t
     _ -> bug "signedExtOp"
              "Sign extending to a smaller value, or type error."
+-}
 
 bNotOp :: FTerm -> M s FTerm
 bNotOp t = return FTerm { asForm = do a <- asForm t
@@ -693,6 +698,7 @@ bXorOp s t  = return FTerm { asForm = do a <- asForm s
                           , smtType = TBool
                           }
 
+{-
 bImpliesOp :: FTerm -> FTerm -> M s FTerm
 bImpliesOp s t  =
   case asForm s of
@@ -709,6 +715,7 @@ iNotOp t = return FTerm { asForm  = Nothing
                         , asTerm  = bvnot (asTerm t)
                         , smtType = smtType t
                         }
+-}
 
 iAndOp :: FTerm -> FTerm -> M s FTerm
 iAndOp s t  = return FTerm { asForm  = Nothing
@@ -776,11 +783,13 @@ subOp s t = return FTerm { asForm  = Nothing
                          , smtType = smtType s
                          }
 
+{-
 negOp :: FTerm -> M s FTerm
 negOp s = return FTerm { asForm  = Nothing
                        , asTerm  = bvneg (asTerm s)
                        , smtType = smtType s
                        }
+-}
 
 signedDivOp :: FTerm -> FTerm -> M s FTerm
 signedDivOp s t = return FTerm { asForm  = Nothing
@@ -858,6 +867,7 @@ setArrayValueOp a i v =
                       }
     _ -> bug "setArrayValueOp" "Type error---updating a non-array."
 
+{-
 splitOp :: Integer -> Integer -> FTerm -> M s FTerm
 splitOp l w t0 =
   do  t <- save t0
@@ -881,3 +891,4 @@ joinOp l w t0 =
                      [ select (asTerm t) (bv i n) | i <- [ 0 .. l - 1 ] ]
        , smtType = TBitVec (l * w)
        }
+-}
