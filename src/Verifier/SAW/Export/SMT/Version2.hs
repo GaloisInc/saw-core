@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Verifier.SAW.Export.SMT.Version2 
   ( WriterState
-  , initWriterState
+  , emptyWriterState
   , render
   , warnings
   , Warning(..)
@@ -60,23 +60,23 @@ data WriterState s =
                  , _smtWarnings :: [Warning (SharedTerm s)]
                  }
 
-initWriterState :: SharedContext s
-                -> SMT.Name -- ^ Name of theory
-                -> RuleSet s
-                -> WriterState s
-initWriterState ctx theory (RuleSet typeRules exprRules) =
-    WriterState { smtContext = ctx
-                , smtTheory = theory
-                , smtTypeNet = foldr addRule Net.empty typeRules
-                , _smtTypeCache = Map.empty
-                , _smtTypeNonce = 0
-                , smtExprNet = foldr addRule Net.empty exprRules
-                , _smtExprCache = Map.empty
-                , _smtExprNonce = 0
-                , _smtDefs = []
-                , _smtCommands = []
-                , _smtWarnings = []
-                }
+emptyWriterState :: SharedContext s
+                 -> SMT.Name -- ^ Name of theory
+                 -> RuleSet s
+                 -> WriterState s
+emptyWriterState ctx theory (RuleSet typeRules exprRules) =
+     WriterState { smtContext = ctx
+                 , smtTheory = theory
+                 , smtTypeNet = foldr addRule Net.empty typeRules
+                 , _smtTypeCache = Map.empty
+                 , _smtTypeNonce = 0
+                 , smtExprNet = foldr addRule Net.empty exprRules
+                 , _smtExprCache = Map.empty
+                  , _smtExprNonce = 0
+                 , _smtDefs = []
+                 , _smtCommands = []
+                 , _smtWarnings = []
+                 }
   where addRule rule = Net.insert_term (rule, rule)
 
 smtTypeCache :: Simple Lens (WriterState s) (Map.Map TermIndex SMT.Type)
