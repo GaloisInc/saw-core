@@ -144,12 +144,6 @@ toSMTExpr t@(STApp i _tf) = do
         smtWarnings %= (UnmatchedTerm nm t:)
     return $ SMT.App (SMT.I nm []) (Just tp) []
 
-asSMTType :: Rule s SMT.Type
-asSMTType = asVar (lift . toSMTType)
-
-asSMTExpr :: Rule s SMT.Expr
-asSMTExpr = asVar (lift . toSMTExpr)
-
 assert :: SharedTerm s -> Writer s ()
 assert t = do
   e <- toSMTExpr t
@@ -164,7 +158,17 @@ type Rule s = Matcher (MaybeT (Writer s)) (SharedTerm s)
 instance Eq (Rule s r) where
   x == y = Net.toPat x == Net.toPat y
 
+asSMTType :: Rule s SMT.Type
+asSMTType = asVar (lift . toSMTType)
+
+asSMTExpr :: Rule s SMT.Expr
+asSMTExpr = asVar (lift . toSMTExpr)
+
 data RuleSet s = RuleSet [Rule s SMT.Type] [Rule s SMT.Expr]
+
+instance Monoid (RuleSet s) where
+  mempty = RuleSet [] []
+  mappend (RuleSet tx ex) (RuleSet ty ey) = RuleSet (tx ++ ty) (ex ++ ey)
 
 typeRule :: Rule s SMT.Type -> RuleSet s
 typeRule r = RuleSet [r] []
@@ -172,26 +176,11 @@ typeRule r = RuleSet [r] []
 exprRule :: Rule s SMT.Expr -> RuleSet s
 exprRule r = RuleSet [] [r]
 
-instance Monoid (RuleSet s) where
-  mempty = RuleSet [] []
-  mappend (RuleSet tx ex) (RuleSet ty ey) = RuleSet (tx ++ ty) (ex ++ ey)
-
 instance Matchable (MaybeT (Writer s)) (SharedTerm s) SMT.Type where
   defaultMatcher = asSMTType
 
 instance Matchable (MaybeT (Writer s)) (SharedTerm s) SMT.Expr where
   defaultMatcher = asSMTExpr
-
--- Types supported:
-
--- Bool.
--- Tuples, Records?
-
--- Either? Maybe?
--- Nat? Fin?
--- Vec?
--- bitvector
--- Float? Double?
 
 -- | SMT Rules for core theory.
 coreRules :: RuleSet s

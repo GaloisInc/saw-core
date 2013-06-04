@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Verifier.SAW.Export.SMT.Version1
   ( WriterState
-  , initWriterState
+  , emptyWriterState
   , render
   , warnings
   , Warning(..)
@@ -21,27 +21,28 @@ module Verifier.SAW.Export.SMT.Version1
   , bitvectorRules
   ) where
 
---import Control.Applicative
+import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
---import Data.Bits
+import Data.Bits
 import Data.Monoid
 import qualified Data.Map as Map
 
 import qualified SMTLib1 as SMT
---import qualified SMTLib1.QF_AUFBV as SMT
+import qualified SMTLib1.QF_AUFBV as SMT
 
 import Verifier.SAW.Export.SMT.Common
 import Verifier.SAW.Conversion
+import Verifier.SAW.Prim
 import Verifier.SAW.Rewriter ()
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.TermNet as Net
 
 data Warning t
-  = UnmatchedSort SMT.Ident t
+  = UnmatchedSort    SMT.Ident t
   | UnmatchedFormula SMT.Ident t
-  | UnmatchedTerm SMT.Ident t
+  | UnmatchedTerm    SMT.Ident t
 
 data WriterState s =
      WriterState { smtContext :: SharedContext s
@@ -68,12 +69,12 @@ data WriterState s =
                  , _smtWarnings :: [Warning (SharedTerm s)]
                  }
 
-initWriterState :: SharedContext s
-                -> SMT.Ident -- ^ Name of file
-                -> SMT.Ident -- ^ Name of theory
-                -> RuleSet s
-                -> WriterState s
-initWriterState ctx nm logic (RuleSet sr fr tr) =
+emptyWriterState :: SharedContext s
+                 -> SMT.Ident -- ^ Name of file
+                 -> SMT.Ident -- ^ Name of theory
+                 -> RuleSet s
+                 -> WriterState s
+emptyWriterState ctx nm logic (RuleSet sr fr tr) =
     WriterState { smtContext = ctx
                 , smtName = nm
                 , smtLogic = logic
@@ -142,6 +143,9 @@ render s = show $ SMT.pp $ SMT.Script
        ++ reverse (s^.smtCommands) 
     }
 
+------------------------------------------------------------------------
+-- Writer
+
 type Writer s = StateT (WriterState s) IO
 
 toSort :: SharedTerm s -> Writer s SMT.Sort
@@ -195,15 +199,7 @@ toSMTTerm t@(STApp i _tf) = do
         smtWarnings %= (UnmatchedFormula nm t:)
     return $ SMT.App nm []
 
-asSMTSort :: Rule s SMT.Sort
-asSMTSort = asVar (lift . toSort)
-
-asFormula :: Rule s SMT.Formula
-asFormula = asVar (lift . toSMTFormula)
-
-asTerm :: Rule s SMT.Term
-asTerm = asVar (lift . toSMTTerm)
-
+-- | Write a formula SMT command to script.
 formula :: SharedTerm s -> Writer s ()
 formula t = do
   e <- toSMTFormula t
@@ -214,6 +210,15 @@ type Rule s = Matcher (MaybeT (Writer s)) (SharedTerm s)
 -- HACK!
 instance Eq (Rule s r) where
   x == y = Net.toPat x == Net.toPat y
+
+asSMTSort :: Rule s SMT.Sort
+asSMTSort = asVar (lift . toSort)
+
+asFormula :: Rule s SMT.Formula
+asFormula = asVar (lift . toSMTFormula)
+
+asTerm :: Rule s SMT.Term
+asTerm = asVar (lift . toSMTTerm)
 
 data RuleSet s = RuleSet [Rule s SMT.Sort]
                          [Rule s SMT.Formula]
@@ -242,21 +247,13 @@ instance Matchable (MaybeT (Writer s)) (SharedTerm s) SMT.Formula where
 instance Matchable (MaybeT (Writer s)) (SharedTerm s) SMT.Term where
   defaultMatcher = asTerm
 
--- Types supported:
-
--- Bool.
--- Tuples, Records?
-
--- Either? Maybe?
--- Nat? Fin?
--- Vec?
--- bitvector
--- Float? Double?
+------------------------------------------------------------------------
+-- Core Rules
 
 -- | SMT Rules for core theory.
 coreRules :: RuleSet s
 coreRules
-  = formulaRule trueFormulaRule
+  =  formulaRule trueFormulaRule
   <> formulaRule falseFormulaRule
   <> formulaRule notFormulaRule
   <> formulaRule andFormulaRule
@@ -264,6 +261,7 @@ coreRules
   <> formulaRule xorFormulaRule
   <> formulaRule boolEqFormulaRule
   <> formulaRule iteBoolFormulaRule
+  <> termRule iteTermRule
 
 trueFormulaRule :: Rule s SMT.Formula
 trueFormulaRule  = asCtor "Prelude.True" asEmpty `matchArgs` SMT.FTrue
@@ -297,37 +295,83 @@ iteBoolFormulaRule :: Rule s SMT.Formula
 iteBoolFormulaRule = (asGlobalDef "Prelude.ite" <:> asBoolType) `matchArgs` iteExpr
   where iteExpr c t f = SMT.Conn SMT.IfThenElse [c,t,f]
 
--- * Bitvector SMT rules.
+iteTermRule :: Rule s SMT.Term
+iteTermRule = (asGlobalDef "Prelude.ite" <:> asAny) `matchArgs` SMT.ITE
+
+------------------------------------------------------------------------
+-- Bitvector Rules
 
 bitvectorRules :: RuleSet s
 bitvectorRules
   = coreRules
+  <> sortRule bitvectorVecSortRule
+  <> sortRule bvBVSortRule
+  <> termRule (asGlobalDef "Prelude.bvNat" `matchArgs` smt_bv)
 
-{-
-bitvectorRules :: RuleSet s
-bitvectorRules
-  = coreRules
-  <> typeRule bitvectorVecTypeRule
+  <> formulaRule (bvBinOpRule "Prelude.bvEq" (SMT.===))
 
+  <> termRule (bvBinOpRule "Prelude.bvAdd" SMT.bvadd)
+  <> termRule (bvBinOpRule "Prelude.bvSub" SMT.bvsub)
+  <> termRule (bvBinOpRule "Prelude.bvMul" SMT.bvmul)
 
--- How many bits do we need to represent the given number.
-needBits :: Integer -> Integer
+  <> termRule (bvBinOpRule "Prelude.bvAnd" SMT.bvand)
+  <> termRule (bvBinOpRule "Prelude.bvOr"  SMT.bvor)
+  <> termRule (bvBinOpRule "Prelude.bvXor" SMT.bvxor)
+
+  <> termRule (bvBinOpRule "Prelude.bvShl"  SMT.bvshl)
+  <> termRule (bvBinOpRule "Prelude.bvSShr" SMT.bvashr)
+  <> termRule (bvBinOpRule "Prelude.bvShr"  SMT.bvlshr)
+
+  <> termRule (bvBinOpRule "Prelude.bvSdiv" SMT.bvsdiv)
+  <> termRule (bvBinOpRule "Prelude.bvSrem" SMT.bvsrem)
+  <> termRule (bvBinOpRule "Prelude.bvUdiv" SMT.bvudiv)
+  <> termRule (bvBinOpRule "Prelude.bvUrem" SMT.bvurem)
+
+  <> formulaRule (bvBinOpRule "Prelude.bvugt" SMT.bvugt)
+  <> formulaRule (bvBinOpRule "Prelude.bvuge" SMT.bvuge)
+  <> formulaRule (bvBinOpRule "Prelude.bvult" smt_bvult)
+  <> formulaRule (bvBinOpRule "Prelude.bvule" SMT.bvule)
+
+  <> formulaRule (bvBinOpRule "Prelude.bvsgt" SMT.bvsgt)
+  <> formulaRule (bvBinOpRule "Prelude.bvsge" SMT.bvsge)
+  <> formulaRule (bvBinOpRule "Prelude.bvslt" SMT.bvslt)
+  <> formulaRule (bvBinOpRule "Prelude.bvsle" SMT.bvsle)
+
+-- | Matches expressions with an extra int size argument.
+bvBinOpRule :: (Applicative m, Monad m, Termlike t, Renderable m t a b)
+            => Ident -> a -> Matcher m t b
+bvBinOpRule d = matchArgs (asGlobalDef d <:> asAnyNatLit)
+
+-- | How many bits do we need to represent the given number.
+needBits :: Nat -> Integer
 needBits n0 | n0 <= 0    = 0
             | otherwise = go n0 0
-  where go :: Integer -> Integer -> Integer
+  where go :: Nat -> Integer -> Integer
         go 0 i = i
         go n i = (go $! (shiftR n 1)) $! (i+1)
 
-bitvectorVecTypeRule :: Rule s SMT.Type
-bitvectorVecTypeRule =
-    asDataType "Prelude.Vec" (asAnyNatLit >: asAny) `thenMatcher` match
-  where match (n :*: tp) = do
-          mr <- runMaybeT (runMatcher asBoolType tp)
-          case mr of
-            Just _ -> return $ SMT.tBitVec n
-            Nothing ->
-              -- SMTLib arrays don't have lengths, but they do need
-              -- an index type.
-              lift $ SMT.tArray (SMT.tBitVec (needBits n)) <$> toSort tp
+asBitvectorType :: (Termlike t, Monad m) => Matcher m t Nat
+asBitvectorType = 
+  thenMatcher (asDataType "Prelude.Vec" (asAnyNatLit >: asBoolType))
+              (\(n :*: _) -> return n)
 
--}
+-- | Matches bitvectors.
+bitvectorVecSortRule :: Rule s SMT.Sort
+bitvectorVecSortRule =
+  thenMatcher asBitvectorType
+              (return . SMT.tBitVec . fromIntegral)
+
+-- | Matches vectors of bitvectors.
+bvBVSortRule :: Rule s SMT.Sort
+bvBVSortRule =
+  thenMatcher (asDataType "Prelude.Vec" (asAnyNatLit >: asBitvectorType))
+              (\(n :*: w) -> return (SMT.tArray (needBits n) (fromIntegral w)))
+
+-- | Create a bitvector from Nat literals.
+smt_bv :: Nat -> Nat -> SMT.Term
+smt_bv w v = SMT.bv (toInteger w) (toInteger v)
+
+-- | Perform unsigned less then.
+-- For some reason, this is missing from smtLib library as of version 1.0.4.
+smt_bvult :: SMT.Term -> SMT.Term -> SMT.Formula
+smt_bvult s t = SMT.FPred "bvult" [s,t]
