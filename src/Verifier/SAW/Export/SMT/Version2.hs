@@ -36,6 +36,7 @@ import qualified SMTLib2.Core as SMT
 
 import Verifier.SAW.Export.SMT.Common
 import Verifier.SAW.Conversion
+import Verifier.SAW.Prim
 import Verifier.SAW.Rewriter ()
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.TermNet as Net
@@ -247,6 +248,29 @@ bitvectorRules
   = coreRules
   <> arrayRules
   <> typeRule bitvectorVecTypeRule
+  <> exprRule bvNatExprRule
+  <> exprRule bvEqExprRule
+  <> exprRule bvAddExprRule
+  <> exprRule bvSubExprRule
+  <> exprRule bvMulExprRule
+  <> exprRule bvAndExprRule
+  <> exprRule bvOrExprRule
+  <> exprRule bvXorExprRule
+  <> exprRule bvShlExprRule
+  <> exprRule bvSShrExprRule
+  <> exprRule bvShrExprRule
+  <> exprRule bvSdivExprRule
+  <> exprRule bvSremExprRule
+  <> exprRule bvUdivExprRule
+  <> exprRule bvUremExprRule
+  <> exprRule bvugtExprRule
+  <> exprRule bvugeExprRule
+  <> exprRule bvultExprRule
+  <> exprRule bvuleExprRule
+  <> exprRule bvsgtExprRule
+  <> exprRule bvsgeExprRule
+  <> exprRule bvsltExprRule
+  <> exprRule bvsleExprRule
 
 -- How many bits do we need to represent the given number.
 needBits :: Integer -> Integer
@@ -268,61 +292,65 @@ bitvectorVecTypeRule =
               -- an index type.
               lift $ SMT.tArray (SMT.tBitVec (needBits n)) <$> toSMTType tp
 
-{-
-bvNatExprRule :: Rule s SMT.Type
-bvNatExprRule = asGlobalDef "Prelude.bvNat" `matchArgs` error "bvNatExprRule"
+bvNatExprRule :: Rule s SMT.Expr
+bvNatExprRule = asGlobalDef "Prelude.bvNat" `matchArgs` smtBvNat
+  where smtBvNat :: Nat -> Nat -> SMT.Expr
+        smtBvNat w v = SMT.bv (toInteger w) (toInteger v)
 
-bvEqExprRule :: Rule s SMT.Type
-bvEqExprRule = asGlobalDef "Prelude.bvEq" `matchArgs` error "bvEqExprRule"
+-- | Matches expressions with an extra int size argument.
+bvBinOpRule :: Ident -> (SMT.Expr -> SMT.Expr -> SMT.Expr) -> Rule s SMT.Expr
+bvBinOpRule d = matchArgs (asGlobalDef d <:> asAnyNatLit)
 
-bvAndExprRule :: Rule s SMT.Type
-bvAndExprRule = asGlobalDef "Prelude.bvAnd" `matchArgs` error "bvAndExprRule"
+bvEqExprRule :: Rule s SMT.Expr
+bvEqExprRule = bvBinOpRule "Prelude.bvEq" (SMT.===)
 
-bvOrExprRule :: Rule s SMT.Type
-bvOrExprRule = asGlobalDef "Prelude.bvOr" `matchArgs` error "bvOrExprRule"
+bvAddExprRule :: Rule s SMT.Expr
+bvAddExprRule = bvBinOpRule "Prelude.bvAdd" SMT.bvadd
 
-bvXorExprRule :: Rule s SMT.Type
-bvXorExprRule = asGlobalDef "Prelude.bvXor" `matchArgs` error "bvXorExprRule"
+bvSubExprRule :: Rule s SMT.Expr
+bvSubExprRule = bvBinOpRule "Prelude.bvSub" SMT.bvsub
 
-bvShlExprRule :: Rule s SMT.Type
-bvShlExprRule = asGlobalDef "Prelude.bvShl" `matchArgs` error "bvShlExprRule"
+bvMulExprRule :: Rule s SMT.Expr
+bvMulExprRule = bvBinOpRule "Prelude.bvMul" SMT.bvmul
 
-bvSShrExprRule :: Rule s SMT.Type
-bvSShrExprRule = asGlobalDef "Prelude.bvSShr" `matchArgs` error "bvSShrExprRule"
+bvAndExprRule :: Rule s SMT.Expr
+bvAndExprRule = bvBinOpRule "Prelude.bvAnd" SMT.bvand
 
-bvShrExprRule :: Rule s SMT.Type
-bvShrExprRule = asGlobalDef "Prelude.bvShr" `matchArgs` error "bvShrExprRule"
+bvOrExprRule :: Rule s SMT.Expr
+bvOrExprRule = bvBinOpRule "Prelude.bvOr"  SMT.bvor
 
-bvAddExprRule :: Rule s SMT.Type
-bvAddExprRule = asGlobalDef "Prelude.bvAdd" `matchArgs` error "bvAddExprRule"
+bvXorExprRule :: Rule s SMT.Expr
+bvXorExprRule = bvBinOpRule "Prelude.bvXor" SMT.bvxor
 
-bvMulExprRule :: Rule s SMT.Type
-bvMulExprRule = asGlobalDef "Prelude.bvMul" `matchArgs` error "bvMulExprRule"
+bvShlExprRule :: Rule s SMT.Expr
+bvShlExprRule = bvBinOpRule "Prelude.bvShl"   SMT.bvshl
 
-bvSubExprRule :: Rule s SMT.Type
-bvSubExprRule = asGlobalDef "Prelude.bvSub" `matchArgs` error "bvSubExprRule"
+bvSShrExprRule :: Rule s SMT.Expr
+bvSShrExprRule = bvBinOpRule "Prelude.bvSShr" SMT.bvashr
 
-bvSdivExprRule :: Rule s SMT.Type
-bvSdivExprRule = asGlobalDef "Prelude.bvSdiv" `matchArgs` error "bvSdivExprRule"
+bvShrExprRule :: Rule s SMT.Expr
+bvShrExprRule = bvBinOpRule "Prelude.bvShr"   SMT.bvlshr
 
-bvSremExprRule :: Rule s SMT.Type
-bvSremExprRule = asGlobalDef "Prelude.bvSrem" `matchArgs` error "bvSremExprRule"
+bvSdivExprRule :: Rule s SMT.Expr
+bvSdivExprRule = bvBinOpRule "Prelude.bvSdiv" SMT.bvsdiv
 
-bvUdivExprRule :: Rule s SMT.Type
-bvUdivExprRule = asGlobalDef "Prelude.bvUdiv" `matchArgs` error "bvUdivExprRule"
+bvSremExprRule :: Rule s SMT.Expr
+bvSremExprRule = bvBinOpRule "Prelude.bvSrem" SMT.bvsrem
 
-bvUremExprRule :: Rule s SMT.Type
-bvUremExprRule = asGlobalDef "Prelude.bvUrem" `matchArgs` error "bvUremExprRule"
+bvUdivExprRule :: Rule s SMT.Expr
+bvUdivExprRule = bvBinOpRule "Prelude.bvUdiv" SMT.bvudiv
 
-bvsleExprRule :: Rule s SMT.Type
-bvsleExprRule = asGlobalDef "Prelude.bvsle" `matchArgs` error "bvsleExprRule"
+bvUremExprRule :: Rule s SMT.Expr
+bvUremExprRule = bvBinOpRule "Prelude.bvUrem" SMT.bvurem
 
-bvsltExprRule :: Rule s SMT.Type
-bvsltExprRule = asGlobalDef "Prelude.bvslt" `matchArgs` error "bvsltExprRule"
+bvugtExprRule, bvugeExprRule, bvultExprRule, bvuleExprRule :: Rule s SMT.Expr
+bvugtExprRule = bvBinOpRule "Prelude.bvugt" SMT.bvugt
+bvugeExprRule = bvBinOpRule "Prelude.bvuge" SMT.bvuge
+bvultExprRule = bvBinOpRule "Prelude.bvult" SMT.bvult
+bvuleExprRule = bvBinOpRule "Prelude.bvule" SMT.bvule
 
-bvuleExprRule :: Rule s SMT.Type
-bvuleExprRule = asGlobalDef "Prelude.bvule" `matchArgs` error "bvuleExprRule"
-
-bvultExprRule :: Rule s SMT.Type
-bvultExprRule = asGlobalDef "Prelude.bvult" `matchArgs` error "bvultExprRule"
--}
+bvsgtExprRule, bvsgeExprRule, bvsltExprRule, bvsleExprRule :: Rule s SMT.Expr
+bvsgtExprRule = bvBinOpRule "Prelude.bvsgt" SMT.bvsgt
+bvsgeExprRule = bvBinOpRule "Prelude.bvsge" SMT.bvsge
+bvsltExprRule = bvBinOpRule "Prelude.bvslt" SMT.bvslt
+bvsleExprRule = bvBinOpRule "Prelude.bvsle" SMT.bvsle
