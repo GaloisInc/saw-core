@@ -235,11 +235,17 @@ iteBoolExprRule :: Rule s SMT.Expr
 iteBoolExprRule = (asGlobalDef "Prelude.ite" <:> asAny) `matchArgs` iteExpr
   where iteExpr c t f = SMT.app "ite" [c,t,f]
 
+-- * Array SMT rules
+
+arrayRules :: RuleSet s
+arrayRules = mempty -- TODO: Add rules for get and set and VecLit.
+
 -- * Bitvector SMT rules.
 
 bitvectorRules :: RuleSet s
 bitvectorRules
   = coreRules
+  <> arrayRules
   <> typeRule bitvectorVecTypeRule
 
 -- How many bits do we need to represent the given number.
@@ -253,7 +259,7 @@ needBits n0 | n0 <= 0    = 0
 bitvectorVecTypeRule :: Rule s SMT.Type
 bitvectorVecTypeRule =
     asDataType "Prelude.Vec" (asAnyNatLit >: asAny) `thenMatcher` match
-  where match (n :*: tp) = do
+  where match ((fromIntegral -> n) :*: tp) = do
           mr <- runMaybeT (runMatcher asBoolType tp)
           case mr of
             Just _ -> return $ SMT.tBitVec n
@@ -261,3 +267,62 @@ bitvectorVecTypeRule =
               -- SMTLib arrays don't have lengths, but they do need
               -- an index type.
               lift $ SMT.tArray (SMT.tBitVec (needBits n)) <$> toSMTType tp
+
+{-
+bvNatExprRule :: Rule s SMT.Type
+bvNatExprRule = asGlobalDef "Prelude.bvNat" `matchArgs` error "bvNatExprRule"
+
+bvEqExprRule :: Rule s SMT.Type
+bvEqExprRule = asGlobalDef "Prelude.bvEq" `matchArgs` error "bvEqExprRule"
+
+bvAndExprRule :: Rule s SMT.Type
+bvAndExprRule = asGlobalDef "Prelude.bvAnd" `matchArgs` error "bvAndExprRule"
+
+bvOrExprRule :: Rule s SMT.Type
+bvOrExprRule = asGlobalDef "Prelude.bvOr" `matchArgs` error "bvOrExprRule"
+
+bvXorExprRule :: Rule s SMT.Type
+bvXorExprRule = asGlobalDef "Prelude.bvXor" `matchArgs` error "bvXorExprRule"
+
+bvShlExprRule :: Rule s SMT.Type
+bvShlExprRule = asGlobalDef "Prelude.bvShl" `matchArgs` error "bvShlExprRule"
+
+bvSShrExprRule :: Rule s SMT.Type
+bvSShrExprRule = asGlobalDef "Prelude.bvSShr" `matchArgs` error "bvSShrExprRule"
+
+bvShrExprRule :: Rule s SMT.Type
+bvShrExprRule = asGlobalDef "Prelude.bvShr" `matchArgs` error "bvShrExprRule"
+
+bvAddExprRule :: Rule s SMT.Type
+bvAddExprRule = asGlobalDef "Prelude.bvAdd" `matchArgs` error "bvAddExprRule"
+
+bvMulExprRule :: Rule s SMT.Type
+bvMulExprRule = asGlobalDef "Prelude.bvMul" `matchArgs` error "bvMulExprRule"
+
+bvSubExprRule :: Rule s SMT.Type
+bvSubExprRule = asGlobalDef "Prelude.bvSub" `matchArgs` error "bvSubExprRule"
+
+bvSdivExprRule :: Rule s SMT.Type
+bvSdivExprRule = asGlobalDef "Prelude.bvSdiv" `matchArgs` error "bvSdivExprRule"
+
+bvSremExprRule :: Rule s SMT.Type
+bvSremExprRule = asGlobalDef "Prelude.bvSrem" `matchArgs` error "bvSremExprRule"
+
+bvUdivExprRule :: Rule s SMT.Type
+bvUdivExprRule = asGlobalDef "Prelude.bvUdiv" `matchArgs` error "bvUdivExprRule"
+
+bvUremExprRule :: Rule s SMT.Type
+bvUremExprRule = asGlobalDef "Prelude.bvUrem" `matchArgs` error "bvUremExprRule"
+
+bvsleExprRule :: Rule s SMT.Type
+bvsleExprRule = asGlobalDef "Prelude.bvsle" `matchArgs` error "bvsleExprRule"
+
+bvsltExprRule :: Rule s SMT.Type
+bvsltExprRule = asGlobalDef "Prelude.bvslt" `matchArgs` error "bvsltExprRule"
+
+bvuleExprRule :: Rule s SMT.Type
+bvuleExprRule = asGlobalDef "Prelude.bvule" `matchArgs` error "bvuleExprRule"
+
+bvultExprRule :: Rule s SMT.Type
+bvultExprRule = asGlobalDef "Prelude.bvult" `matchArgs` error "bvultExprRule"
+-}

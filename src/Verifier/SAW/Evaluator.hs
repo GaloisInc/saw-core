@@ -230,6 +230,11 @@ instance IsValue Bool where
     fromValue VFalse = False
     fromValue _      = error "fromValue Bool"
 
+instance IsValue Prim.Nat where
+    toValue n = VNat (toInteger n)
+    fromValue (VNat n) = (fromInteger n)
+    fromValue _        = error "fromValue Integer"
+
 instance IsValue Integer where
     toValue n = VNat n
     fromValue (VNat n) = n
@@ -314,7 +319,7 @@ preludePrims = Map.fromList
   , ("Prelude.bvule"   , toValue Prim.bvule)
   , ("Prelude.get"     , toValue Prim.get_bv)
   , ("Prelude.ite"     , toValue (Prim.ite :: () -> Bool -> Value -> Value -> Value))
-  , ("Prelude.generate", toValue (Prim.generate :: Int -> () -> (Prim.Fin -> Value) -> Vector Value))
+  , ("Prelude.generate", toValue (Prim.generate :: Prim.Nat -> () -> (Prim.Fin -> Value) -> Vector Value))
   , ("Prelude.coerce"  , toValue (Prim.coerce :: () -> () -> () -> Value -> Value))
   ]
 
