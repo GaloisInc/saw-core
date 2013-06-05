@@ -6,6 +6,7 @@ module Verifier.SAW.Export.SMT.Version2
   , render
   , warnings
   , Warning(..)
+  , ppWarning
   , SMT.Name
     -- * Writer
   , Writer
@@ -28,6 +29,7 @@ import Control.Monad.Trans.Maybe
 import Data.Bits
 import Data.Monoid
 import qualified Data.Map as Map
+import Text.PrettyPrint.Leijen hiding ((<>), (<$>))
 
 import qualified SMTLib2 as SMT
 import qualified SMTLib2.Array as SMT
@@ -43,7 +45,16 @@ import qualified Verifier.SAW.TermNet as Net
 
 data Warning t
   = UnmatchedType SMT.Name t
-  | UnmatchedTerm SMT.Name t
+  | UnmatchedExpr SMT.Name t
+  deriving (Functor)
+
+ppWarning :: Warning Doc -> Doc
+ppWarning (UnmatchedType n d) =
+  d <+> text "could not be interpreted as a type." <$$>
+  text (show n ++ " introduced as an uninterpreted type to represent it.")
+ppWarning (UnmatchedExpr n d) =
+  d <+> text "could not be interpreted as an expression." <$$>
+  text (show n ++ " introduced as a fresh constant to represent it.")
 
 data WriterState s =
      WriterState { smtContext :: SharedContext s
@@ -58,7 +69,7 @@ data WriterState s =
                  , _smtExprNonce :: !Int
                  , _smtDefs  :: [SMT.Command]
                  , _smtCommands :: [SMT.Command]
-                 , _smtWarnings :: [Warning (SharedTerm s)]
+                 , _warnings :: [Warning (SharedTerm s)]
                  }
 
 emptyWriterState :: SharedContext s
@@ -76,7 +87,7 @@ emptyWriterState ctx theory (RuleSet typeRules exprRules) =
                   , _smtExprNonce = 0
                  , _smtDefs = []
                  , _smtCommands = []
-                 , _smtWarnings = []
+                 , _warnings = []
                  }
   where addRule rule = Net.insert_term (rule, rule)
 
@@ -98,11 +109,8 @@ smtDefs = lens _smtDefs (\s v -> s { _smtDefs = v })
 smtCommands :: Simple Lens (WriterState s) [SMT.Command]
 smtCommands = lens _smtCommands (\s v -> s { _smtCommands = v })
 
-smtWarnings :: Simple Lens (WriterState s) [Warning (SharedTerm s)]
-smtWarnings = lens _smtWarnings (\s v -> s { _smtWarnings = v })
-
-warnings :: WriterState s -> [Warning (SharedTerm s)]
-warnings = view smtWarnings 
+warnings :: Simple Lens (WriterState s) [Warning (SharedTerm s)]
+warnings = lens _warnings (\s v -> s { _warnings = v })
 
 render :: WriterState s -> String
 render s = show $ SMT.pp $ SMT.Script $ 
@@ -122,7 +130,7 @@ toSMTType t@(STApp i _tf) = do
         -- Create name for fresh type.
         nm <- freshName smtTypeNonce "tp"
         -- Add warning for unmatched type.
-        smtWarnings %= (UnmatchedType nm t:)
+        warnings %= (UnmatchedType nm t:)
         return (SMT.TVar nm)
 
 toSMTExpr :: SharedTerm s -> Writer s SMT.Expr
@@ -141,7 +149,7 @@ toSMTExpr t@(STApp i _tf) = do
       -- Introduce fresh variable.
       Nothing -> do
         smtDefs %= (SMT.CmdDeclareFun nm [] tp:)
-        smtWarnings %= (UnmatchedTerm nm t:)
+        warnings %= (UnmatchedExpr nm t:)
     return $ SMT.App (SMT.I nm []) (Just tp) []
 
 assert :: SharedTerm s -> Writer s ()

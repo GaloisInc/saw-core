@@ -6,10 +6,16 @@ module Verifier.SAW.Export.SMT.Version1
   , render
   , warnings
   , Warning(..)
+  , ppWarning
   , SMT.Name
     -- * Writer
   , Writer
-  , formula
+  , toSort
+  , toFormula
+  , toTerm
+  , writeCommand
+  , writeAssumption
+  , writeFormula
     -- * Matching rules for trnslation
   , Rule
   , RuleSet
@@ -29,6 +35,8 @@ import Data.Bits
 import Data.Monoid
 import qualified Data.Map as Map
 
+import Text.PrettyPrint.Leijen hiding ((<>), (<$>))
+
 import qualified SMTLib1 as SMT
 import qualified SMTLib1.QF_AUFBV as SMT
 
@@ -43,6 +51,18 @@ data Warning t
   = UnmatchedSort    SMT.Ident t
   | UnmatchedFormula SMT.Ident t
   | UnmatchedTerm    SMT.Ident t
+  deriving (Functor)
+
+ppWarning :: Warning Doc -> Doc
+ppWarning (UnmatchedSort n d) =
+  d <+> text "could not be interpreted as a sort." <$$>
+  text (show n ++ " introduced as an uninterpreted sort to represent it.")
+ppWarning (UnmatchedFormula n d) =
+  d <+> text "could not be interpreted as a formula." <$$>
+  text (show n ++ " introduced as a fresh predicate.")
+ppWarning (UnmatchedTerm n d) =
+  d <+> text "could not be interpreted as a term." <$$>
+  text (show n ++ " introduced as a fresh constant.")
 
 data WriterState s =
      WriterState { smtContext :: SharedContext s
@@ -66,7 +86,7 @@ data WriterState s =
                  , _smtExtraPreds :: [SMT.PredDecl]
                  , _smtCommands :: [SMT.Command]
 
-                 , _smtWarnings :: [Warning (SharedTerm s)]
+                 , _warnings :: [Warning (SharedTerm s)]
                  }
 
 emptyWriterState :: SharedContext s
@@ -91,7 +111,7 @@ emptyWriterState ctx nm logic (RuleSet sr fr tr) =
                 , _smtExtraFuns  = []
                 , _smtExtraPreds = []
                 , _smtCommands = []
-                , _smtWarnings = []
+                , _warnings = []
                 }
   where addRule rule = Net.insert_term (rule, rule)
 
@@ -125,11 +145,8 @@ smtExtraPreds = lens _smtExtraPreds (\s v -> s { _smtExtraPreds = v })
 smtCommands :: Simple Lens (WriterState s) [SMT.Command]
 smtCommands = lens _smtCommands (\s v -> s { _smtCommands = v })
 
-smtWarnings :: Simple Lens (WriterState s) [Warning (SharedTerm s)]
-smtWarnings = lens _smtWarnings (\s v -> s { _smtWarnings = v })
-
-warnings :: WriterState s -> [Warning (SharedTerm s)]
-warnings = view smtWarnings 
+warnings :: Simple Lens (WriterState s) [Warning (SharedTerm s)]
+warnings = lens _warnings (\s v -> s { _warnings = v })
 
 render :: WriterState s -> String
 render s = show $ SMT.pp $ SMT.Script
@@ -158,11 +175,11 @@ toSort t@(STApp i _tf) = do
         -- Create name for fresh type.
         nm <- freshName smtSortNonce "tp"
         -- Add warning for unmatched type.
-        smtWarnings %= (UnmatchedSort nm t:)
+        warnings %= (UnmatchedSort nm t:)
         return nm
 
-toSMTFormula :: SharedTerm s -> Writer s SMT.Formula
-toSMTFormula t@(STApp i _tf) = do
+toFormula :: SharedTerm s -> Writer s SMT.Formula
+toFormula t@(STApp i _tf) = do
   cache smtFormulaCache i $ do
     -- Create name for fresh variable
     nm <- freshName smtFormulaNonce "c"
@@ -176,11 +193,11 @@ toSMTFormula t@(STApp i _tf) = do
         smtCommands %= (assumpt:)
       -- Introduce fresh variable.
       Nothing -> do
-        smtWarnings %= (UnmatchedFormula nm t:)
+        warnings %= (UnmatchedFormula nm t:)
     return p
 
-toSMTTerm :: SharedTerm s -> Writer s SMT.Term
-toSMTTerm t@(STApp i _tf) = do
+toTerm :: SharedTerm s -> Writer s SMT.Term
+toTerm t@(STApp i _tf) = do
   cache smtTermCache i $ do
     -- Get sort of term
     s <- do sc <- gets smtContext
@@ -196,14 +213,20 @@ toSMTTerm t@(STApp i _tf) = do
         smtCommands %= (assumpt:)
       -- Introduce fresh variable.
       Nothing -> do
-        smtWarnings %= (UnmatchedFormula nm t:)
+        warnings %= (UnmatchedFormula nm t:)
     return $ SMT.App nm []
 
+writeCommand :: SMT.Command -> Writer s ()
+writeCommand c = smtCommands %= (c:)
+
+-- | Write an assumption SMT command to script.
+writeAssumption :: SharedTerm s -> Writer s ()
+writeAssumption t = writeCommand . SMT.CmdAssumption =<< toFormula t
+
 -- | Write a formula SMT command to script.
-formula :: SharedTerm s -> Writer s ()
-formula t = do
-  e <- toSMTFormula t
-  smtCommands %= (SMT.CmdFormula e:)
+writeFormula :: SharedTerm s -> Writer s ()
+writeFormula t = writeCommand . SMT.CmdFormula =<< toFormula t
+
 
 type Rule s = Matcher (MaybeT (Writer s)) (SharedTerm s)
 
@@ -215,10 +238,10 @@ asSMTSort :: Rule s SMT.Sort
 asSMTSort = asVar (lift . toSort)
 
 asFormula :: Rule s SMT.Formula
-asFormula = asVar (lift . toSMTFormula)
+asFormula = asVar (lift . toFormula)
 
 asTerm :: Rule s SMT.Term
-asTerm = asVar (lift . toSMTTerm)
+asTerm = asVar (lift . toTerm)
 
 data RuleSet s = RuleSet [Rule s SMT.Sort]
                          [Rule s SMT.Formula]
@@ -367,9 +390,9 @@ bvBVSortRule =
   thenMatcher (asDataType "Prelude.Vec" (asAnyNatLit >: asBitvectorType))
               (\(n :*: w) -> return (SMT.tArray (needBits n) (fromIntegral w)))
 
--- | Create a bitvector from Nat literals.
+-- | @smt_bv n x@ creates a @n@-bit bitvector containing @x `mod` 2^n-1@.
 smt_bv :: Nat -> Nat -> SMT.Term
-smt_bv w v = SMT.bv (toInteger w) (toInteger v)
+smt_bv n x = SMT.bv (toInteger x) (toInteger n)
 
 -- | Perform unsigned less then.
 -- For some reason, this is missing from smtLib library as of version 1.0.4.
