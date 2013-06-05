@@ -147,6 +147,15 @@ evalTerm global env (Term tf) = runIdentity (evalTermF global lam rec env tf)
 evalTypedDef :: (Ident -> Value) -> TypedDef -> Value
 evalTypedDef global = evalDef (evalTerm global)
 
+evalGlobal :: Module -> Map Ident Value -> Ident -> Value
+evalGlobal mod prims ident =
+  case Map.lookup ident prims of
+    Just v -> v
+    Nothing ->
+      case findDef mod ident of
+        Just td | not (null (defEqs td)) -> evalTypedDef (evalGlobal mod prims) td
+        _ -> error $ "Unimplemented global: " ++ show ident
+
 ------------------------------------------------------------
 -- The evaluation strategy for SharedTerms involves two memo tables:
 -- The first, @memoClosed@, is precomputed and contains the result of
@@ -324,10 +333,4 @@ preludePrims = Map.fromList
   ]
 
 preludeGlobal :: Ident -> Value
-preludeGlobal s =
-  case Map.lookup s preludePrims of
-    Just v -> v
-    Nothing ->
-      case findDef preludeModule s of
-        Just td | not (null (defEqs td)) -> evalTypedDef preludeGlobal td
-        _ -> error $ "Unimplemented global: " ++ show s
+preludeGlobal = evalGlobal preludeModule preludePrims
