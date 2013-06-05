@@ -341,20 +341,5 @@ scAppendAll sc ((x, size1) : xs) =
        y <- scAppendAll sc xs
        scAppend sc b s1 s2 x y
 
--- | get :: (n :: Nat) -> (e :: sort 1) -> Vec n e -> Fin n -> e;
-scGet :: SharedContext s -> SharedTerm s -> SharedTerm s ->
-         SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scGet sc n e v i = scGlobalApply sc (mkIdent preludeName "get") [n, e, v, i]
-
--- | single :: (e :: sort 1) -> e -> Vec 1 e;
--- single e x = generate 1 e (\(i :: Fin 1) -> x);
-scSingle :: SharedContext s -> SharedTerm s -> SharedTerm s -> IO (SharedTerm s)
-scSingle sc e x = scGlobalApply sc (mkIdent preludeName "single") [e, x]
-
-scVector :: SharedContext s -> SharedTerm s -> [SharedTerm s] -> IO (SharedTerm s)
-scVector sc e xs =
-  do singles <- mapM (scSingle sc e) xs
-     scAppendAll sc [ (x, 1) | x <- singles ]
-
 loadSBV :: FilePath -> IO SBV.SBVPgm
 loadSBV = SBV.loadSBV
