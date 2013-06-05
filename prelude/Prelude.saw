@@ -513,6 +513,7 @@ bvToNat :: (n :: Nat) -> bitvector n -> Nat;
 bvAdd :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
 
 bvAddWithCarry :: (x :: Nat) -> bitvector x -> bitvector x -> #(Bool, bitvector x);
+--TODO: Implement this
 
 bvAddZeroL :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvAdd n (bvNat n 0) x) x;
 bvAddZeroR :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvAdd n x (bvNat n 0)) x;

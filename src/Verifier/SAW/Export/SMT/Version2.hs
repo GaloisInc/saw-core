@@ -1,5 +1,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 module Verifier.SAW.Export.SMT.Version2 
   ( WriterState
   , emptyWriterState
@@ -26,7 +29,6 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
-import Data.Bits
 import Data.Monoid
 import qualified Data.Map as Map
 import Text.PrettyPrint.Leijen hiding ((<>), (<$>))
@@ -133,24 +135,39 @@ toSMTType t@(STApp i _tf) = do
         warnings %= (UnmatchedType nm t:)
         return (SMT.TVar nm)
 
+-- | Make a fresh free term using the given term as a type.
+mkFreshExpr :: SMT.Type -> Writer s SMT.Name
+mkFreshExpr tp = do
+  -- Create name for fresh variable
+  nm <- freshName smtExprNonce "x"
+  -- Declare fresh variable.
+  smtDefs %= (SMT.CmdDeclareFun nm [] tp:)
+  return nm
+
+smt_constexpr :: SMT.Name -> SMT.Type -> SMT.Expr
+smt_constexpr nm tp = SMT.App (SMT.I nm []) (Just tp) []
+
+
 toSMTExpr :: SharedTerm s -> Writer s SMT.Expr
 toSMTExpr t@(STApp i _tf) = do
   cache smtExprCache i $ do
     -- Get type of term
     tp <- do sc <- gets smtContext
              toSMTType =<< liftIO (scTypeOf sc t)
-    -- Create name for fresh variable
-    nm <- freshName smtExprNonce "x"
     -- Try matching term to get SMT definition.
     mdefExpr <- matchTerm smtExprNet t 
     case mdefExpr of
       Just defExpr -> do -- Define function if we can.
+        -- Create name for fresh variable
+        nm <- freshName smtExprNonce "x"
+        -- Define fresh variable.
         smtDefs %= (SMT.CmdDefineFun nm [] tp defExpr:)
+        return (smt_constexpr nm tp)
       -- Introduce fresh variable.
       Nothing -> do
-        smtDefs %= (SMT.CmdDeclareFun nm [] tp:)
+        nm <- mkFreshExpr tp
         warnings %= (UnmatchedExpr nm t:)
-    return $ SMT.App (SMT.I nm []) (Just tp) []
+        return (smt_constexpr nm tp)
 
 assert :: SharedTerm s -> Writer s ()
 assert t = do
@@ -160,7 +177,8 @@ assert t = do
 checkSat :: Writer s ()
 checkSat = smtCommands %= (SMT.CmdCheckSat:)
 
-type Rule s = Matcher (MaybeT (Writer s)) (SharedTerm s)
+type RuleWriter s = MaybeT (Writer s)
+type Rule s = Matcher (RuleWriter s) (SharedTerm s)
 
 -- HACK!
 instance Eq (Rule s r) where
@@ -193,7 +211,8 @@ instance Matchable (MaybeT (Writer s)) (SharedTerm s) SMT.Expr where
 -- | SMT Rules for core theory.
 coreRules :: RuleSet s
 coreRules
-  =  typeRule boolTypeRule
+  =  exprRule extCnsExprRule
+  <> typeRule boolTypeRule
   <> exprRule trueExprRule
   <> exprRule falseExprRule
   <> exprRule notExprRule
@@ -202,6 +221,14 @@ coreRules
   <> exprRule xorExprRule
   <> exprRule boolEqExprRule
   <> exprRule iteBoolExprRule
+
+extCnsExprRule :: Rule s SMT.Expr
+extCnsExprRule =
+  thenMatcher asExtCns $ \ec -> lift $ do
+    tp <- toSMTType (ecType ec)
+    nm <- mkFreshExpr tp
+    return (smt_constexpr nm tp)
+
 
 boolTypeRule :: Rule s SMT.Type
 boolTypeRule = asBoolType `matchArgs` SMT.tBool
@@ -240,114 +267,83 @@ arrayRules = mempty -- TODO: Add rules for get and set and VecLit.
 
 -- * Bitvector SMT rules.
 
-bitvectorRules :: RuleSet s
+bitvectorRules :: forall s . RuleSet s
 bitvectorRules
   = coreRules
   <> arrayRules
-  <> typeRule bitvectorVecTypeRule
-  <> exprRule bvNatExprRule
-  <> exprRule bvEqExprRule
-  <> exprRule bvAddExprRule
-  <> exprRule bvSubExprRule
-  <> exprRule bvMulExprRule
-  <> exprRule bvAndExprRule
-  <> exprRule bvOrExprRule
-  <> exprRule bvXorExprRule
-  <> exprRule bvShlExprRule
-  <> exprRule bvSShrExprRule
-  <> exprRule bvShrExprRule
-  <> exprRule bvSdivExprRule
-  <> exprRule bvSremExprRule
-  <> exprRule bvUdivExprRule
-  <> exprRule bvUremExprRule
-  <> exprRule bvugtExprRule
-  <> exprRule bvugeExprRule
-  <> exprRule bvultExprRule
-  <> exprRule bvuleExprRule
-  <> exprRule bvsgtExprRule
-  <> exprRule bvsgeExprRule
-  <> exprRule bvsltExprRule
-  <> exprRule bvsleExprRule
+  <> typeRule (matchArgs (asGlobalDef "Prelude.bitvector") smt_bitvecType)
+  <> typeRule (thenMatcher (asDataType "Prelude.Vec" (asAnyNatLit >: asAny))
+                           bitvectorVecMatcher)
 
--- How many bits do we need to represent the given number.
-needBits :: Integer -> Integer
-needBits n0 | n0 <= 0    = 0
-            | otherwise = go n0 0
-  where go :: Integer -> Integer -> Integer
-        go 0 i = i
-        go n i = (go $! (shiftR n 1)) $! (i+1)
+  <> exprRule (asGlobalDef "Prelude.bvNat" `matchArgs` smt_bvNat)
+  <> exprRule (bvBinOpRule "Prelude.bvEq" (SMT.===))
 
-bitvectorVecTypeRule :: Rule s SMT.Type
-bitvectorVecTypeRule =
-    asDataType "Prelude.Vec" (asAnyNatLit >: asAny) `thenMatcher` match
-  where match ((fromIntegral -> n) :*: tp) = do
-          mr <- runMaybeT (runMatcher asBoolType tp)
-          case mr of
-            Just _ -> return $ SMT.tBitVec n
-            Nothing ->
-              -- SMTLib arrays don't have lengths, but they do need
-              -- an index type.
-              lift $ SMT.tArray (SMT.tBitVec (needBits n)) <$> toSMTType tp
+  <> exprRule (bvBinOpRule "Prelude.bvAdd" SMT.bvadd)
+  <> exprRule (bvBinOpRule "Prelude.bvSub" SMT.bvsub)
+  <> exprRule (bvBinOpRule "Prelude.bvMul" SMT.bvmul)
 
-bvNatExprRule :: Rule s SMT.Expr
-bvNatExprRule = asGlobalDef "Prelude.bvNat" `matchArgs` smtBvNat
-  where smtBvNat :: Nat -> Nat -> SMT.Expr
-        smtBvNat w v = SMT.bv (toInteger w) (toInteger v)
+  <> exprRule (bvBinOpRule "Prelude.bvUdiv" SMT.bvudiv)
+  <> exprRule (bvBinOpRule "Prelude.bvUrem" SMT.bvurem)
+  <> exprRule (bvBinOpRule "Prelude.bvSdiv" SMT.bvsdiv)
+  <> exprRule (bvBinOpRule "Prelude.bvSrem" SMT.bvsrem)
+
+  <> exprRule (bvBinOpRule "Prelude.bvShl"  SMT.bvshl)
+  <> exprRule (bvBinOpRule "Prelude.bvShr"  SMT.bvlshr)
+  <> exprRule (bvBinOpRule "Prelude.bvSShr" SMT.bvashr)
+
+  <> exprRule (bvBinOpRule "Prelude.bvAnd" SMT.bvand)
+  <> exprRule (bvBinOpRule "Prelude.bvOr"  SMT.bvor)
+  <> exprRule (bvBinOpRule "Prelude.bvXor" SMT.bvxor)
+
+     -- Unsigned comparisons.
+  <> exprRule (bvBinOpRule "Prelude.bvugt" SMT.bvugt)
+  <> exprRule (bvBinOpRule "Prelude.bvuge" SMT.bvuge)
+  <> exprRule (bvBinOpRule "Prelude.bvult" SMT.bvult)
+  <> exprRule (bvBinOpRule "Prelude.bvule" SMT.bvule)
+
+     -- Signed comparisons.
+  <> exprRule (bvBinOpRule "Prelude.bvsgt" SMT.bvsgt)
+  <> exprRule (bvBinOpRule "Prelude.bvsge" SMT.bvsge)
+  <> exprRule (bvBinOpRule "Prelude.bvslt" SMT.bvslt)
+  <> exprRule (bvBinOpRule "Prelude.bvsle" SMT.bvsle)
+
+     -- Trunc and extension.
+  <> exprRule (matchArgs (asGlobalDef "Prelude.bvTrunc" <:> asAny) 
+                         (smt_trunc :: Nat -> SMT.Expr -> RuleWriter s SMT.Expr))
+  <> exprRule (matchArgs (asGlobalDef "Prelude.bvUExt") smt_uext)
+  <> exprRule (matchArgs (asGlobalDef "Prelude.bvSExt") smt_sext)
+
+
+smt_bitvecType :: Nat -> SMT.Type
+smt_bitvecType = SMT.tBitVec . fromIntegral
+
+bitvectorVecMatcher :: Nat :*: SharedTerm s -> RuleWriter s SMT.Type
+bitvectorVecMatcher (n :*: tp) = do
+  mr <- runMaybeT (runMatcher asBoolType tp)
+  case mr of
+    Just _ -> return $ SMT.tBitVec (toInteger n)
+    Nothing ->
+      -- SMTLib arrays don't have lengths, but they do need
+      -- an index type.
+      lift $ SMT.tArray (SMT.tBitVec (needBits n)) <$> toSMTType tp
 
 -- | Matches expressions with an extra int size argument.
 bvBinOpRule :: Ident -> (SMT.Expr -> SMT.Expr -> SMT.Expr) -> Rule s SMT.Expr
 bvBinOpRule d = matchArgs (asGlobalDef d <:> asAnyNatLit)
 
-bvEqExprRule :: Rule s SMT.Expr
-bvEqExprRule = bvBinOpRule "Prelude.bvEq" (SMT.===)
+smt_bvNat :: Nat -> Nat -> SMT.Expr
+smt_bvNat w v = SMT.bv (toInteger v) (toInteger w)
 
-bvAddExprRule :: Rule s SMT.Expr
-bvAddExprRule = bvBinOpRule "Prelude.bvAdd" SMT.bvadd
+smt_trunc :: Monad m => Nat -> SMT.Expr -> m SMT.Expr
+smt_trunc 0 _ = fail "SMTLIB does not support size 0 bitvectors."
+smt_trunc y v = return $ SMT.extract (toInteger y-1) 0 v
 
-bvSubExprRule :: Rule s SMT.Expr
-bvSubExprRule = bvBinOpRule "Prelude.bvSub" SMT.bvsub
+-- | @smt_uext i n x@ zero extends a @n@-bit bitvector @x@ to a
+-- @n+i@-bit bitvector.
+smt_uext :: Nat -> Nat -> SMT.Expr -> SMT.Expr
+smt_uext i _ x = SMT.zero_extend (toInteger i) x
 
-bvMulExprRule :: Rule s SMT.Expr
-bvMulExprRule = bvBinOpRule "Prelude.bvMul" SMT.bvmul
-
-bvAndExprRule :: Rule s SMT.Expr
-bvAndExprRule = bvBinOpRule "Prelude.bvAnd" SMT.bvand
-
-bvOrExprRule :: Rule s SMT.Expr
-bvOrExprRule = bvBinOpRule "Prelude.bvOr"  SMT.bvor
-
-bvXorExprRule :: Rule s SMT.Expr
-bvXorExprRule = bvBinOpRule "Prelude.bvXor" SMT.bvxor
-
-bvShlExprRule :: Rule s SMT.Expr
-bvShlExprRule = bvBinOpRule "Prelude.bvShl"   SMT.bvshl
-
-bvSShrExprRule :: Rule s SMT.Expr
-bvSShrExprRule = bvBinOpRule "Prelude.bvSShr" SMT.bvashr
-
-bvShrExprRule :: Rule s SMT.Expr
-bvShrExprRule = bvBinOpRule "Prelude.bvShr"   SMT.bvlshr
-
-bvSdivExprRule :: Rule s SMT.Expr
-bvSdivExprRule = bvBinOpRule "Prelude.bvSdiv" SMT.bvsdiv
-
-bvSremExprRule :: Rule s SMT.Expr
-bvSremExprRule = bvBinOpRule "Prelude.bvSrem" SMT.bvsrem
-
-bvUdivExprRule :: Rule s SMT.Expr
-bvUdivExprRule = bvBinOpRule "Prelude.bvUdiv" SMT.bvudiv
-
-bvUremExprRule :: Rule s SMT.Expr
-bvUremExprRule = bvBinOpRule "Prelude.bvUrem" SMT.bvurem
-
-bvugtExprRule, bvugeExprRule, bvultExprRule, bvuleExprRule :: Rule s SMT.Expr
-bvugtExprRule = bvBinOpRule "Prelude.bvugt" SMT.bvugt
-bvugeExprRule = bvBinOpRule "Prelude.bvuge" SMT.bvuge
-bvultExprRule = bvBinOpRule "Prelude.bvult" SMT.bvult
-bvuleExprRule = bvBinOpRule "Prelude.bvule" SMT.bvule
-
-bvsgtExprRule, bvsgeExprRule, bvsltExprRule, bvsleExprRule :: Rule s SMT.Expr
-bvsgtExprRule = bvBinOpRule "Prelude.bvsgt" SMT.bvsgt
-bvsgeExprRule = bvBinOpRule "Prelude.bvsge" SMT.bvsge
-bvsltExprRule = bvBinOpRule "Prelude.bvslt" SMT.bvslt
-bvsleExprRule = bvBinOpRule "Prelude.bvsle" SMT.bvsle
+-- | @smt_sext i n x@ sign extends a @n@-bit bitvector @x@ to a
+-- @n+i@-bit bitvector.
+smt_sext :: Nat -> Nat -> SMT.Expr -> SMT.Expr
+smt_sext i _ x = SMT.sign_extend (toInteger i) x

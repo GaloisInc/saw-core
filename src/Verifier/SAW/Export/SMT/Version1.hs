@@ -1,5 +1,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Verifier.SAW.Export.SMT.Version1
   ( WriterState
   , emptyWriterState
@@ -31,7 +33,6 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
-import Data.Bits
 import Data.Monoid
 import qualified Data.Map as Map
 
@@ -178,20 +179,38 @@ toSort t@(STApp i _tf) = do
         warnings %= (UnmatchedSort nm t:)
         return nm
 
+mkFreshFormula :: Writer s SMT.Ident
+mkFreshFormula = do
+  nm <- freshName smtFormulaNonce "c"
+  smtExtraPreds %= (SMT.PredDecl nm [] []:)
+  return nm
+
+-- | Make a fresh free term using the given term as a type.
+mkFreshTerm :: SharedTerm s -> Writer s SMT.Ident
+mkFreshTerm tp = do
+  nm <- freshName smtTermNonce "t"
+  s <- toSort tp
+  smtExtraFuns %= (SMT.FunDecl nm [] s []:)
+  return nm
+
+smt_pred0 :: SMT.Ident -> SMT.Formula
+smt_pred0 nm = SMT.FPred nm []
+
+smt_term0 :: SMT.Ident -> SMT.Term
+smt_term0 nm = SMT.App nm []
+
 toFormula :: SharedTerm s -> Writer s SMT.Formula
 toFormula t@(STApp i _tf) = do
   cache smtFormulaCache i $ do
     -- Create name for fresh variable
-    nm <- freshName smtFormulaNonce "c"
-    smtExtraPreds %= (SMT.PredDecl nm [] []:)
-    let p = SMT.FPred nm []
+    nm <- mkFreshFormula
+    let p = smt_pred0 nm
     -- Try matching term to get SMT definition.
     mdefFormula <- matchTerm smtFormulaNet t 
     case mdefFormula of
       Just defFormula -> do -- Define function if we can.
         let assumpt = SMT.CmdAssumption (SMT.Conn SMT.Iff [p, defFormula])
         smtCommands %= (assumpt:)
-      -- Introduce fresh variable.
       Nothing -> do
         warnings %= (UnmatchedFormula nm t:)
     return p
@@ -199,22 +218,19 @@ toFormula t@(STApp i _tf) = do
 toTerm :: SharedTerm s -> Writer s SMT.Term
 toTerm t@(STApp i _tf) = do
   cache smtTermCache i $ do
-    -- Get sort of term
-    s <- do sc <- gets smtContext
-            toSort =<< liftIO (scTypeOf sc t)
     -- Create name for fresh variable
-    nm <- freshName smtTermNonce "t"
-    smtExtraFuns %= (SMT.FunDecl nm [] s []:)
+    nm <- do sc <- gets smtContext
+             mkFreshTerm =<< liftIO (scTypeOf sc t)
+    let app = smt_term0 nm
     -- Try matching term to get SMT definition.
     mdefTerm <- matchTerm smtTermNet t 
     case mdefTerm of
       Just defTerm -> do -- Define function if we can.
-        let assumpt = SMT.CmdAssumption $ SMT.App nm [] SMT.=== defTerm 
+        let assumpt = SMT.CmdAssumption $ app SMT.=== defTerm 
         smtCommands %= (assumpt:)
-      -- Introduce fresh variable.
       Nothing -> do
         warnings %= (UnmatchedFormula nm t:)
-    return $ SMT.App nm []
+    return app
 
 writeCommand :: SMT.Command -> Writer s ()
 writeCommand c = smtCommands %= (c:)
@@ -227,8 +243,9 @@ writeAssumption t = writeCommand . SMT.CmdAssumption =<< toFormula t
 writeFormula :: SharedTerm s -> Writer s ()
 writeFormula t = writeCommand . SMT.CmdFormula =<< toFormula t
 
+type RuleWriter s = MaybeT (Writer s)
 
-type Rule s = Matcher (MaybeT (Writer s)) (SharedTerm s)
+type Rule s = Matcher (RuleWriter s) (SharedTerm s)
 
 -- HACK!
 instance Eq (Rule s r) where
@@ -276,7 +293,9 @@ instance Matchable (MaybeT (Writer s)) (SharedTerm s) SMT.Term where
 -- | SMT Rules for core theory.
 coreRules :: RuleSet s
 coreRules
-  =  formulaRule trueFormulaRule
+  =  formulaRule extCnsFormulaRule
+  <> termRule    extCnsTermRule
+  <> formulaRule trueFormulaRule
   <> formulaRule falseFormulaRule
   <> formulaRule notFormulaRule
   <> formulaRule andFormulaRule
@@ -285,6 +304,17 @@ coreRules
   <> formulaRule boolEqFormulaRule
   <> formulaRule iteBoolFormulaRule
   <> termRule iteTermRule
+
+extCnsFormulaRule :: Rule s SMT.Formula
+extCnsFormulaRule =
+  thenMatcher asExtCns $ \ec -> do
+    () <- runMatcher asBoolType (ecType ec)
+    lift $ smt_pred0 <$> mkFreshFormula
+
+extCnsTermRule :: Rule s SMT.Term
+extCnsTermRule =
+  thenMatcher asExtCns $ \ec ->
+    lift $ smt_term0 <$> mkFreshTerm (ecType ec)
 
 trueFormulaRule :: Rule s SMT.Formula
 trueFormulaRule  = asCtor "Prelude.True" asEmpty `matchArgs` SMT.FTrue
@@ -324,9 +354,10 @@ iteTermRule = (asGlobalDef "Prelude.ite" <:> asAny) `matchArgs` SMT.ITE
 ------------------------------------------------------------------------
 -- Bitvector Rules
 
-bitvectorRules :: RuleSet s
+bitvectorRules :: forall s . RuleSet s
 bitvectorRules
   = coreRules
+  <> sortRule bitvectorSortRule
   <> sortRule bitvectorVecSortRule
   <> sortRule bvBVSortRule
   <> termRule (asGlobalDef "Prelude.bvNat" `matchArgs` smt_bv)
@@ -337,18 +368,18 @@ bitvectorRules
   <> termRule (bvBinOpRule "Prelude.bvSub" SMT.bvsub)
   <> termRule (bvBinOpRule "Prelude.bvMul" SMT.bvmul)
 
+  <> termRule (bvBinOpRule "Prelude.bvUdiv" SMT.bvudiv)
+  <> termRule (bvBinOpRule "Prelude.bvUrem" SMT.bvurem)
+  <> termRule (bvBinOpRule "Prelude.bvSdiv" SMT.bvsdiv)
+  <> termRule (bvBinOpRule "Prelude.bvSrem" SMT.bvsrem)
+
+  <> termRule (bvBinOpRule "Prelude.bvShl"  SMT.bvshl)
+  <> termRule (bvBinOpRule "Prelude.bvShr"  SMT.bvlshr)
+  <> termRule (bvBinOpRule "Prelude.bvSShr" SMT.bvashr)
+
   <> termRule (bvBinOpRule "Prelude.bvAnd" SMT.bvand)
   <> termRule (bvBinOpRule "Prelude.bvOr"  SMT.bvor)
   <> termRule (bvBinOpRule "Prelude.bvXor" SMT.bvxor)
-
-  <> termRule (bvBinOpRule "Prelude.bvShl"  SMT.bvshl)
-  <> termRule (bvBinOpRule "Prelude.bvSShr" SMT.bvashr)
-  <> termRule (bvBinOpRule "Prelude.bvShr"  SMT.bvlshr)
-
-  <> termRule (bvBinOpRule "Prelude.bvSdiv" SMT.bvsdiv)
-  <> termRule (bvBinOpRule "Prelude.bvSrem" SMT.bvsrem)
-  <> termRule (bvBinOpRule "Prelude.bvUdiv" SMT.bvudiv)
-  <> termRule (bvBinOpRule "Prelude.bvUrem" SMT.bvurem)
 
   <> formulaRule (bvBinOpRule "Prelude.bvugt" SMT.bvugt)
   <> formulaRule (bvBinOpRule "Prelude.bvuge" SMT.bvuge)
@@ -359,30 +390,29 @@ bitvectorRules
   <> formulaRule (bvBinOpRule "Prelude.bvsge" SMT.bvsge)
   <> formulaRule (bvBinOpRule "Prelude.bvslt" SMT.bvslt)
   <> formulaRule (bvBinOpRule "Prelude.bvsle" SMT.bvsle)
+     -- Trunc and extension.
+  <> termRule (matchArgs (asGlobalDef "Prelude.bvTrunc" <:> asAny) 
+                         (smt_trunc :: Nat -> SMT.Term -> RuleWriter s SMT.Term))
+  <> termRule (matchArgs (asGlobalDef "Prelude.bvUExt") smt_uext)
+  <> termRule (matchArgs (asGlobalDef "Prelude.bvSExt") smt_sext)
 
 -- | Matches expressions with an extra int size argument.
 bvBinOpRule :: (Applicative m, Monad m, Termlike t, Renderable m t a b)
             => Ident -> a -> Matcher m t b
 bvBinOpRule d = matchArgs (asGlobalDef d <:> asAnyNatLit)
 
--- | How many bits do we need to represent the given number.
-needBits :: Nat -> Integer
-needBits n0 | n0 <= 0    = 0
-            | otherwise = go n0 0
-  where go :: Nat -> Integer -> Integer
-        go 0 i = i
-        go n i = (go $! (shiftR n 1)) $! (i+1)
+asBitvectorType :: Rule s Nat
+asBitvectorType = asGlobalDef "Prelude.bitvector" `matchArgs` (id :: Nat -> Nat)
 
-asBitvectorType :: (Termlike t, Monad m) => Matcher m t Nat
-asBitvectorType = 
-  thenMatcher (asDataType "Prelude.Vec" (asAnyNatLit >: asBoolType))
-              (\(n :*: _) -> return n)
+bitvectorSortRule :: Rule s SMT.Sort
+bitvectorSortRule = matchArgs (asGlobalDef "Prelude.bitvector") res
+  where res :: Nat -> SMT.Sort
+        res = SMT.tBitVec . fromIntegral
 
 -- | Matches bitvectors.
 bitvectorVecSortRule :: Rule s SMT.Sort
-bitvectorVecSortRule =
-  thenMatcher asBitvectorType
-              (return . SMT.tBitVec . fromIntegral)
+bitvectorVecSortRule = res <$> asDataType "Prelude.Vec" (asAnyNatLit >: asBoolType)
+  where res (n :*: _) = SMT.tBitVec (fromIntegral n)
 
 -- | Matches vectors of bitvectors.
 bvBVSortRule :: Rule s SMT.Sort
@@ -398,3 +428,17 @@ smt_bv n x = SMT.bv (toInteger x) (toInteger n)
 -- For some reason, this is missing from smtLib library as of version 1.0.4.
 smt_bvult :: SMT.Term -> SMT.Term -> SMT.Formula
 smt_bvult s t = SMT.FPred "bvult" [s,t]
+
+smt_trunc :: Monad m => Nat -> SMT.Term -> m SMT.Term
+smt_trunc 0 _ = fail "SMTLIB does not support size 0 bitvectors."
+smt_trunc y v = return $ SMT.extract (toInteger y-1) 0 v
+
+-- | @smt_uext i n x@ zero extends a @n@-bit bitvector @x@ to a
+-- @n+i@-bit bitvector.
+smt_uext :: Nat -> Nat -> SMT.Term -> SMT.Term
+smt_uext i _ x = SMT.zero_extend (toInteger i) x
+
+-- | @smt_sext i n x@ sign extends a @n@-bit bitvector @x@ to a
+-- @n+i@-bit bitvector.
+smt_sext :: Nat -> Nat -> SMT.Term -> SMT.Term
+smt_sext i _ x = SMT.sign_extend (toInteger i) x

@@ -1,10 +1,11 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE Rank2Types #-}
 module Verifier.SAW.Export.SMT.Common
-  ( cache
+  ( needBits
+  , cache
   , freshName
   , matchTerm
-  , Renderable
+  , Renderable(..)
   , matchArgs
   ) where
 
@@ -12,11 +13,21 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
+import Data.Bits
 import qualified Data.Map as Map
 import Data.String
 
+import Verifier.SAW.Prim
 import Verifier.SAW.Conversion
 import qualified Verifier.SAW.TermNet as Net
+
+-- | How many bits do we need to represent the given number.
+needBits :: Nat -> Integer
+needBits n0 | n0 <= 0    = 0
+            | otherwise = go n0 0
+  where go :: Nat -> Integer -> Integer
+        go 0 i = i
+        go n i = (go $! (shiftR n 1)) $! (i+1)
 
 cache :: (MonadState s m, Ord k)
       => Simple Lens s (Map.Map k v)
@@ -59,6 +70,9 @@ class Renderable m t a b where
 
 instance Renderable m t r r where
   mapMatcher = id
+
+instance Monad m => Renderable m t (m r) r where
+  mapMatcher m = thenMatcher m id
 
 instance (Applicative m, Monad m, Termlike t, Matchable m t a, Renderable m t b c)
       => Renderable m t (a -> b) c where
