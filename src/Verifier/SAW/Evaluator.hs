@@ -11,6 +11,7 @@ import Control.Applicative
 import Control.Monad.Identity
 import Control.Monad.State.Strict as State
 import Data.Bits
+import Data.List ( intersperse )
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
@@ -37,6 +38,24 @@ data Value
     | VDouble !Double
     | VType
     | VIO !(IO Value)
+instance Show Value where
+    showsPrec p v =
+      case v of
+        VFun {} -> showString "<<fun>>"
+        VTrue -> showString "True"
+        VFalse -> showString "False"
+        VNat n -> shows n
+        VWord w x -> showParen (p > 9) (shows x . showString "::[" . shows w . showString "]")
+        VTuple vv -> showParen True
+                     (foldr (.) id (intersperse (showString ",") (map shows (V.toList vv))))
+        VRecord _ -> error "unimplemented: show VRecord" -- !(Map FieldName Value)
+        VCtorApp s vv
+            | V.null vv -> showString s
+            | otherwise -> showString s . showList (V.toList vv)
+        VVector vv -> showList (V.toList vv)
+        VFloat float -> shows float
+        VDouble double -> shows double
+        VType -> showString "_"
 
 ------------------------------------------------------------
 -- Basic operations on values
