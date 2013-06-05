@@ -169,12 +169,12 @@ evalTypedDef :: (Ident -> Value) -> TypedDef -> Value
 evalTypedDef global = evalDef (evalTerm global)
 
 evalGlobal :: Module -> Map Ident Value -> Ident -> Value
-evalGlobal mod prims ident =
+evalGlobal m prims ident =
   case Map.lookup ident prims of
     Just v -> v
     Nothing ->
-      case findDef mod ident of
-        Just td | not (null (defEqs td)) -> evalTypedDef (evalGlobal mod prims) td
+      case findDef m ident of
+        Just td | not (null (defEqs td)) -> evalTypedDef (evalGlobal m prims) td
         _ -> error $ "Unimplemented global: " ++ show ident
 
 ------------------------------------------------------------
