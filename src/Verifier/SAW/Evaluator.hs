@@ -30,6 +30,7 @@ data Value
     | VFalse
     | VNat !Integer
     | VWord !Int !Integer
+    | VString !String
     | VTuple !(Vector Value)
     | VRecord !(Map FieldName Value)
     | VCtorApp String !(Vector Value)
@@ -55,6 +56,7 @@ instance Show Value where
         VVector vv -> showList (V.toList vv)
         VFloat float -> shows float
         VDouble double -> shows double
+        VString s -> shows s
         VType -> showString "_"
 
 ------------------------------------------------------------
@@ -272,6 +274,11 @@ instance IsValue Int where
     toValue n = VNat (toInteger n)
     fromValue (VNat n) | 0 <= n && n <= toInteger (maxBound :: Int) = fromInteger n
     fromValue _ = error "fromValue Int"
+
+instance IsValue String where
+    toValue n = VString n
+    fromValue (VString n) = n
+    fromValue _ = error "fromValue String"
 
 instance IsValue Float where
     toValue n = VFloat n
