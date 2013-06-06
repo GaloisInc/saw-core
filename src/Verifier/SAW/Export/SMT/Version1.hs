@@ -27,6 +27,7 @@ module Verifier.SAW.Export.SMT.Version1
   , termRule
     -- * Predefined rules
   , coreRules
+  , qf_aufbv_WriterState
   , bitvectorRules
   ) where
 
@@ -309,7 +310,7 @@ coreRules
 extCnsFormulaRule :: Rule s SMT.Formula
 extCnsFormulaRule =
   thenMatcher asExtCns $ \ec -> do
-    () <- runMatcher asBoolType (ecType ec)
+    BoolType <- runMatcher defaultMatcher (ecType ec)
     lift $ smt_pred0 <$> mkFreshFormula
 
 extCnsTermRule :: Rule s SMT.Term
@@ -318,20 +319,20 @@ extCnsTermRule =
     lift $ smt_term0 <$> mkFreshTerm (ecType ec)
 
 trueFormulaRule :: Rule s SMT.Formula
-trueFormulaRule  = asCtor "Prelude.True" asEmpty `matchArgs` SMT.FTrue
+trueFormulaRule  = matchCtor "Prelude.True" SMT.FTrue
 
 falseFormulaRule :: Rule s SMT.Formula
-falseFormulaRule = asCtor "Prelude.False" asEmpty `matchArgs` SMT.FFalse
+falseFormulaRule = matchCtor "Prelude.False" SMT.FFalse
 
 notFormulaRule :: Rule s SMT.Formula
-notFormulaRule = asGlobalDef "Prelude.not" `matchArgs` smtNot
-  where smtNot x = SMT.Conn SMT.Not [x]
+notFormulaRule = matchDef "Prelude.not" smt_not
+  where smt_not x = SMT.Conn SMT.Not [x]
 
 -- TODO: Add implies to SAWCore prelude, and corresponding rule.
 
 binFormulaRule :: Ident -> SMT.Conn -> Rule s SMT.Formula
-binFormulaRule d c = asGlobalDef d `matchArgs` fn
-  where fn x y = SMT.Conn c [x, y]
+binFormulaRule d c = matchDef d smt_conn
+  where smt_conn x y = SMT.Conn c [x, y]
 
 andFormulaRule :: Rule s SMT.Formula
 andFormulaRule = binFormulaRule "Prelude.and" SMT.And
@@ -346,8 +347,8 @@ boolEqFormulaRule :: Rule s SMT.Formula
 boolEqFormulaRule = binFormulaRule "Prelude.boolEq" SMT.Iff
 
 iteBoolFormulaRule :: Rule s SMT.Formula
-iteBoolFormulaRule = (asGlobalDef "Prelude.ite" <:> asBoolType) `matchArgs` iteExpr
-  where iteExpr c t f = SMT.Conn SMT.IfThenElse [c,t,f]
+iteBoolFormulaRule = matchDef "Prelude.ite" smt_ite
+  where smt_ite BoolType c t f = SMT.Conn SMT.IfThenElse [c,t,f]
 
 iteTermRule :: Rule s SMT.Term
 iteTermRule = (asGlobalDef "Prelude.ite" <:> asAny) `matchArgs` SMT.ITE
@@ -355,13 +356,18 @@ iteTermRule = (asGlobalDef "Prelude.ite" <:> asAny) `matchArgs` SMT.ITE
 ------------------------------------------------------------------------
 -- Bitvector Rules
 
+qf_aufbv_WriterState :: SharedContext s
+                     -> SMT.Ident -- ^ Name of benchmark
+                     -> WriterState s
+qf_aufbv_WriterState sc nm = emptyWriterState sc nm "QF_AUFBV" bitvectorRules
+
 bitvectorRules :: forall s . RuleSet s
 bitvectorRules
   = coreRules
-  <> sortRule bitvectorSortRule
-  <> sortRule bitvectorVecSortRule
-  <> sortRule bvBVSortRule
-  <> termRule (asGlobalDef "Prelude.bvNat" `matchArgs` smt_bv)
+  <> sortRule (matchDef      "Prelude.bitvector" smt_bitvector)
+  <> sortRule (matchDataType "Prelude.Vec"       smt_bitvector_type)
+  <> sortRule (matchDataType "Prelude.Vec"       smt_array_of_bitvectors)
+  <> termRule (matchDef      "Prelude.bvNat"     smt_bv)
 
   <> formulaRule (bvBinOpRule "Prelude.bvEq" (SMT.===))
 
@@ -394,32 +400,23 @@ bitvectorRules
      -- Trunc and extension.
   <> termRule (matchArgs (asGlobalDef "Prelude.bvTrunc" <:> asAny) 
                          (smt_trunc :: Nat -> SMT.Term -> RuleWriter s SMT.Term))
-  <> termRule (matchArgs (asGlobalDef "Prelude.bvUExt") smt_uext)
-  <> termRule (matchArgs (asGlobalDef "Prelude.bvSExt") smt_sext)
+  <> termRule (matchDef "Prelude.bvUExt" smt_uext)
+  <> termRule (matchDef "Prelude.bvSExt" smt_sext)
 
 -- | Matches expressions with an extra int size argument.
-bvBinOpRule :: (Applicative m, Monad m, Termlike t, Renderable m t a b)
+bvBinOpRule :: (Applicative m, Monad m, Termlike t, Renderable a m t b)
             => Ident -> a -> Matcher m t b
 bvBinOpRule d = matchArgs (asGlobalDef d <:> asAnyNatLit)
 
-asBitvectorType :: Rule s Nat
-asBitvectorType = asGlobalDef "Prelude.bitvector" `matchArgs` (id :: Nat -> Nat)
+smt_bitvector :: Nat -> SMT.Sort
+smt_bitvector = SMT.tBitVec . fromIntegral
 
-bitvectorSortRule :: Rule s SMT.Sort
-bitvectorSortRule = matchArgs (asGlobalDef "Prelude.bitvector") res
-  where res :: Nat -> SMT.Sort
-        res = SMT.tBitVec . fromIntegral
+smt_bitvector_type :: Nat -> BoolType -> SMT.Sort
+smt_bitvector_type n _ = smt_bitvector n
 
--- | Matches bitvectors.
-bitvectorVecSortRule :: Rule s SMT.Sort
-bitvectorVecSortRule = res <$> asDataType "Prelude.Vec" (asAnyNatLit >: asBoolType)
-  where res (n :*: _) = SMT.tBitVec (fromIntegral n)
-
--- | Matches vectors of bitvectors.
-bvBVSortRule :: Rule s SMT.Sort
-bvBVSortRule =
-  thenMatcher (asDataType "Prelude.Vec" (asAnyNatLit >: asBitvectorType))
-              (\(n :*: w) -> return (SMT.tArray (needBits n) (fromIntegral w)))
+-- | Create an array of bitvectors.
+smt_array_of_bitvectors :: Nat -> BitvectorType -> SMT.Sort
+smt_array_of_bitvectors n (BitvectorType w) = SMT.tArray (needBits n) (fromIntegral w)
 
 -- | @smt_bv n x@ creates a @n@-bit bitvector containing @x `mod` 2^n-1@.
 smt_bv :: Nat -> Nat -> SMT.Term

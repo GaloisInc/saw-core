@@ -7,6 +7,7 @@
 module Verifier.SAW.Export.SMT.Version2 
   ( WriterState
   , emptyWriterState
+  , qf_aufbv_WriterState
   , render
   , warnings
   , Warning(..)
@@ -87,7 +88,7 @@ emptyWriterState ctx theory (RuleSet typeRules exprRules) =
                  , _smtTypeNonce = 0
                  , smtExprNet = foldr addRule Net.empty exprRules
                  , _smtExprCache = Map.empty
-                  , _smtExprNonce = 0
+                 , _smtExprNonce = 0
                  , _smtDefs = []
                  , _smtCommands = []
                  , _warnings = []
@@ -213,15 +214,15 @@ instance Matchable (MaybeT (Writer s)) (SharedTerm s) SMT.Expr where
 coreRules :: RuleSet s
 coreRules
   =  exprRule extCnsExprRule
-  <> typeRule boolTypeRule
-  <> exprRule trueExprRule
-  <> exprRule falseExprRule
-  <> exprRule notExprRule
-  <> exprRule andExprRule
-  <> exprRule orExprRule
-  <> exprRule xorExprRule
-  <> exprRule boolEqExprRule
-  <> exprRule iteBoolExprRule
+  <> typeRule (matchDataType "Prelude.Bool" SMT.tBool)
+  <> exprRule (matchCtor "Prelude.True" SMT.true)
+  <> exprRule (matchCtor "Prelude.False" SMT.false)
+  <> exprRule (matchDef "Prelude.not" SMT.not)
+  <> exprRule (matchDef "Prelude.and" SMT.and)
+  <> exprRule (matchDef "Prelude.or" SMT.or)
+  <> exprRule (matchDef "Prelude.xor" SMT.xor)
+  <> exprRule (matchDef "Prelude.boolEq" (SMT.===))
+  <> exprRule (matchArgs (asGlobalDef "Prelude.ite" <:> asAny) smt_ite)
 
 extCnsExprRule :: Rule s SMT.Expr
 extCnsExprRule =
@@ -230,36 +231,8 @@ extCnsExprRule =
     nm <- mkFreshExpr tp
     return (smt_constexpr nm tp)
 
-
-boolTypeRule :: Rule s SMT.Type
-boolTypeRule = asBoolType `matchArgs` SMT.tBool
-
-trueExprRule :: Rule s SMT.Expr
-trueExprRule  = asCtor "Prelude.True" asEmpty `matchArgs` SMT.true
-
-falseExprRule :: Rule s SMT.Expr
-falseExprRule = asCtor "Prelude.False" asEmpty `matchArgs` SMT.false
-
-notExprRule :: Rule s SMT.Expr
-notExprRule = asGlobalDef "Prelude.not" `matchArgs` SMT.not
-
--- TODO: Add implies to SAWCore prelude, and corresponding rule.
-
-andExprRule :: Rule s SMT.Expr
-andExprRule = asGlobalDef "Prelude.and" `matchArgs` SMT.and
-
-orExprRule :: Rule s SMT.Expr
-orExprRule = asGlobalDef "Prelude.or" `matchArgs` SMT.or
-
-xorExprRule :: Rule s SMT.Expr
-xorExprRule = asGlobalDef "Prelude.xor" `matchArgs` SMT.xor
-
-boolEqExprRule :: Rule s SMT.Expr
-boolEqExprRule = asGlobalDef "Prelude.boolEq" `matchArgs` (SMT.===)
-
-iteBoolExprRule :: Rule s SMT.Expr
-iteBoolExprRule = (asGlobalDef "Prelude.ite" <:> asAny) `matchArgs` iteExpr
-  where iteExpr c t f = SMT.app "ite" [c,t,f]
+smt_ite :: SMT.Expr -> SMT.Expr -> SMT.Expr -> SMT.Expr
+smt_ite c t f = SMT.app "ite" [c,t,f]
 
 -- * Array SMT rules
 
@@ -268,69 +241,70 @@ arrayRules = mempty -- TODO: Add rules for get and set and VecLit.
 
 -- * Bitvector SMT rules.
 
+qf_aufbv_WriterState :: SharedContext s
+                     -> WriterState s
+qf_aufbv_WriterState sc = emptyWriterState sc "QF_AUFBV" bitvectorRules
+
 bitvectorRules :: forall s . RuleSet s
 bitvectorRules
   = coreRules
   <> arrayRules
-  <> typeRule (matchArgs (asGlobalDef "Prelude.bitvector") smt_bitvecType)
-  <> typeRule (thenMatcher (asDataType "Prelude.Vec" (asAnyNatLit >: asAny))
-                           bitvectorVecMatcher)
+  <> typeRule (matchDef "Prelude.bitvector" smt_bitvecType)
+  <> typeRule (matchDataType "Prelude.Vec" 
+                 (smt_vectype :: Nat -> SharedTerm s -> RuleWriter s SMT.Type))
 
-  <> exprRule (asGlobalDef "Prelude.bvNat" `matchArgs` smt_bvNat)
-  <> exprRule (bvBinOpRule "Prelude.bvEq" (SMT.===))
+  <> exprRule (matchDef "Prelude.bvNat" smt_bvNat)
+  <> exprRule (bv_bin_rule "Prelude.bvEq" (SMT.===))
 
-  <> exprRule (bvBinOpRule "Prelude.bvAdd" SMT.bvadd)
-  <> exprRule (bvBinOpRule "Prelude.bvSub" SMT.bvsub)
-  <> exprRule (bvBinOpRule "Prelude.bvMul" SMT.bvmul)
+  <> exprRule (bv_bin_rule "Prelude.bvAdd" SMT.bvadd)
+  <> exprRule (bv_bin_rule "Prelude.bvSub" SMT.bvsub)
+  <> exprRule (bv_bin_rule "Prelude.bvMul" SMT.bvmul)
 
-  <> exprRule (bvBinOpRule "Prelude.bvUdiv" SMT.bvudiv)
-  <> exprRule (bvBinOpRule "Prelude.bvUrem" SMT.bvurem)
-  <> exprRule (bvBinOpRule "Prelude.bvSdiv" SMT.bvsdiv)
-  <> exprRule (bvBinOpRule "Prelude.bvSrem" SMT.bvsrem)
+  <> exprRule (bv_bin_rule "Prelude.bvUdiv" SMT.bvudiv)
+  <> exprRule (bv_bin_rule "Prelude.bvUrem" SMT.bvurem)
+  <> exprRule (bv_bin_rule "Prelude.bvSdiv" SMT.bvsdiv)
+  <> exprRule (bv_bin_rule "Prelude.bvSrem" SMT.bvsrem)
 
-  <> exprRule (bvBinOpRule "Prelude.bvShl"  SMT.bvshl)
-  <> exprRule (bvBinOpRule "Prelude.bvShr"  SMT.bvlshr)
-  <> exprRule (bvBinOpRule "Prelude.bvSShr" SMT.bvashr)
+  <> exprRule (bv_bin_rule "Prelude.bvShl"  SMT.bvshl)
+  <> exprRule (bv_bin_rule "Prelude.bvShr"  SMT.bvlshr)
+  <> exprRule (bv_bin_rule "Prelude.bvSShr" SMT.bvashr)
 
-  <> exprRule (bvBinOpRule "Prelude.bvAnd" SMT.bvand)
-  <> exprRule (bvBinOpRule "Prelude.bvOr"  SMT.bvor)
-  <> exprRule (bvBinOpRule "Prelude.bvXor" SMT.bvxor)
+  <> exprRule (bv_bin_rule "Prelude.bvAnd" SMT.bvand)
+  <> exprRule (bv_bin_rule "Prelude.bvOr"  SMT.bvor)
+  <> exprRule (bv_bin_rule "Prelude.bvXor" SMT.bvxor)
 
      -- Unsigned comparisons.
-  <> exprRule (bvBinOpRule "Prelude.bvugt" SMT.bvugt)
-  <> exprRule (bvBinOpRule "Prelude.bvuge" SMT.bvuge)
-  <> exprRule (bvBinOpRule "Prelude.bvult" SMT.bvult)
-  <> exprRule (bvBinOpRule "Prelude.bvule" SMT.bvule)
+  <> exprRule (bv_bin_rule "Prelude.bvugt" SMT.bvugt)
+  <> exprRule (bv_bin_rule "Prelude.bvuge" SMT.bvuge)
+  <> exprRule (bv_bin_rule "Prelude.bvult" SMT.bvult)
+  <> exprRule (bv_bin_rule "Prelude.bvule" SMT.bvule)
 
      -- Signed comparisons.
-  <> exprRule (bvBinOpRule "Prelude.bvsgt" SMT.bvsgt)
-  <> exprRule (bvBinOpRule "Prelude.bvsge" SMT.bvsge)
-  <> exprRule (bvBinOpRule "Prelude.bvslt" SMT.bvslt)
-  <> exprRule (bvBinOpRule "Prelude.bvsle" SMT.bvsle)
+  <> exprRule (bv_bin_rule "Prelude.bvsgt" SMT.bvsgt)
+  <> exprRule (bv_bin_rule "Prelude.bvsge" SMT.bvsge)
+  <> exprRule (bv_bin_rule "Prelude.bvslt" SMT.bvslt)
+  <> exprRule (bv_bin_rule "Prelude.bvsle" SMT.bvsle)
 
      -- Trunc and extension.
   <> exprRule (matchArgs (asGlobalDef "Prelude.bvTrunc" <:> asAny) 
                          (smt_trunc :: Nat -> SMT.Expr -> RuleWriter s SMT.Expr))
-  <> exprRule (matchArgs (asGlobalDef "Prelude.bvUExt") smt_uext)
-  <> exprRule (matchArgs (asGlobalDef "Prelude.bvSExt") smt_sext)
+  <> exprRule (matchDef "Prelude.bvUExt" smt_uext)
+  <> exprRule (matchDef "Prelude.bvSExt" smt_sext)
 
 
 smt_bitvecType :: Nat -> SMT.Type
 smt_bitvecType = SMT.tBitVec . fromIntegral
 
-bitvectorVecMatcher :: Nat :*: SharedTerm s -> RuleWriter s SMT.Type
-bitvectorVecMatcher (n :*: tp) = do
+smt_vectype :: Nat -> SharedTerm s -> RuleWriter s SMT.Type
+smt_vectype n tp = do
   mr <- runMaybeT (runMatcher asBoolType tp)
   case mr of
     Just _ -> return $ SMT.tBitVec (toInteger n)
-    Nothing ->
-      -- SMTLib arrays don't have lengths, but they do need
-      -- an index type.
-      lift $ SMT.tArray (SMT.tBitVec (needBits n)) <$> toSMTType tp
+    Nothing -> lift $ SMT.tArray (SMT.tBitVec (needBits n)) <$> toSMTType tp              
 
 -- | Matches expressions with an extra int size argument.
-bvBinOpRule :: Ident -> (SMT.Expr -> SMT.Expr -> SMT.Expr) -> Rule s SMT.Expr
-bvBinOpRule d = matchArgs (asGlobalDef d <:> asAnyNatLit)
+bv_bin_rule :: Ident -> (SMT.Expr -> SMT.Expr -> SMT.Expr) -> Rule s SMT.Expr
+bv_bin_rule d = matchArgs (asGlobalDef d <:> asAnyNatLit)
 
 smt_bvNat :: Nat -> Nat -> SMT.Expr
 smt_bvNat w v = SMT.bv (toInteger v) (toInteger w)
