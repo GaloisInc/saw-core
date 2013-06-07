@@ -176,6 +176,7 @@ evalTermF global lam rec env tf =
         ArrayValue _ tv     -> VVector <$> traverse rec tv
         FloatLit x          -> pure $ VFloat x
         DoubleLit x         -> pure $ VDouble x
+        StringLit s         -> pure $ VString s
         ExtCns _            -> error "evalTermF ExtCns unimplemented"
 
 -- | Evaluator for unshared terms.
