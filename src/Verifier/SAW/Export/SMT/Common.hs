@@ -117,7 +117,7 @@ matchArgs :: (Monad m, Termlike t, Renderable a m t b) => Matcher m t x -> a -> 
 matchArgs m f = mapMatcher (thenMatcher m (\_ -> return f))
 
 matchDef :: (Monad m, Termlike t, Renderable v m t a)
-          => Ident -> v -> Matcher m t a
+         => Ident -> v -> Matcher m t a
 matchDef d v = asGlobalDef d `matchArgs` v
 
 matchCtor :: (Monad m, Termlike t, Renderable v m t a)
