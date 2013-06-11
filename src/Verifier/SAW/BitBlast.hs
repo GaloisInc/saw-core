@@ -2,6 +2,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module Verifier.SAW.BitBlast
@@ -24,6 +25,7 @@ import Control.Monad.Trans.Maybe
 import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Traversable (traverse)
 import qualified Data.Vector.Storable as LV
 
 import Verifier.SAW.Recognizer
@@ -34,11 +36,22 @@ import Verinf.Symbolic.Lit
 data BValue l
     = BBool l
     | BVector (LitVector l)
-    -- TODO: we could add support for tuples and records.
+    | BTuple [BValue l]
+    | BRecord (Map FieldName (BValue l))
+
+bTupleSelect :: Int -> BValue l -> BValue l
+bTupleSelect n (BTuple vs) = vs !! (n - 1)
+bTupleSelect _ _ = error "expected Tuple"
+
+bRecordSelect :: FieldName -> BValue l -> BValue l
+bRecordSelect n (BRecord (Map.lookup n -> Just v)) = v
+bRecordSelect _ _ = error "expected Record"
 
 flattenBValue :: LV.Storable l => BValue l -> LitVector l
 flattenBValue (BBool l) = LV.singleton l
 flattenBValue (BVector v) = v
+flattenBValue (BTuple vs) = LV.concat (map flattenBValue vs)
+flattenBValue (BRecord vm) = LV.concat (map flattenBValue (Map.elems vm))
 
 type BBMonad = MaybeT IO
 
@@ -71,14 +84,18 @@ addCut bc (STApp t _) bits = do
     fail "internal: addCut given term that has already been bitblasted."
   writeIORef (bcTermCache bc) $! Map.insert t bits m
 
-bitBlastWith :: (Eq l, LV.Storable l) => BCache l -> SharedTerm s -> IO (Maybe (BValue l))
+bitBlastWith :: forall l s. (Eq l, LV.Storable l) => BCache l -> SharedTerm s -> IO (Maybe (BValue l))
 bitBlastWith bc t0 = runMaybeT (go t0)
   where be = bcEngine bc
+        newVars :: SharedTerm s -> BBMonad (BValue l)
         newVars (asBoolType -> Just ()) = liftIO $ BBool <$> beMakeInputLit be
         newVars (asBitvectorType -> Just n) = liftIO $
           BVector <$> LV.replicateM (fromInteger n) (beMakeInputLit be)
+        newVars (asTupleType -> Just ts) = BTuple <$> traverse newVars ts
+        newVars (asRecordType -> Just tm) = BRecord <$> traverse newVars tm
         newVars _ = fail "bitBlast: unsupported argument type"
         -- Bitblast term.
+        go :: SharedTerm s -> BBMonad (BValue l)
         go (asCtor -> Just (ident, []))
           | ident == "Prelude.False" = return (BBool (beFalse be))
           | ident == "Prelude.True"  = return (BBool (beTrue be))
@@ -93,6 +110,14 @@ bitBlastWith bc t0 = runMaybeT (go t0)
               | (STApp _ (FTermF (GlobalDef ident)), xs) <- asApplyAll t
               , Just op <- Map.lookup ident opTable ->
                   pushNew =<< op be go xs
+              | FTermF (TupleValue ts) <- tf ->
+                  pushNew =<< (BTuple <$> traverse go ts)
+              | FTermF (RecordValue tm) <- tf ->
+                  pushNew =<< (BRecord <$> traverse go tm)
+              | FTermF (TupleSelector t' n) <- tf ->
+                  pushNew =<< (bTupleSelect n <$> go t')
+              | FTermF (RecordSelector t' n) <- tf ->
+                  pushNew =<< (bRecordSelect n <$> go t')
               | otherwise -> fail "bitBlast: unsupported expression"
 
 type BValueOp s l
