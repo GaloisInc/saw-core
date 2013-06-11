@@ -42,8 +42,8 @@ flattenBValue (BVector v) = v
 
 type BBMonad = MaybeT IO
 
-liftMaybe :: Maybe a -> BBMonad a
-liftMaybe m = MaybeT (return m)
+wrongArity :: BBMonad a
+wrongArity = fail "wrong number of function arguments"
 
 ----------------------------------------------------------------------
 
@@ -77,7 +77,7 @@ bitBlastWith bc t0 = runMaybeT (go t0)
         newVars (asBoolType -> Just ()) = liftIO $ BBool <$> beMakeInputLit be
         newVars (asBitvectorType -> Just n) = liftIO $
           BVector <$> LV.replicateM (fromInteger n) (beMakeInputLit be)
-        newVars _ = liftMaybe Nothing
+        newVars _ = fail "bitBlast: unsupported argument type"
         -- Bitblast term.
         go (asCtor -> Just (ident, []))
           | ident == "Prelude.False" = return (BBool (beFalse be))
@@ -93,7 +93,7 @@ bitBlastWith bc t0 = runMaybeT (go t0)
               | (STApp _ (FTermF (GlobalDef ident)), xs) <- asApplyAll t
               , Just op <- Map.lookup ident opTable ->
                   pushNew =<< op be go xs
-              | otherwise -> liftMaybe Nothing
+              | otherwise -> fail "bitBlast: unsupported expression"
 
 type BValueOp s l
   = BitEngine l
@@ -135,54 +135,54 @@ opTable =
 
 bvBinOp :: (BitEngine l -> LitVector l -> LitVector l -> IO (LitVector l)) -> BValueOp s l
 bvBinOp f be eval [_, mx, my] =
-    do x <- liftMaybe . asBVector =<< eval mx
-       y <- liftMaybe . asBVector =<< eval my
+    do x <- asBVector =<< eval mx
+       y <- asBVector =<< eval my
        liftIO $ BVector <$> f be x y
-bvBinOp _ _ _ _ = liftMaybe Nothing
+bvBinOp _ _ _ _ = wrongArity
 
 bvRelOp :: (BitEngine l -> LitVector l -> LitVector l -> IO l) -> BValueOp s l
 bvRelOp f be eval [_, mx, my] =
-    do x <- liftMaybe . asBVector =<< eval mx
-       y <- liftMaybe . asBVector =<< eval my
+    do x <- asBVector =<< eval mx
+       y <- asBVector =<< eval my
        liftIO $ BBool <$> f be x y
-bvRelOp _ _ _ _ = liftMaybe Nothing
+bvRelOp _ _ _ _ = wrongArity
 
 boolOp :: (BitEngine l -> l -> l -> IO l) -> BValueOp s l
 boolOp f be eval [mx, my] =
-    do x <- liftMaybe . asBBool =<< eval mx
-       y <- liftMaybe . asBBool =<< eval my
+    do x <- asBBool =<< eval mx
+       y <- asBBool =<< eval my
        liftIO (fmap BBool (f be x y))
-boolOp _ _ _ _ = liftMaybe Nothing
+boolOp _ _ _ _ = wrongArity
 
 bvNatOp :: LV.Storable l => BValueOp s l
 bvNatOp be _ [mw, mx] = do
   w <- asBNat mw
   x <- asBNat mx
   return (BVector (beVectorFromInt be (fromIntegral w) x))
-bvNatOp _ _ _ = liftMaybe Nothing
+bvNatOp _ _ _ = wrongArity
 
 notOp :: BValueOp s l
 notOp be eval [mx] =
-    do x <- liftMaybe . asBBool =<< eval mx
+    do x <- asBBool =<< eval mx
        return (BBool (beNeg be x))
-notOp _ _ _ = liftMaybe Nothing
+notOp _ _ _ = wrongArity
 
 appendOp :: LV.Storable l => BValueOp s l
 appendOp _ eval [_, _, _, mx, my] =
-    do x <- liftMaybe . asBVector =<< eval mx
-       y <- liftMaybe . asBVector =<< eval my
+    do x <- asBVector =<< eval mx
+       y <- asBVector =<< eval my
        return (BVector ((LV.++) x y))
-appendOp _ _ _ = liftMaybe Nothing
+appendOp _ _ _ = wrongArity
 
 singleOp :: LV.Storable l => BValueOp s l
 singleOp _ eval [_, mx] =
-    do x <- liftMaybe . asBBool =<< eval mx
+    do x <- asBBool =<< eval mx
        return (BVector (LV.singleton x))
-singleOp _ _ _ = liftMaybe Nothing
+singleOp _ _ _ = wrongArity
 
 iteOp :: (Eq l, LV.Storable l) => BValueOp s l
 iteOp be eval [_, mb, mx, my] =
-    do b <- liftMaybe . asBBool =<< eval mb
+    do b <- asBBool =<< eval mb
        case () of
          _ | b == beTrue be -> eval mx
            | b == beFalse be -> eval my
@@ -193,42 +193,45 @@ iteOp be eval [_, mb, mx, my] =
                     (BBool x, BBool y) -> liftIO (fmap BBool (beMux be b x y))
                     (BVector x, BVector y) ->
                         liftIO (fmap BVector (beIteVector be b (return x) (return y)))
-                    _ -> liftMaybe Nothing
-iteOp _ _ _ = liftMaybe Nothing
+                    _ -> fail "malformed arguments"
+iteOp _ _ _ = wrongArity
 
 bvTruncOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvTruncOp be eval [_, mj, mx] =
     do j <- asBNat mj
-       x <- liftMaybe . asBVector =<< eval mx
+       x <- asBVector =<< eval mx
        return (BVector (beTrunc be (fromIntegral j) x))
-bvTruncOp _ _ _ = liftMaybe Nothing
+bvTruncOp _ _ _ = wrongArity
 
 bvUExtOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvUExtOp be eval [mi, mj, mx] =
     do i <- asBNat mi
        j <- asBNat mj
-       x <- liftMaybe . asBVector =<< eval mx
+       x <- asBVector =<< eval mx
        return (BVector (beZext be (fromIntegral (i + j)) x))
-bvUExtOp _ _ _ = liftMaybe Nothing
+bvUExtOp _ _ _ = wrongArity
 
 bvSExtOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvSExtOp be eval [mi, mj, mx] =
     do i <- asBNat mi
        j <- asBNat mj
-       x <- liftMaybe . asBVector =<< eval mx
+       x <- asBVector =<< eval mx
        return (BVector (beSext be (fromIntegral (i + j + 1)) x))
-bvSExtOp _ _ _ = liftMaybe Nothing
+bvSExtOp _ _ _ = wrongArity
 
 ----------------------------------------------------------------------
 -- Destructors for BValues
 
-asBVector :: BValue l -> Maybe (LitVector l)
-asBVector (BVector lv) = Just lv
-asBVector _ = Nothing
+asBVector :: BValue l -> BBMonad (LitVector l)
+asBVector (BVector lv) = return lv
+asBVector _ = fail "expected Vector"
 
-asBBool :: BValue l -> Maybe l
-asBBool (BBool l) = Just l
-asBBool _ = Nothing
+asBBool :: BValue l -> BBMonad l
+asBBool (BBool l) = return l
+asBBool _ = fail "expected Bool"
 
 asBNat :: SharedTerm s -> BBMonad Integer
-asBNat = liftMaybe . asNatLit
+asBNat t =
+    case asNatLit t of
+      Just n -> return n
+      Nothing -> fail "expected NatLit"
