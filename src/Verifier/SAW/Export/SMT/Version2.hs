@@ -157,7 +157,7 @@ smt_constexpr nm tp = SMT.App (SMT.I nm []) (Just tp) []
 
 
 toSMTExpr :: SharedTerm s -> Writer s SMT.Expr
-toSMTExpr t@(STApp _ (Lambda x ty tm)) = do
+toSMTExpr (STApp _ (Lambda _ ty tm)) = do
   ty' <- toSMTType ty
   nm <- mkFreshExpr ty'
   let x = smt_constexpr nm ty'
