@@ -666,6 +666,11 @@ bvSExt x y a = append (Succ y) x ?Bool a (replicate x Bool (msb y a));
 --bvSExt x y a = append x (Succ y) ?Bool (replicate x Bool (msb y a)) a;
 
 --------------------------------------------------------------------------------
+-- String values
+
+data String :: sort 0 where { }
+
+--------------------------------------------------------------------------------
 -- Floating-point values
 
 data Float :: sort 0 where { }
