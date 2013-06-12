@@ -42,6 +42,7 @@ library
      Verifier.SAW.Export.SMT.Version1
      Verifier.SAW.Export.SMT.Version2
      Verifier.SAW.Export.Yices
+     Verifier.SAW.Import.AIG
      Verifier.SAW.Cache
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
