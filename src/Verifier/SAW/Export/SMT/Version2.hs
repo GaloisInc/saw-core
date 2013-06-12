@@ -43,6 +43,7 @@ import qualified SMTLib2.Core as SMT
 import Verifier.SAW.Export.SMT.Common
 import Verifier.SAW.Conversion
 import Verifier.SAW.Prim
+import Verifier.SAW.Recognizer (asLocalVar)
 import Verifier.SAW.Rewriter ()
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.TermNet as Net
@@ -73,6 +74,7 @@ data WriterState s =
                  , _smtExprNonce :: !Int
                  , _smtDefs  :: [SMT.Command]
                  , _smtCommands :: [SMT.Command]
+                 , _localExprs :: [SMT.Expr]
                  , _warnings :: [Warning (SharedTerm s)]
                  }
 
@@ -91,6 +93,7 @@ emptyWriterState ctx theory (RuleSet typeRules exprRules) =
                  , _smtExprNonce = 0
                  , _smtDefs = []
                  , _smtCommands = []
+                 , _localExprs = []
                  , _warnings = []
                  }
   where addRule rule = Net.insert_term (rule, rule)
@@ -112,6 +115,9 @@ smtDefs = lens _smtDefs (\s v -> s { _smtDefs = v })
 
 smtCommands :: Simple Lens (WriterState s) [SMT.Command]
 smtCommands = lens _smtCommands (\s v -> s { _smtCommands = v })
+
+localExprs :: Simple Lens (WriterState s) [SMT.Expr]
+localExprs = lens _localExprs (\s v -> s { _localExprs = v})
 
 warnings :: Simple Lens (WriterState s) [Warning (SharedTerm s)]
 warnings = lens _warnings (\s v -> s { _warnings = v })
@@ -151,6 +157,14 @@ smt_constexpr nm tp = SMT.App (SMT.I nm []) (Just tp) []
 
 
 toSMTExpr :: SharedTerm s -> Writer s SMT.Expr
+toSMTExpr t@(STApp _ (Lambda x ty tm)) = do
+  ty' <- toSMTType ty
+  nm <- mkFreshExpr ty'
+  let x = smt_constexpr nm ty'
+  localExprs %= (x:)
+  r <- toSMTExpr tm
+  localExprs %= tail
+  return r
 toSMTExpr t@(STApp i _tf) = do
   cache smtExprCache i $ do
     -- Get type of term
@@ -214,6 +228,7 @@ instance Matchable (MaybeT (Writer s)) (SharedTerm s) SMT.Expr where
 coreRules :: RuleSet s
 coreRules
   =  exprRule extCnsExprRule
+  <> exprRule localExprRule
   <> typeRule (matchDataType "Prelude.Bool" SMT.tBool)
   <> exprRule (matchCtor "Prelude.True" SMT.true)
   <> exprRule (matchCtor "Prelude.False" SMT.false)
@@ -230,6 +245,13 @@ extCnsExprRule =
     tp <- toSMTType (ecType ec)
     nm <- mkFreshExpr tp
     return (smt_constexpr nm tp)
+
+localExprRule :: Rule s SMT.Expr
+localExprRule =
+  thenMatcher (asVar asLocalVar) $ \(i, _) -> lift $ do
+    ls <- use localExprs
+    guard (i < length ls)
+    return (ls !! i)
 
 smt_ite :: SMT.Expr -> SMT.Expr -> SMT.Expr -> SMT.Expr
 smt_ite c t f = SMT.app "ite" [c,t,f]
