@@ -140,7 +140,7 @@ networkAsSharedTerms ntk sc inputTerms outputLits = do
   scAnd <- scApplyPreludeAnd sc
   scFalse <- scApplyPreludeFalse sc
   let viewFn (AndLit x y) = do
-        putStrLn "AndLit"
+        --putStrLn "AndLit"
         scAnd x y
       viewFn (NotLit x) = scNot x
       viewFn (InputLit i) = return $ inputTerms V.! i
@@ -179,7 +179,7 @@ translateNetwork :: SharedContext s -- ^ Context to build in term.
                  -> SharedTerm s -- ^ Expected output type.
                  -> ErrorT String IO (SharedTerm s)
 translateNetwork sc ntk outputLits args resultType = do
-  lift $ putStrLn "inputTerms"
+  --lift $ putStrLn "inputTerms"
   inputTerms <- bitblastVarsAsInputLits sc (snd <$> args)
   -- Check number of inputs to network matches expected inputs.
   do let expectedInputCount = V.length inputTerms
@@ -188,11 +188,11 @@ translateNetwork sc ntk outputLits args resultType = do
        fail $ "AIG has " ++ show aigCount
                  ++ " inputs, while expected type has "
                  ++ show expectedInputCount ++ " inputs."
-  lift $ putStrLn "Output vars"
+  --lift $ putStrLn "Output vars"
   -- Get outputs as SAWCore terms.
   outputVars <- liftIO $
     networkAsSharedTerms ntk sc inputTerms (V.fromList (SV.toList outputLits))
-  lift $ putStrLn "Type parser"
+  --lift $ putStrLn "Type parser"
    -- Join output lits into result type.
   (res,rargs) <- runTypeParser outputVars $ parseAIGResultType sc resultType
   unless (V.null rargs) $
@@ -206,7 +206,7 @@ readAIG :: forall s
         -> IO (Either String (SharedTerm s))
 readAIG sc path aigType =
   withReadAiger path $ \ntk -> do
-    putStrLn "Network outputs"
+    --putStrLn "Network outputs"
     outputLits <- networkOutputs ntk
     let (args,resultType) = asPiList aigType
     runErrorT $
