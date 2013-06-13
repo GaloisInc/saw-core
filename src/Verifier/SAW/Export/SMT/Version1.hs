@@ -46,6 +46,7 @@ import qualified SMTLib1.QF_AUFBV as SMT
 import Verifier.SAW.Export.SMT.Common
 import Verifier.SAW.Conversion
 import Verifier.SAW.Prim
+import Verifier.SAW.Recognizer (asLambda, asLocalVar)
 import Verifier.SAW.Rewriter ()
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.TermNet as Net
@@ -88,6 +89,7 @@ data WriterState s =
                  , _smtExtraFuns  :: [SMT.FunDecl]
                  , _smtExtraPreds :: [SMT.PredDecl]
                  , _smtCommands :: [SMT.Command]
+                 , _localTerms :: [SMT.Term]
 
                  , _warnings :: [Warning (SharedTerm s)]
                  }
@@ -114,6 +116,7 @@ emptyWriterState ctx nm logic (RuleSet sr fr tr) =
                 , _smtExtraFuns  = []
                 , _smtExtraPreds = []
                 , _smtCommands = []
+                , _localTerms = []
                 , _warnings = []
                 }
   where addRule rule = Net.insert_term (rule, rule)
@@ -150,6 +153,9 @@ smtCommands = lens _smtCommands (\s v -> s { _smtCommands = v })
 
 warnings :: Simple Lens (WriterState s) [Warning (SharedTerm s)]
 warnings = lens _warnings (\s v -> s { _warnings = v })
+
+localTerms :: Simple Lens (WriterState s) [SMT.Term]
+localTerms = lens _localTerms (\s v -> s { _localTerms = v})
 
 render :: WriterState s -> String
 render s = show $ SMT.pp $ SMT.Script
@@ -202,6 +208,7 @@ smt_term0 :: SMT.Ident -> SMT.Term
 smt_term0 nm = SMT.App nm []
 
 toFormula :: SharedTerm s -> Writer s SMT.Formula
+-- toFormula t@(STApp i (Lambda (Pat x _ _) tm) = do
 toFormula t@(STApp i _tf) = do
   cache smtFormulaCache i $ do
     -- Create name for fresh variable
@@ -231,7 +238,7 @@ toTerm t@(STApp i _tf) = do
         let assumpt = SMT.CmdAssumption $ app SMT.=== defTerm 
         smtCommands %= (assumpt:)
       Nothing -> do
-        warnings %= (UnmatchedFormula nm t:)
+        warnings %= (UnmatchedTerm nm t:)
     return app
 
 writeCommand :: SMT.Command -> Writer s ()
@@ -297,6 +304,8 @@ coreRules :: RuleSet s
 coreRules
   =  formulaRule extCnsFormulaRule
   <> termRule    extCnsTermRule
+  <> formulaRule lambdaFormulaRule
+  <> termRule    localTermRule
   <> formulaRule trueFormulaRule
   <> formulaRule falseFormulaRule
   <> formulaRule notFormulaRule
@@ -317,6 +326,22 @@ extCnsTermRule :: Rule s SMT.Term
 extCnsTermRule =
   thenMatcher asExtCns $ \ec ->
     lift $ smt_term0 <$> mkFreshTerm (ecType ec)
+
+lambdaFormulaRule :: Rule s SMT.Formula
+lambdaFormulaRule =
+  thenMatcher (asVar asLambda) $ \(_, ty, tm) -> lift $ do
+    x <- smt_term0 <$> mkFreshTerm ty
+    localTerms %= (x:)
+    r <- toFormula tm
+    localTerms %= tail
+    return r
+
+localTermRule :: Rule s SMT.Term
+localTermRule =
+  thenMatcher (asVar asLocalVar) $ \(i, _) -> do
+    ls <- use localTerms
+    guard (i < length ls)
+    return (ls !! i)
 
 trueFormulaRule :: Rule s SMT.Formula
 trueFormulaRule  = matchCtor "Prelude.True" SMT.FTrue
