@@ -118,7 +118,7 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
                Nothing ->
                    do -- putStrLn ("WARNING: unknown uninterpreted function " ++ show (name, typ, size))
                       scGlobalDef sc (mkIdent preludeName name)
-             (inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
+             (_inSizes, args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
              let (TFun inTyp outTyp) = typ
              -- unless (typSizes inTyp == inSizes) (putStrLn ("ERROR parseSBVPgm: input size mismatch in " ++ name) >> print inTyp >> print inSizes)
              argument <- combineOutputs sc inTyp args
