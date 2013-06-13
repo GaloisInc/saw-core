@@ -4,6 +4,8 @@
 module Verifier.SAW.Import.AIG 
   ( readAIG
   , parseVerinfViaAIG
+  , translateNetwork
+  , withReadAiger
   ) where
 
 import Control.Applicative
