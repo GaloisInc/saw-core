@@ -21,7 +21,7 @@ module Verifier.SAW.BitBlast
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans
-import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Error
 import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -53,14 +53,15 @@ flattenBValue (BVector v) = v
 flattenBValue (BTuple vs) = LV.concat (map flattenBValue vs)
 flattenBValue (BRecord vm) = LV.concat (map flattenBValue (Map.elems vm))
 
-type BBMonad = MaybeT IO
+type BBErr = String
+type BBMonad = ErrorT BBErr IO
 
 wrongArity :: BBMonad a
 wrongArity = fail "wrong number of function arguments"
 
 ----------------------------------------------------------------------
 
-bitBlast :: (Eq l, LV.Storable l) => BitEngine l -> SharedTerm s -> IO (Maybe (BValue l))
+bitBlast :: (Eq l, LV.Storable l) => BitEngine l -> SharedTerm s -> IO (Either BBErr (BValue l))
 bitBlast be t = do
   bc <- newBCache be
   bitBlastWith bc t
@@ -84,8 +85,9 @@ addCut bc (STApp t _) bits = do
     fail "internal: addCut given term that has already been bitblasted."
   writeIORef (bcTermCache bc) $! Map.insert t bits m
 
-bitBlastWith :: forall l s. (Eq l, LV.Storable l) => BCache l -> SharedTerm s -> IO (Maybe (BValue l))
-bitBlastWith bc t0 = runMaybeT (go t0)
+bitBlastWith :: forall l s. (Eq l, LV.Storable l) =>
+                BCache l -> SharedTerm s -> IO (Either BBErr (BValue l))
+bitBlastWith bc t0 = runErrorT (go t0)
   where be = bcEngine bc
         newVars :: SharedTerm s -> BBMonad (BValue l)
         newVars (asBoolType -> Just ()) = liftIO $ BBool <$> beMakeInputLit be
