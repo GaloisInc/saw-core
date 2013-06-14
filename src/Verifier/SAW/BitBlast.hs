@@ -87,7 +87,7 @@ addCut bc (STApp t _) bits = do
 
 bitBlastWith :: forall l s. (Eq l, LV.Storable l) =>
                 BCache l -> SharedTerm s -> IO (Either BBErr (BValue l))
-bitBlastWith bc t0 = runErrorT (go t0)
+bitBlastWith bc t0 = runErrorT (go [] t0)
   where be = bcEngine bc
         newVars :: SharedTerm s -> BBMonad (BValue l)
         newVars (asBoolType -> Just ()) = liftIO $ BBool <$> beMakeInputLit be
@@ -97,29 +97,34 @@ bitBlastWith bc t0 = runErrorT (go t0)
         newVars (asRecordType -> Just tm) = BRecord <$> traverse newVars tm
         newVars _ = fail "bitBlast: unsupported argument type"
         -- Bitblast term.
-        go :: SharedTerm s -> BBMonad (BValue l)
-        go (asCtor -> Just (ident, []))
+        go :: [BValue l] -> SharedTerm s -> BBMonad (BValue l)
+        go _ (asCtor -> Just (ident, []))
           | ident == "Prelude.False" = return (BBool (beFalse be))
           | ident == "Prelude.True"  = return (BBool (beTrue be))
-        go t@(STApp termidx tf) = do
+        go ls (asLambda -> Just (_, ty, body)) = do
+          v <- newVars ty
+          go (v : ls) body
+        go ls t@(STApp termidx tf) = do
           let pushNew r = r <$ lift (addCut bc t r)
+              go' = go ls
           m <- lift $ readIORef (bcTermCache bc)
           case Map.lookup termidx m of
             Just r -> return r
             Nothing
               | FTermF (ExtCns ec) <- tf ->
                   pushNew =<< newVars (ecType ec)
+              | LocalVar i _ty <- tf -> return (ls !! i)
               | (STApp _ (FTermF (GlobalDef ident)), xs) <- asApplyAll t
               , Just op <- Map.lookup ident opTable ->
-                  pushNew =<< op be go xs
+                  pushNew =<< op be go' xs
               | FTermF (TupleValue ts) <- tf ->
-                  pushNew =<< (BTuple <$> traverse go ts)
+                  pushNew =<< (BTuple <$> traverse go' ts)
               | FTermF (RecordValue tm) <- tf ->
-                  pushNew =<< (BRecord <$> traverse go tm)
+                  pushNew =<< (BRecord <$> traverse go' tm)
               | FTermF (TupleSelector t' n) <- tf ->
-                  pushNew =<< (bTupleSelect n <$> go t')
+                  pushNew =<< (bTupleSelect n <$> go' t')
               | FTermF (RecordSelector t' n) <- tf ->
-                  pushNew =<< (bRecordSelect n <$> go t')
+                  pushNew =<< (bRecordSelect n <$> go' t')
               | otherwise -> fail "bitBlast: unsupported expression"
 
 type BValueOp s l
