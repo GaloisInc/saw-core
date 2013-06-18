@@ -26,6 +26,7 @@ import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Traversable (traverse)
+import qualified Data.Vector as V
 import qualified Data.Vector.Storable as LV
 
 import Verifier.SAW.Recognizer
@@ -125,7 +126,11 @@ bitBlastWith bc t0 = runErrorT (go [] t0)
                   pushNew =<< (bTupleSelect n <$> go' t')
               | FTermF (RecordSelector t' n) <- tf ->
                   pushNew =<< (bRecordSelect n <$> go' t')
-              | otherwise -> fail "bitBlast: unsupported expression"
+              | FTermF (ArrayValue ty es) <- tf
+              , Just () <- asBoolType ty -> do
+                  xs <- V.mapM (go' >=> asBBool) es
+                  pushNew (BVector (LV.fromList (V.toList xs)))
+              | otherwise -> fail $ "bitBlast: unsupported expression: " ++ show t
 
 type BValueOp s l
   = BitEngine l
@@ -143,6 +148,7 @@ opTable =
     , ("bvAnd", bvBinOp beAndInt)
     , ("bvOr", bvBinOp beOrInt)
     , ("bvXor", bvBinOp beXorInt)
+    , ("bvSShr", bvSignedShrOp)
     , ("bvUDiv", bvBinOp beQuotUnsigned)
     , ("bvURem", bvBinOp beRemUnsigned)
     , ("bvSDiv", bvBinOp beQuot)
@@ -163,6 +169,7 @@ opTable =
     , ("bvTrunc", bvTruncOp)
     , ("bvUExt", bvUExtOp)
     , ("bvSExt", bvSExtOp)
+    , ("get", bvGetBitOp)
     ]
 
 bvBinOp :: (BitEngine l -> LitVector l -> LitVector l -> IO (LitVector l)) -> BValueOp s l
@@ -250,6 +257,27 @@ bvSExtOp be eval [mi, mj, mx] =
        x <- asBVector =<< eval mx
        return (BVector (beSext be (fromIntegral (i + j + 1)) x))
 bvSExtOp _ _ _ = wrongArity
+
+bvGetBitOp :: (Eq l, LV.Storable l) => BValueOp s l
+bvGetBitOp _ eval [mn, mty, mx, mf] =
+    do _n <- asBNat mn
+       () <- asBoolType mty
+       x <- asBVector =<< eval mx
+       case asCtor mf of
+         Just ("Prelude.FinVal", [mi, _]) -> do
+           i <- asBNat mi
+           return (BBool (x LV.! fromIntegral i))
+         _ -> fail "badly typed bitvector get"
+bvGetBitOp _ _ _ = wrongArity
+
+bvSignedShrOp :: (Eq l, LV.Storable l) => BValueOp s l
+bvSignedShrOp be eval [_, xt, nt] =
+    do x <- asBVector =<< eval xt
+       n <- asBNat nt
+       let w = LV.length x
+           nv = beVectorFromInt be w n
+       liftIO (fmap BVector (beSignedShr be x nv))
+bvSignedShrOp _ _ _ = wrongArity
 
 ----------------------------------------------------------------------
 -- Destructors for BValues
