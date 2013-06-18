@@ -67,10 +67,11 @@ parseVerinfViaAIG :: SharedContext s
                   -> DagTerm
                   -> IO (Either String (SharedTerm s))
 parseVerinfViaAIG sc de t = do
-  inputTypes <- fmap termType <$> deInputTerms de  
+  inputTypes <- fmap termType <$> deInputTerms de
   bracket createEmptyNetwork freeNetwork $ \ntk -> do
+  inputs <- V.mapM (lMkLitResultForType (appendNetworkInput ntk)) inputTypes
   -- Get output bits for term.
-  let inputFn _ = lMkLitResultForType (appendNetworkInput ntk)
+  let inputFn i _ = return (inputs V.! i)
   let ts = mkBitBlastTermSemantics (bitEngineForNetwork ntk)
   evalFn <- evalDagTermFn inputFn ts
   lv <- flattenLitResult <$> evalFn t
