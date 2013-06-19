@@ -150,6 +150,7 @@ opTable =
     , ("bvOr", bvBinOp beOrInt)
     , ("bvXor", bvBinOp beXorInt)
     , ("bvSShr", bvSignedShrOp)
+    , ("bvShr", bvUnsignedShrOp)
     , ("bvShl", bvShlOp)
     , ("bvUDiv", bvBinOp beQuotUnsigned)
     , ("bvURem", bvBinOp beRemUnsigned)
@@ -280,6 +281,15 @@ bvSignedShrOp be eval [_, xt, nt] =
            nv = beVectorFromInt be w n
        liftIO (fmap BVector (beSignedShr be x nv))
 bvSignedShrOp _ _ _ = wrongArity "SShr op"
+
+bvUnsignedShrOp :: (Eq l, LV.Storable l) => BValueOp s l
+bvUnsignedShrOp be eval [_, xt, nt] =
+    do x <- asBVector =<< eval xt
+       n <- asBNat nt
+       let w = LV.length x
+           nv = beVectorFromInt be w n
+       liftIO (fmap BVector (beUnsignedShr be x nv))
+bvUnsignedShrOp _ _ _ = wrongArity "SShr op"
 
 bvShlOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvShlOp be eval [_, xt, nt] =
