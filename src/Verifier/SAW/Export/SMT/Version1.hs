@@ -405,9 +405,9 @@ bitvectorRules
   <> termRule (bvBinOpRule "Prelude.bvSdiv" SMT.bvsdiv)
   <> termRule (bvBinOpRule "Prelude.bvSrem" SMT.bvsrem)
 
-  <> termRule (bvBinOpRule "Prelude.bvShl"  SMT.bvshl)
-  <> termRule (bvBinOpRule "Prelude.bvShr"  SMT.bvlshr)
-  <> termRule (bvBinOpRule "Prelude.bvSShr" SMT.bvashr)
+  <> termRule (bvShiftOpRule "Prelude.bvShl"  smt_bvshl)
+  <> termRule (bvShiftOpRule "Prelude.bvShr"  smt_bvlshr)
+  <> termRule (bvShiftOpRule "Prelude.bvSShr" smt_bvashr)
 
   <> termRule (bvBinOpRule "Prelude.bvAnd" SMT.bvand)
   <> termRule (bvBinOpRule "Prelude.bvOr"  SMT.bvor)
@@ -432,6 +432,10 @@ bitvectorRules
 bvBinOpRule :: (Applicative m, Monad m, Termlike t, Renderable a m t b)
             => Ident -> a -> Matcher m t b
 bvBinOpRule d = matchArgs (asGlobalDef d <:> asAnyNatLit)
+
+bvShiftOpRule :: (Applicative m, Monad m, Termlike t, Renderable a m t b)
+            => Ident -> a -> Matcher m t b
+bvShiftOpRule d = matchArgs (asGlobalDef d)
 
 smt_bitvector :: Nat -> SMT.Sort
 smt_bitvector = SMT.tBitVec . fromIntegral
@@ -465,3 +469,12 @@ smt_uext i _ x = SMT.zero_extend (toInteger i) x
 -- @n+i@-bit bitvector.
 smt_sext :: Nat -> Nat -> SMT.Term -> SMT.Term
 smt_sext i _ x = SMT.sign_extend (toInteger i) x
+
+smt_bvshl :: Nat -> SMT.Term -> Nat -> SMT.Term
+smt_bvshl w t n = SMT.bvshl t (smt_bv w n)
+
+smt_bvlshr :: Nat -> SMT.Term -> Nat -> SMT.Term
+smt_bvlshr w t n = SMT.bvlshr t (smt_bv w n)
+
+smt_bvashr :: Nat -> SMT.Term -> Nat -> SMT.Term
+smt_bvashr w t n = SMT.bvashr t (smt_bv w n)
