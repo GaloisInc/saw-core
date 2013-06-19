@@ -57,8 +57,8 @@ flattenBValue (BRecord vm) = LV.concat (map flattenBValue (Map.elems vm))
 type BBErr = String
 type BBMonad = ErrorT BBErr IO
 
-wrongArity :: BBMonad a
-wrongArity = fail "wrong number of function arguments"
+wrongArity :: String -> BBMonad a
+wrongArity s = fail $ "wrong number of function arguments to " ++ s
 
 ----------------------------------------------------------------------
 
@@ -96,7 +96,7 @@ bitBlastWith bc t0 = runErrorT (go [] t0)
           BVector <$> LV.replicateM (fromInteger n) (beMakeInputLit be)
         newVars (asTupleType -> Just ts) = BTuple <$> traverse newVars ts
         newVars (asRecordType -> Just tm) = BRecord <$> traverse newVars tm
-        newVars _ = fail "bitBlast: unsupported argument type"
+        newVars t = fail $ "bitBlast: unsupported argument type: " ++ show t
         -- Bitblast term.
         go :: [BValue l] -> SharedTerm s -> BBMonad (BValue l)
         go _ (asCtor -> Just (ident, []))
@@ -130,7 +130,8 @@ bitBlastWith bc t0 = runErrorT (go [] t0)
               , Just () <- asBoolType ty -> do
                   xs <- V.mapM (go' >=> asBBool) es
                   pushNew (BVector (LV.fromList (V.toList xs)))
-              | otherwise -> fail $ "bitBlast: unsupported expression: " ++ show t
+              | otherwise ->
+                  fail $ "bitBlast: unsupported expression: " ++ show t
 
 type BValueOp s l
   = BitEngine l
@@ -177,47 +178,47 @@ bvBinOp f be eval [_, mx, my] =
     do x <- asBVector =<< eval mx
        y <- asBVector =<< eval my
        liftIO $ BVector <$> f be x y
-bvBinOp _ _ _ _ = wrongArity
+bvBinOp _ _ _ _ = wrongArity "binary op"
 
 bvRelOp :: (BitEngine l -> LitVector l -> LitVector l -> IO l) -> BValueOp s l
 bvRelOp f be eval [_, mx, my] =
     do x <- asBVector =<< eval mx
        y <- asBVector =<< eval my
        liftIO $ BBool <$> f be x y
-bvRelOp _ _ _ _ = wrongArity
+bvRelOp _ _ _ _ = wrongArity "relational op"
 
 boolOp :: (BitEngine l -> l -> l -> IO l) -> BValueOp s l
 boolOp f be eval [mx, my] =
     do x <- asBBool =<< eval mx
        y <- asBBool =<< eval my
        liftIO (fmap BBool (f be x y))
-boolOp _ _ _ _ = wrongArity
+boolOp _ _ _ _ = wrongArity "boolean op"
 
 bvNatOp :: LV.Storable l => BValueOp s l
 bvNatOp be _ [mw, mx] = do
   w <- asBNat mw
   x <- asBNat mx
   return (BVector (beVectorFromInt be (fromIntegral w) x))
-bvNatOp _ _ _ = wrongArity
+bvNatOp _ _ _ = wrongArity "bvNat op"
 
 notOp :: BValueOp s l
 notOp be eval [mx] =
     do x <- asBBool =<< eval mx
        return (BBool (beNeg be x))
-notOp _ _ _ = wrongArity
+notOp _ _ _ = wrongArity "not op"
 
 appendOp :: LV.Storable l => BValueOp s l
 appendOp _ eval [_, _, _, mx, my] =
     do x <- asBVector =<< eval mx
        y <- asBVector =<< eval my
        return (BVector ((LV.++) x y))
-appendOp _ _ _ = wrongArity
+appendOp _ _ _ = wrongArity "append op"
 
 singleOp :: LV.Storable l => BValueOp s l
 singleOp _ eval [_, mx] =
     do x <- asBBool =<< eval mx
        return (BVector (LV.singleton x))
-singleOp _ _ _ = wrongArity
+singleOp _ _ _ = wrongArity "single op"
 
 iteOp :: (Eq l, LV.Storable l) => BValueOp s l
 iteOp be eval [_, mb, mx, my] =
@@ -233,14 +234,14 @@ iteOp be eval [_, mb, mx, my] =
                     (BVector x, BVector y) ->
                         liftIO (fmap BVector (beIteVector be b (return x) (return y)))
                     _ -> fail "malformed arguments"
-iteOp _ _ _ = wrongArity
+iteOp _ _ _ = wrongArity "ite op"
 
 bvTruncOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvTruncOp be eval [_, mj, mx] =
     do j <- asBNat mj
        x <- asBVector =<< eval mx
        return (BVector (beTrunc be (fromIntegral j) x))
-bvTruncOp _ _ _ = wrongArity
+bvTruncOp _ _ _ = wrongArity "trunc op"
 
 bvUExtOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvUExtOp be eval [mi, mj, mx] =
@@ -248,7 +249,7 @@ bvUExtOp be eval [mi, mj, mx] =
        j <- asBNat mj
        x <- asBVector =<< eval mx
        return (BVector (beZext be (fromIntegral (i + j)) x))
-bvUExtOp _ _ _ = wrongArity
+bvUExtOp _ _ _ = wrongArity "UExt op"
 
 bvSExtOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvSExtOp be eval [mi, mj, mx] =
@@ -256,7 +257,7 @@ bvSExtOp be eval [mi, mj, mx] =
        j <- asBNat mj
        x <- asBVector =<< eval mx
        return (BVector (beSext be (fromIntegral (i + j + 1)) x))
-bvSExtOp _ _ _ = wrongArity
+bvSExtOp _ _ _ = wrongArity "SExt op"
 
 bvGetBitOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvGetBitOp _ eval [mn, mty, mx, mf] =
@@ -268,7 +269,7 @@ bvGetBitOp _ eval [mn, mty, mx, mf] =
            i <- asBNat mi
            return (BBool (x LV.! fromIntegral i))
          _ -> fail "badly typed bitvector get"
-bvGetBitOp _ _ _ = wrongArity
+bvGetBitOp _ _ _ = wrongArity "get op"
 
 bvSignedShrOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvSignedShrOp be eval [_, xt, nt] =
@@ -277,7 +278,7 @@ bvSignedShrOp be eval [_, xt, nt] =
        let w = LV.length x
            nv = beVectorFromInt be w n
        liftIO (fmap BVector (beSignedShr be x nv))
-bvSignedShrOp _ _ _ = wrongArity
+bvSignedShrOp _ _ _ = wrongArity "SShr op"
 
 ----------------------------------------------------------------------
 -- Destructors for BValues
