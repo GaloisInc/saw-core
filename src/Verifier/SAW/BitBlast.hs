@@ -150,6 +150,7 @@ opTable =
     , ("bvOr", bvBinOp beOrInt)
     , ("bvXor", bvBinOp beXorInt)
     , ("bvSShr", bvSignedShrOp)
+    , ("bvShl", bvShlOp)
     , ("bvUDiv", bvBinOp beQuotUnsigned)
     , ("bvURem", bvBinOp beRemUnsigned)
     , ("bvSDiv", bvBinOp beQuot)
@@ -279,6 +280,15 @@ bvSignedShrOp be eval [_, xt, nt] =
            nv = beVectorFromInt be w n
        liftIO (fmap BVector (beSignedShr be x nv))
 bvSignedShrOp _ _ _ = wrongArity "SShr op"
+
+bvShlOp :: (Eq l, LV.Storable l) => BValueOp s l
+bvShlOp be eval [_, xt, nt] =
+    do x <- asBVector =<< eval xt
+       n <- asBNat nt
+       let w = LV.length x
+           nv = beVectorFromInt be w n
+       liftIO (fmap BVector (beShl be x nv))
+bvShlOp _ _ _ = wrongArity "Shl op"
 
 ----------------------------------------------------------------------
 -- Destructors for BValues
