@@ -283,7 +283,7 @@ combineOutputs sc ty xs0 =
       go (TRecord fields) =
           do let (names, ts) = unzip fields
              xs <- mapM go ts
-             lift (scMkRecord sc (Map.fromList (zip names xs)))
+             lift (scRecord sc (Map.fromList (zip names xs)))
       go (TFun _ _) =
           fail "combineOutputs: not a first-order type"
 
