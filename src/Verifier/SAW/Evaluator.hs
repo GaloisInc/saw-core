@@ -350,7 +350,7 @@ instance IsValue s Prim.Fin where
     fromValue _ = error "fromValue Fin"
 
 instance IsValue s () where
-    toValue _ = VType
+    toValue _ = VTuple V.empty
     fromValue _ = ()
 
 instance IsValue s a => IsValue s (IO a) where
