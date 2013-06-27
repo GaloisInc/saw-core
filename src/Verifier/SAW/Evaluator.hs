@@ -386,7 +386,10 @@ preludePrims = Map.fromList
   , ("Prelude.bvEq"    , toValue Prim.bvEq )
   , ("Prelude.bvult"   , toValue Prim.bvult)
   , ("Prelude.bvule"   , toValue Prim.bvule)
-  , ("Prelude.get"     , toValue Prim.get_bv)
+  , ("Prelude.get"     ,
+     toValue (get' :: Int -> () -> Value s -> Prim.Fin -> Value s))
+  , ("Prelude.append"  ,
+     toValue (append' :: Int -> Int -> () -> Value s -> Value s -> Value s))
   , ("Prelude.ite"     ,
      toValue (Prim.ite :: () -> Bool -> Value s -> Value s -> Value s))
   , ("Prelude.generate",
@@ -394,6 +397,16 @@ preludePrims = Map.fromList
   , ("Prelude.coerce"  ,
      toValue (Prim.coerce :: () -> () -> () -> Value s -> Value s))
   ]
+
+get' :: Int -> () -> Value s -> Prim.Fin -> Value s
+get' _ _ (VVector xs) i = (V.!) xs (fromEnum i)
+get' _ _ (VWord n x) i = toValue (Prim.get_bv n () (Prim.BV n x) i)
+get' _ _ _ _ = error "get'"
+
+append' :: Int -> Int -> () -> Value s -> Value s -> Value s
+append' _ _ _ (VVector xs) (VVector ys) = VVector ((V.++) xs ys)
+append' _ _ _ (VWord m x) (VWord n y) = toValue (Prim.append_bv m n () (Prim.BV m x) (Prim.BV n y))
+append' _ _ _ _ _ = error "append'"
 
 preludeGlobal :: Ident -> Value s
 preludeGlobal = evalGlobal preludeModule preludePrims
