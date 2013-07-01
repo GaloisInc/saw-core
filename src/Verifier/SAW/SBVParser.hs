@@ -6,6 +6,7 @@ module Verifier.SAW.SBVParser
   , parseSBVPgm
   , UnintMap
   , Typ(..)
+  , typOf
   ) where
 
 import Control.Monad.State
@@ -340,6 +341,9 @@ scAppendAll sc ((x, size1) : xs) =
        s2 <- scNat sc size2
        y <- scAppendAll sc xs
        scAppend sc b s1 s2 x y
+
+typOf :: SBV.SBVPgm -> Typ
+typOf (SBV.SBVPgm (_, irtype, _, _, _, _)) = parseIRType irtype
 
 loadSBV :: FilePath -> IO SBV.SBVPgm
 loadSBV = SBV.loadSBV
