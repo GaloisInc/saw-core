@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
@@ -27,25 +26,22 @@ import qualified Verifier.SAW.Prim as Prim
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST
 
-data Value s
-    = VFun !(Value s -> Value s)
+data Value
+    = VFun !(Value -> Value)
     | VTrue
     | VFalse
     | VNat !Integer
     | VWord !Int !Integer
     | VString !String
     -- TODO: Use strict, packed string datatype
-    | VTuple !(Vector (Value s))
-    | VRecord !(Map FieldName (Value s))
-    | VCtorApp !String !(Vector (Value s))
+    | VTuple !(Vector Value)
+    | VRecord !(Map FieldName Value)
+    | VCtorApp !String !(Vector Value)
     -- TODO: Use strict, packed string datatype
-    | VVector !(Vector (Value s))
+    | VVector !(Vector Value)
     | VFloat !Float
     | VDouble !Double
     | VType
-    | VIO !(IO (Value s))
-    | VTerm !(SharedTerm s)
-    | VSC !(SC s (Value s))
 
 newtype SC s a = SC (ReaderT (SharedContext s) IO a)
     deriving ( Functor, Applicative, Monad )
@@ -56,7 +52,7 @@ mkSC = SC . ReaderT
 runSC :: SC s a -> SharedContext s -> IO a
 runSC (SC r) sc = runReaderT r sc
 
-instance Show (Value s) where
+instance Show Value where
     showsPrec p v =
       case v of
         VFun {} -> showString "<<fun>>"
@@ -75,34 +71,31 @@ instance Show (Value s) where
         VDouble double -> shows double
         VString s -> shows s
         VType -> showString "_"
-        VIO {} -> showString "<<IO>>"
-        VTerm t -> showsPrec p t
-        VSC {} -> showString "<<SC>>"
 
 ------------------------------------------------------------
 -- Basic operations on values
 
-valTupleSelect :: Int -> Value s -> Value s
+valTupleSelect :: Int -> Value -> Value
 valTupleSelect i (VTuple v) = (V.!) v (i - 1)
 valTupleSelect i v = VCtorApp (show i) (V.singleton v)
 --valTupleSelect _ _ = error "valTupleSelect"
 
-valRecordSelect :: FieldName -> Value s -> Value s
+valRecordSelect :: FieldName -> Value -> Value
 valRecordSelect k (VRecord vm) | Just v <- Map.lookup k vm = v
 valRecordSelect k v = VCtorApp k (V.singleton v)
 --valRecordSelect _ _ = error "valRecordSelect"
 
-apply :: Value s -> Value s -> Value s
+apply :: Value -> Value -> Value
 apply (VFun f) v = f v
 apply _ _ = error "apply"
 
-applyAll :: Value s -> [Value s] -> Value s
+applyAll :: Value -> [Value] -> Value
 applyAll = foldl apply
 
 ------------------------------------------------------------
 
 -- | Pattern matching for values.
-matchValue :: Pat e -> Value s -> Maybe (Map Int (Value s))
+matchValue :: Pat e -> Value -> Maybe (Map Int Value)
 matchValue p x =
     case p of
       PVar _ i _  -> Just (Map.singleton i x)
@@ -117,7 +110,7 @@ matchValue p x =
                        _ -> Nothing
 
 -- | Simultaneous pattern matching for lists of values.
-matchValues :: [Pat e] -> [Value s] -> Maybe (Map Int (Value s))
+matchValues :: [Pat e] -> [Value] -> Maybe (Map Int Value)
 matchValues [] [] = Just Map.empty
 matchValues [] (_ : _) = Nothing
 matchValues (_ : _) [] = Nothing
@@ -125,20 +118,20 @@ matchValues (p : ps) (x : xs) = Map.union <$> matchValue p x <*> matchValues ps 
 
 -- | Evaluator for pattern-matching function definitions,
 -- parameterized by an evaluator for right-hand sides.
-evalDef :: forall n s e. Show n => ([Value s] -> e -> Value s) -> GenericDef n e -> Value s
+evalDef :: forall n e. Show n => ([Value] -> e -> Value) -> GenericDef n e -> Value
 evalDef rec (Def ident _ eqns) = vFuns arity (tryEqns eqns)
   where
     arity :: Int
     arity = lengthDefEqn (head eqns)
     lengthDefEqn :: DefEqn e -> Int
     lengthDefEqn (DefEqn ps _) = length ps
-    vFuns :: Int -> ([Value s] -> Value s) -> Value s
+    vFuns :: Int -> ([Value] -> Value) -> Value
     vFuns 0 f = f []
     vFuns n f = VFun (\x -> vFuns (n - 1) (\xs -> f (x : xs)))
-    tryEqns :: [DefEqn e] -> [Value s] -> Value s
+    tryEqns :: [DefEqn e] -> [Value] -> Value
     tryEqns (eqn : eqns') xs = fromMaybe (tryEqns eqns' xs) (tryEqn eqn xs)
     tryEqns [] _ = error $ "Pattern match failure: " ++ show ident
-    tryEqn :: DefEqn e -> [Value s] -> Maybe (Value s)
+    tryEqn :: DefEqn e -> [Value] -> Maybe Value
     tryEqn (DefEqn ps e) xs =
         do inst <- matchValues ps xs
            let env = reverse (Map.elems inst)
@@ -147,8 +140,8 @@ evalDef rec (Def ident _ eqns) = vFuns arity (tryEqns eqns)
 ------------------------------------------------------------
 
 -- | Generic applicative evaluator for TermFs.
-evalTermF :: (Show t, Applicative f) => (Ident -> Value s) -> ([Value s] -> t -> Value s)
-              -> (t -> f (Value s)) -> [Value s] -> TermF t -> f (Value s)
+evalTermF :: (Show t, Applicative f) => (Ident -> Value) -> ([Value] -> t -> Value)
+              -> (t -> f Value) -> [Value] -> TermF t -> f Value
 evalTermF global lam rec env tf =
   case tf of
     Lambda (PVar _ 0 _) _ t -> pure $ VFun (\x -> lam (x : env) t)
@@ -180,16 +173,16 @@ evalTermF global lam rec env tf =
         ExtCns _            -> error "evalTermF ExtCns unimplemented"
 
 -- | Evaluator for unshared terms.
-evalTerm :: (Ident -> Value s) -> [Value s] -> Term -> Value s
+evalTerm :: (Ident -> Value) -> [Value] -> Term -> Value
 evalTerm global env (Term tf) = runIdentity (evalTermF global lam rec env tf)
   where
     lam = evalTerm global
     rec t = pure (evalTerm global env t)
 
-evalTypedDef :: (Ident -> Value s) -> TypedDef -> Value s
+evalTypedDef :: (Ident -> Value) -> TypedDef -> Value
 evalTypedDef global = evalDef (evalTerm global)
 
-evalGlobal :: Module -> Map Ident (Value s) -> Ident -> Value s
+evalGlobal :: Module -> Map Ident Value -> Ident -> Value
 evalGlobal m prims ident =
   case Map.lookup ident prims of
     Just v -> v
@@ -209,15 +202,15 @@ evalGlobal m prims ident =
 -- we descend under a lambda binder.
 
 -- | Evaluator for shared terms.
-evalSharedTerm :: (Ident -> Value s) -> SharedTerm s -> Value s
+evalSharedTerm :: (Ident -> Value) -> SharedTerm s -> Value
 evalSharedTerm global t = evalOpen global (mkMemoClosed global t) [] t
 
 -- | Precomputing the memo table for closed subterms.
-mkMemoClosed :: forall s. (Ident -> Value s) -> SharedTerm s -> Map TermIndex (Value s)
+mkMemoClosed :: forall s. (Ident -> Value) -> SharedTerm s -> Map TermIndex Value
 mkMemoClosed global t = memoClosed
   where
     memoClosed = fst (State.execState (go t) (Map.empty, Map.empty))
-    go :: SharedTerm s -> State.State (Map TermIndex (Value s), Map TermIndex BitSet) BitSet
+    go :: SharedTerm s -> State.State (Map TermIndex Value, Map TermIndex BitSet) BitSet
     go (STApp i tf) = do
       (_, bmemo) <- State.get
       case Map.lookup i bmemo of
@@ -230,7 +223,7 @@ mkMemoClosed global t = memoClosed
           return b
 
 -- | Evaluator for closed terms, used to populate @memoClosed@.
-evalClosedTermF :: (Ident -> Value s) -> Map TermIndex (Value s) -> TermF (SharedTerm s) -> Value s
+evalClosedTermF :: (Ident -> Value) -> Map TermIndex Value -> TermF (SharedTerm s) -> Value
 evalClosedTermF global memoClosed tf = runIdentity (evalTermF global lam rec [] tf)
   where
     lam = evalOpen global memoClosed
@@ -240,11 +233,11 @@ evalClosedTermF global memoClosed tf = runIdentity (evalTermF global lam rec [] 
         Nothing -> error "evalClosedTermF: internal error"
 
 -- | Evaluator for open terms; parameterized by a precomputed table @memoClosed@.
-evalOpen :: forall s. (Ident -> Value s) -> Map TermIndex (Value s)
-         -> [Value s] -> SharedTerm s -> Value s
+evalOpen :: forall s. (Ident -> Value) -> Map TermIndex Value
+         -> [Value] -> SharedTerm s -> Value
 evalOpen global memoClosed env t = State.evalState (go t) Map.empty
   where
-    go :: SharedTerm s -> State.State (Map TermIndex (Value s)) (Value s)
+    go :: SharedTerm s -> State.State (Map TermIndex Value) Value
     go (STApp i tf) =
       case Map.lookup i memoClosed of
         Just v -> return v
@@ -256,60 +249,59 @@ evalOpen global memoClosed env t = State.evalState (go t) Map.empty
               v <- evalF tf
               State.modify (Map.insert i v)
               return v
-    evalF :: TermF (SharedTerm s) -> State.State (Map TermIndex (Value s)) (Value s)
+    evalF :: TermF (SharedTerm s) -> State.State (Map TermIndex Value) Value
     evalF tf = evalTermF global (evalOpen global memoClosed) go env tf
 
 ------------------------------------------------------------
 -- Representing primitives as Values
 
-class IsValue s a where
-    toValue   :: a -> Value s
-    fromValue :: Value s -> a
+class IsValue a where
+    toValue   :: a -> Value
+    fromValue :: Value -> a
 
-instance IsValue s (Value s) where
+instance IsValue Value where
     toValue x = x
     fromValue x = x
 
-instance (IsValue s a, IsValue s b) => IsValue s (a -> b) where
+instance (IsValue a, IsValue b) => IsValue (a -> b) where
     toValue f = VFun (\v -> toValue (f (fromValue v)))
     fromValue (VFun g) = \x -> fromValue (g (toValue x))
     fromValue _        = error "fromValue (->)"
 
-instance IsValue s Bool where
+instance IsValue Bool where
     toValue True  = VTrue
     toValue False = VFalse
     fromValue VTrue  = True
     fromValue VFalse = False
     fromValue _      = error "fromValue Bool"
 
-instance IsValue s Prim.Nat where
+instance IsValue Prim.Nat where
     toValue n = VNat (toInteger n)
     fromValue (VNat n) = (fromInteger n)
     fromValue _        = error "fromValue Integer"
 
-instance IsValue s Integer where
+instance IsValue Integer where
     toValue n = VNat n
     fromValue (VNat n) = n
     fromValue _        = error "fromValue Integer"
 
-instance IsValue s Int where
+instance IsValue Int where
     toValue n = VNat (toInteger n)
     fromValue (VNat n) | 0 <= n && n <= toInteger (maxBound :: Int) = fromInteger n
     fromValue _ = error "fromValue Int"
 
---instance IsValue String where
-instance IsValue s String where
+instance IsValue String where
     toValue n = VString n
     fromValue (VString n) = n
     fromValue _ = error "fromValue String"
 
 --instance IsValue Float where
-instance IsValue s Float where
+instance IsValue Float where
     toValue n = VFloat n
     fromValue (VFloat n) = n
     fromValue _        = error "fromValue Float"
 
-instance IsValue s Double where
+instance IsValue Double where
     toValue n = VDouble n
     fromValue (VDouble n) = n
     fromValue _        = error "fromValue Double"
@@ -318,7 +310,7 @@ bvToInteger :: Vector Bool -> Integer
 bvToInteger = V.foldr' (\b x -> if b then 2*x+1 else 2*x) 0
 -- ^ Assuming little-endian order
 
-instance IsValue s a => IsValue s (Vector a) where
+instance IsValue a => IsValue (Vector a) where
     toValue av =
         case traverse toBool vv of
           Nothing -> VVector vv
@@ -329,48 +321,33 @@ instance IsValue s a => IsValue s (Vector a) where
           toBool VFalse = Just False
           toBool _      = Nothing
     fromValue (VVector v) = fmap fromValue v
-    fromValue (VWord w x) = V.generate w (fromValue . (toValue :: Bool -> Value s) . testBit x)
+    fromValue (VWord w x) = V.generate w (fromValue . (toValue :: Bool -> Value) . testBit x)
     fromValue _           = error "fromValue Vector"
 
-instance (IsValue s a, IsValue s b) => IsValue s (a, b) where
+instance (IsValue a, IsValue b) => IsValue (a, b) where
     toValue (x, y) = VTuple (V.fromList [toValue x, toValue y])
     fromValue (VTuple (V.toList -> [x, y])) = (fromValue x, fromValue y)
     fromValue _                             = error "fromValue (,)"
 
-instance IsValue s Prim.BitVector where
+instance IsValue Prim.BitVector where
     toValue (Prim.BV w x) = VWord w x
     fromValue (VWord w x) = Prim.BV w x
     fromValue _           = error "fromValue BitVector"
 
-instance IsValue s Prim.Fin where
+instance IsValue Prim.Fin where
     toValue (Prim.FinVal i j) =
         VCtorApp "Prelude.FinVal" (V.fromList [VNat (toInteger i), VNat (toInteger j)])
     fromValue (VCtorApp "Prelude.FinVal" (V.toList -> [VNat i, VNat j])) =
         Prim.FinVal (fromInteger i) (fromInteger j)
     fromValue _ = error "fromValue Fin"
 
-instance IsValue s () where
+instance IsValue () where
     toValue _ = VTuple V.empty
     fromValue _ = ()
 
-instance IsValue s a => IsValue s (IO a) where
-    toValue io = VIO (fmap toValue io)
-    fromValue (VIO io) = fmap fromValue io
-    fromValue _        = error "fromValue IO"
-
-instance IsValue s a => IsValue s (SC s a) where
-    toValue m = VSC (fmap toValue m)
-    fromValue (VSC m) = fmap fromValue m
-    fromValue _       = error "fromValue SC"
-
-instance IsValue s (SharedTerm s) where
-    toValue t = VTerm t
-    fromValue (VTerm t) = t
-    fromValue _         = error "fromValue SharedTerm"
-
 ------------------------------------------------------------
 
-preludePrims :: forall s. Map Ident (Value s)
+preludePrims :: Map Ident Value
 preludePrims = Map.fromList
   [ ("Prelude.Succ"    , toValue (succ :: Integer -> Integer))
   , ("Prelude.addNat"  , toValue ((+) :: Integer -> Integer -> Integer))
@@ -386,27 +363,25 @@ preludePrims = Map.fromList
   , ("Prelude.bvEq"    , toValue Prim.bvEq )
   , ("Prelude.bvult"   , toValue Prim.bvult)
   , ("Prelude.bvule"   , toValue Prim.bvule)
-  , ("Prelude.get"     ,
-     toValue (get' :: Int -> () -> Value s -> Prim.Fin -> Value s))
-  , ("Prelude.append"  ,
-     toValue (append' :: Int -> Int -> () -> Value s -> Value s -> Value s))
+  , ("Prelude.get"     , toValue get')
+  , ("Prelude.append"  , toValue append')
   , ("Prelude.ite"     ,
-     toValue (Prim.ite :: () -> Bool -> Value s -> Value s -> Value s))
+     toValue (Prim.ite :: () -> Bool -> Value -> Value -> Value))
   , ("Prelude.generate",
-     toValue (Prim.generate :: Prim.Nat -> () -> (Prim.Fin -> Value s) -> Vector (Value s)))
+     toValue (Prim.generate :: Prim.Nat -> () -> (Prim.Fin -> Value) -> Vector Value))
   , ("Prelude.coerce"  ,
-     toValue (Prim.coerce :: () -> () -> () -> Value s -> Value s))
+     toValue (Prim.coerce :: () -> () -> () -> Value -> Value))
   ]
 
-get' :: Int -> () -> Value s -> Prim.Fin -> Value s
+get' :: Int -> () -> Value -> Prim.Fin -> Value
 get' _ _ (VVector xs) i = (V.!) xs (fromEnum i)
 get' _ _ (VWord n x) i = toValue (Prim.get_bv n () (Prim.BV n x) i)
 get' _ _ _ _ = error "get'"
 
-append' :: Int -> Int -> () -> Value s -> Value s -> Value s
+append' :: Int -> Int -> () -> Value -> Value -> Value
 append' _ _ _ (VVector xs) (VVector ys) = VVector ((V.++) xs ys)
 append' _ _ _ (VWord m x) (VWord n y) = toValue (Prim.append_bv m n () (Prim.BV m x) (Prim.BV n y))
 append' _ _ _ _ _ = error "append'"
 
-preludeGlobal :: Ident -> Value s
+preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims
