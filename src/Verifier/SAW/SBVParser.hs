@@ -107,11 +107,10 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
           do (size1 : inSizes, arg1 : args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
              unless (size1 == indexSize && all (== resultSize) inSizes)
                         (fail $ "parseSBVExpr BVLkUp: size mismatch")
-             n <- scNat sc (toInteger (length args))
+             unless (2 ^ indexSize == length args)
+                        (fail $ "parseSBVExpr BVLkUp: list size not a power of 2")
              e <- scBitvector sc resultSize
-             vec <- scVector sc e args
-             fin <- return arg1 -- FIXME: cast arg1 to type Fin n
-             scGet sc n e vec fin
+             scMultiMux sc indexSize e arg1 args
       SBV.BVUnint _loc _codegen (name, irtyp) ->
           do let typ = parseIRType irtyp
              t <- case unint name typ of
@@ -322,7 +321,7 @@ scBv1ToBool sc x =
     do n0 <- scNat sc 0
        n1 <- scNat sc 1
        b <- scBoolType sc
-       f0 <- scFlatTermF sc (CtorApp (mkIdent preludeName "FinVal") [n0, n0])
+       f0 <- scFinVal sc n0 n0
        scGet sc n1 b x f0
 
 -- | boolToBv1 :: Bool -> bitvector 1
@@ -330,6 +329,27 @@ scBoolToBv1 :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 scBoolToBv1 sc x =
     do b <- scBoolType sc
        scSingle sc b x
+
+scMultiMux :: SharedContext s -> Integer -> SharedTerm s
+           -> SharedTerm s -> [SharedTerm s] -> IO (SharedTerm s)
+scMultiMux sc iSize e i args =
+    do w <- scNat sc iSize
+       b <- scBoolType sc
+       ns <- mapM (scNat sc) [0 .. iSize - 1]
+       fins <- sequence (zipWith (scFinVal sc) ns (reverse ns))
+       bits <- mapM (scGet sc w b i) fins
+       go bits args
+    where
+      unweave :: [a] -> [(a, a)]
+      unweave (x : y : zs) = (x, y) : unweave zs
+      unweave _ = []
+      go (bit : bits) xs = do
+        let (ys, zs) = unzip (unweave xs)
+        y <- go bits ys
+        z <- go bits zs
+        scIte sc e bit y z
+      go [] [x] = return x
+      go [] _ = error "scMultiMux"
 
 scAppendAll :: SharedContext s -> [(SharedTerm s, Integer)] -> IO (SharedTerm s)
 scAppendAll _ [] = error "scAppendAll: unimplemented"
