@@ -118,7 +118,7 @@ bitBlastWith bc t0 = runErrorT (go [] t0)
               | (STApp _ (FTermF (GlobalDef ident)), xs) <- asApplyAll t ->
                  case Map.lookup ident opTable of
                    Just op -> pushNew =<< op be go' xs
-                   Nothing -> fail $ "bitBlast: unsupported operator " ++ show ident
+                   Nothing -> fail $ "unsupported operator " ++ show ident
               | FTermF (TupleValue ts) <- tf ->
                   pushNew =<< (BTuple <$> traverse go' ts)
               | FTermF (RecordValue tm) <- tf ->
@@ -132,7 +132,7 @@ bitBlastWith bc t0 = runErrorT (go [] t0)
                   xs <- V.mapM (go' >=> asBBool) es
                   pushNew (BVector (LV.fromList (V.toList xs)))
               | otherwise ->
-                  fail $ "bitBlast: unsupported expression: " ++ take 20 (show t)
+                  fail $ "unsupported expression: " ++ take 20 (show t)
 
 type BValueOp s l
   = BitEngine l
@@ -174,6 +174,7 @@ opTable =
     , ("bvUExt", bvUExtOp)
     , ("bvSExt", bvSExtOp)
     , ("get", bvGetBitOp)
+    , ("slice", bvSliceOp)
     ]
 
 bvBinOp :: (BitEngine l -> LitVector l -> LitVector l -> IO (LitVector l)) -> BValueOp s l
@@ -273,6 +274,14 @@ bvGetBitOp _ eval [mn, mty, mx, mf] =
            return (BBool (x LV.! fromIntegral i))
          _ -> fail "badly typed bitvector get"
 bvGetBitOp _ _ _ = wrongArity "get op"
+
+bvSliceOp :: LV.Storable l => BValueOp s l
+bvSliceOp _ eval [_, mi, mn, _, mx] =
+    do i <- fromInteger <$> asBNat mi
+       n <- fromInteger <$> asBNat mn
+       x <- asBVector =<< eval mx
+       return (BVector (LV.take n (LV.drop i x)))
+bvSliceOp _ _ _ = wrongArity "slice op"
 
 bvSignedShrOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvSignedShrOp be eval [_, xt, nt] =
