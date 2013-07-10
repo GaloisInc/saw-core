@@ -115,9 +115,10 @@ bitBlastWith bc t0 = runErrorT (go [] t0)
               | FTermF (ExtCns ec) <- tf ->
                   pushNew =<< newVars (ecType ec)
               | LocalVar i _ty <- tf -> return (ls !! i)
-              | (STApp _ (FTermF (GlobalDef ident)), xs) <- asApplyAll t
-              , Just op <- Map.lookup ident opTable ->
-                  pushNew =<< op be go' xs
+              | (STApp _ (FTermF (GlobalDef ident)), xs) <- asApplyAll t ->
+                 case Map.lookup ident opTable of
+                   Just op -> pushNew =<< op be go' xs
+                   Nothing -> fail $ "bitBlast: unsupported operator " ++ show ident
               | FTermF (TupleValue ts) <- tf ->
                   pushNew =<< (BTuple <$> traverse go' ts)
               | FTermF (RecordValue tm) <- tf ->
@@ -131,7 +132,7 @@ bitBlastWith bc t0 = runErrorT (go [] t0)
                   xs <- V.mapM (go' >=> asBBool) es
                   pushNew (BVector (LV.fromList (V.toList xs)))
               | otherwise ->
-                  fail $ "bitBlast: unsupported expression: " ++ show t
+                  fail $ "bitBlast: unsupported expression: " ++ take 20 (show t)
 
 type BValueOp s l
   = BitEngine l
