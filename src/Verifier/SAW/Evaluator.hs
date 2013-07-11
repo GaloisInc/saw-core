@@ -72,6 +72,22 @@ instance Show Value where
         VString s -> shows s
         VType -> showString "_"
 
+instance Eq Value where
+    VTrue        == VTrue        = True
+    VTrue        == VFalse       = False
+    VFalse       == VTrue        = False
+    VFalse       == VFalse       = True
+    VNat x       == VNat y       = x == y
+    VWord m x    == VWord n y    = Prim.bvEq m (Prim.BV m x) (Prim.BV n y)
+    VString x    == VString y    = x == y
+    VTuple x     == VTuple y     = x == y
+    VRecord x    == VRecord y    = x == y
+    VCtorApp a x == VCtorApp b y = a == b && x == y
+    VVector x    == VVector y    = x == y
+    VFloat x     == VFloat y     = x == y
+    VDouble x    == VDouble y    = x == y
+    x            == y            = error "values not comparable"
+
 ------------------------------------------------------------
 -- Basic operations on values
 
@@ -365,6 +381,7 @@ preludePrims = Map.fromList
   , ("Prelude.bvule"   , toValue Prim.bvule)
   , ("Prelude.get"     , toValue get')
   , ("Prelude.append"  , toValue append')
+  , ("Prelude.eq"      , toValue (const (==) :: () -> Value -> Value -> Bool))
   , ("Prelude.ite"     ,
      toValue (Prim.ite :: () -> Bool -> Value -> Value -> Value))
   , ("Prelude.generate",

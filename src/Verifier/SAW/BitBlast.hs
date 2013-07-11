@@ -162,10 +162,12 @@ opTable =
     , ("bvule", bvRelOp beUnsignedLeq)
     , ("bvult", bvRelOp beUnsignedLt)
     , ("bvEq", bvRelOp beEqVector)
+    , ("eq", equalOp)
     , ("bvNat", bvNatOp)
     , ("and", boolOp beAnd)
     , ("xor", boolOp beXor)
     , ("or", boolOp beOr)
+    , ("boolEq", boolOp beEq)
     , ("not", notOp)
     , ("append", appendOp)
     , ("single", singleOp)
@@ -197,6 +199,12 @@ boolOp f be eval [mx, my] =
        y <- asBBool =<< eval my
        liftIO (fmap BBool (f be x y))
 boolOp _ _ _ _ = wrongArity "boolean op"
+
+equalOp :: (Eq l, LV.Storable l) => BValueOp s l
+equalOp be eval [asBoolType -> Just (), mx, my] = boolOp beEq be eval [mx, my]
+equalOp be eval args@[asBitvectorType -> Just _, _, _] =
+    bvRelOp beEqVector be eval args
+equalOp _ _ _ = wrongArity "equality op"
 
 bvNatOp :: LV.Storable l => BValueOp s l
 bvNatOp be _ [mw, mx] = do
