@@ -19,8 +19,8 @@ library
   c-sources:
     cbits/saw.c
   exposed-modules:
-    Verifier.SAW.Export
+    Verifier.SAW.ForeignExport
   GHC-options:
     -Wall
   extensions:
-    FFI
+    ForeignFunctionInterface

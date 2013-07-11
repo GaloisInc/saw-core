@@ -1,4 +1,4 @@
-module Export where
+module Verifier.SAW.ForeignExport where
 
 import Control.Monad
 import Foreign.C.String
