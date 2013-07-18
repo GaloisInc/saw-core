@@ -238,6 +238,7 @@ coreRules
   <> exprRule (matchDef "Prelude.xor" SMT.xor)
   <> exprRule (matchDef "Prelude.boolEq" (SMT.===))
   <> exprRule (matchArgs (asGlobalDef "Prelude.ite" <:> asAny) smt_ite)
+  <> exprRule (matchArgs (asGlobalDef "Prelude.eq" <:> asAny) (SMT.===))
 
 extCnsExprRule :: Rule s SMT.Expr
 extCnsExprRule =
@@ -276,6 +277,7 @@ bitvectorRules
                  (smt_vectype :: Nat -> SharedTerm s -> RuleWriter s SMT.Type))
 
   <> exprRule (matchDef "Prelude.bvNat" smt_bvNat)
+
   <> exprRule (bv_bin_rule "Prelude.bvEq" (SMT.===))
 
   <> exprRule (bv_bin_rule "Prelude.bvAdd" SMT.bvadd)

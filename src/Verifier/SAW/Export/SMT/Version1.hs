@@ -315,6 +315,8 @@ coreRules
   <> formulaRule boolEqFormulaRule
   <> formulaRule iteBoolFormulaRule
   <> termRule iteTermRule
+  <> formulaRule (matchArgs (asGlobalDef "Prelude.eq" <:> asAny) (SMT.===))
+
 
 extCnsFormulaRule :: Rule s SMT.Formula
 extCnsFormulaRule =
