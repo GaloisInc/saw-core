@@ -86,7 +86,7 @@ instance Eq Value where
     VVector x    == VVector y    = x == y
     VFloat x     == VFloat y     = x == y
     VDouble x    == VDouble y    = x == y
-    x            == y            = error "values not comparable"
+    _            == _            = error "values not comparable"
 
 ------------------------------------------------------------
 -- Basic operations on values
