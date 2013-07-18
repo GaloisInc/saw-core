@@ -112,7 +112,6 @@ bitBlastWith bc t0 = runErrorT (go [] t0)
           | ident == "Prelude.False" = return (BBool (beFalse be))
           | ident == "Prelude.True"  = return (BBool (beTrue be))
         go ls (asLambda -> Just (_, ty, body)) = do
-          liftIO $ putStrLn "New Lambda var" 
           v <- newVars ty
           go (v : ls) body
         go ls t@(STApp termidx tf) = do
