@@ -158,6 +158,7 @@ opTable =
     , ("bvAnd", bvBinOp beAndInt)
     , ("bvOr", bvBinOp beOrInt)
     , ("bvXor", bvBinOp beXorInt)
+    , ("bvNot", bvNotOp)
     , ("bvSShr", bvSignedShrOp)
     , ("bvShr", bvUnsignedShrOp)
     , ("bvShl", bvShlOp)
@@ -230,6 +231,12 @@ notOp be eval [mx] =
     do x <- asBBool =<< eval mx
        return (BBool (beNeg be x))
 notOp _ _ _ = wrongArity "not op"
+
+bvNotOp :: LV.Storable l => BValueOp s l
+bvNotOp be eval [_, mx] =
+    do x <- asBVector =<< eval mx
+       return (lvVector (LV.map (beNeg be) x))
+bvNotOp _ _ _ = wrongArity "bvNot op"
 
 appendOp :: LV.Storable l => BValueOp s l
 appendOp _ eval [_, _, _, mx, my] =
