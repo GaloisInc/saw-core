@@ -3,7 +3,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Rank2Types #-}
 module Verifier.SAW.Export.SMT.Common
-  ( needBits
+  ( module Verifier.SAW.Conversion
+  , needBits
   , cache
   , freshName
   , matchTerm
@@ -14,6 +15,7 @@ module Verifier.SAW.Export.SMT.Common
   , matchCtor
   , matchDataType
     -- * Additional primitive types.
+  , Net.Net
   , BoolType(..)
   , BitvectorType(..)
   ) where
@@ -78,7 +80,7 @@ matchTerm getter t = do
 class Renderable a m t b where
   mapMatcher :: Matcher m t a -> Matcher m t b
 
-  -- | Returns the patterns used to match the arguments to this renderable.
+  -- | Returns term net patterns used to match arguments to @a@.
   -- Parameters used for typechecking, and may not be evaluated.
   argPats :: a -> Matcher m t b -> [Net.Pat]
 
@@ -113,7 +115,8 @@ instance (Applicative m, Monad m, Termlike t, Matchable m t a, Renderable b m t 
     x <- runMatcher defaultMatcher h
     argFn (fn x) r
 
-matchArgs :: (Monad m, Termlike t, Renderable a m t b) => Matcher m t x -> a -> Matcher m t b
+matchArgs :: (Monad m, Termlike t, Renderable a m t b)
+          => Matcher m t x -> a -> Matcher m t b
 matchArgs m f = mapMatcher (thenMatcher m (\_ -> return f))
 
 matchDef :: (Monad m, Termlike t, Renderable v m t a)

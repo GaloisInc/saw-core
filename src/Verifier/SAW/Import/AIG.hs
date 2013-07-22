@@ -41,7 +41,7 @@ sharedTermFromWidthExpr :: SharedContext s
                         -> WidthExpr
                         -> ErrorT String IO (SharedTerm s)
 sharedTermFromWidthExpr sc (widthConstant -> Just (Wx w)) = do
-  lift $ scNat sc (toInteger w)
+  lift $ scNat sc (fromIntegral w)
 sharedTermFromWidthExpr _ _ = fail "Cannot bitblast non-ground width expressions."
 
 sharedTermFromDagType :: SharedContext s
@@ -98,8 +98,8 @@ bitblastSharedTerm sc v (asBitvectorType -> Just w) = do
     getFn <- scApplyPreludeGet sc
     wt <- scNat sc w
     boolType <- scPreludeBool sc
-    V.generateM (fromInteger w) $ \i -> do
-      getFn wt boolType v =<< scFinConst sc (toInteger i) w
+    V.generateM (fromIntegral w) $ \i -> do
+      getFn wt boolType v =<< scFinConst sc (fromIntegral i) w
   modify (V.++ inputs)
 bitblastSharedTerm _ _ tp = fail $ show $
   text "Could not parse AIG input type:" <$$>
@@ -117,9 +117,9 @@ parseAIGResultType _ (asBoolType -> Just ()) = do
   return (outputs V.! 0)  
 parseAIGResultType sc (asBitvectorType -> Just w) = do
   outputs <- get
-  when (V.length outputs < fromInteger w) $ do
+  when (fromIntegral (V.length outputs) < w) $ do
     fail "Not enough output bits for type."
-  let (base,remaining) = V.splitAt (fromInteger w) outputs
+  let (base,remaining) = V.splitAt (fromIntegral w) outputs
   put remaining
   -- Return remaining as a vector.
   liftIO $ do

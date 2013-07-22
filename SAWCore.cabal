@@ -88,6 +88,12 @@ test-suite test-sawcore
     , saw-core
     , time
     , unordered-containers
+    , vector
+    , Verinf
     , wl-pprint
   other-modules:
+    Tests.BitBlast
+    Tests.Common
+    Tests.Parser
     Tests.SharedTerm
+ 

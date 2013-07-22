@@ -41,9 +41,7 @@ import qualified SMTLib2.BitVector as SMT
 import qualified SMTLib2.Core as SMT
 
 import Verifier.SAW.Export.SMT.Common
-import Verifier.SAW.Conversion
 import Verifier.SAW.Prim
-import Verifier.SAW.Recognizer (asLocalVar)
 import Verifier.SAW.Rewriter ()
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.TermNet as Net
@@ -198,7 +196,7 @@ type Rule s = Matcher (RuleWriter s) (SharedTerm s)
 
 -- HACK!
 instance Eq (Rule s r) where
-  x == y = Net.toPat x == Net.toPat y
+  _ == _ = False
 
 asSMTType :: Rule s SMT.Type
 asSMTType = asVar (lift . toSMTType)
@@ -249,7 +247,7 @@ extCnsExprRule =
 
 localExprRule :: Rule s SMT.Expr
 localExprRule =
-  thenMatcher (asVar asLocalVar) $ \(i, _) -> lift $ do
+  thenMatcher asLocalVar $ \i -> lift $ do
     ls <- use localExprs
     guard (i < length ls)
     return (ls !! i)

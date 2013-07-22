@@ -44,9 +44,8 @@ import qualified SMTLib1 as SMT
 import qualified SMTLib1.QF_AUFBV as SMT
 
 import Verifier.SAW.Export.SMT.Common
-import Verifier.SAW.Conversion
 import Verifier.SAW.Prim
-import Verifier.SAW.Recognizer (asLambda, asLocalVar)
+import Verifier.SAW.Recognizer (asLambda)
 import Verifier.SAW.Rewriter ()
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.TermNet as Net
@@ -258,7 +257,7 @@ type Rule s = Matcher (RuleWriter s) (SharedTerm s)
 
 -- HACK!
 instance Eq (Rule s r) where
-  x == y = Net.toPat x == Net.toPat y
+  _ == _ = False
 
 asSMTSort :: Rule s SMT.Sort
 asSMTSort = asVar (lift . toSort)
@@ -340,7 +339,7 @@ lambdaFormulaRule =
 
 localTermRule :: Rule s SMT.Term
 localTermRule =
-  thenMatcher (asVar asLocalVar) $ \(i, _) -> do
+  thenMatcher asLocalVar $ \i -> do
     ls <- use localTerms
     guard (i < length ls)
     return (ls !! i)
