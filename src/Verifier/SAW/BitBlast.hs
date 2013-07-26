@@ -12,6 +12,7 @@ module Verifier.SAW.BitBlast
   ( BValue(..)
   , flattenBValue
   , bitBlast
+  , lvVector
     -- * Explicitly cached interface
   , LV.Storable
   , BCache
@@ -19,6 +20,21 @@ module Verifier.SAW.BitBlast
   , newBCache
   , addCut
   , bitBlastWith
+    -- * Rules for bitblasting.
+  , RuleSet
+  , Rule
+  , termRule
+  , RuleBlaster
+  , Bitblaster
+  , blastBV
+    -- * Standard prelude bitvecot rules.
+  , bvRules
+     -- * Re-exports
+  , (<>)
+  , Matcher
+  , Renderable
+  , Termlike
+  , matchArgs
   ) where
 
 import Control.Applicative
@@ -120,7 +136,7 @@ newVars be (RecShape tm ) = BRecord <$> traverse (newVars be) tm
 
 bitBlast :: (LV.Storable l) => BitEngine l -> SharedTerm s -> IO (Either BBErr (BValue l))
 bitBlast be (R.asLambdaList -> (args, rhs)) = do
-  bc <- newBCache be
+  bc <- newBCache be bvRules
   case traverse (parseShape . snd) args of
     Left msg -> return (Left msg)
     Right shapes -> do
@@ -134,10 +150,9 @@ data BCache s l = BCache { bcEngine :: !(BitEngine l)
                          , bcVarMap :: !(Map DeBruijnIndex (BValue l))
                          }
 
-newBCache :: (LV.Storable l) => BitEngine l -> IO (BCache s l)
-newBCache be = do
+newBCache :: (LV.Storable l) => BitEngine l -> RuleSet s l -> IO (BCache s l)
+newBCache be (RuleSet tr) = do
   tcache <- newIORef Map.empty
-  let RuleSet tr = bvRules
   let addRule rule = Net.insert_term (rule, rule)
   let valueNet = foldr addRule Net.empty tr
   return BCache { bcEngine = be
@@ -199,7 +214,8 @@ newtype Bitblaster s l a = BB { unBB :: ReaderT (BCache s l) IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader (BCache s l))
 
 blastAny :: LV.Storable l
-         => SharedTerm s -> Bitblaster s l (BValue l)
+         => SharedTerm s
+         -> Bitblaster s l (BValue l)
 blastAny t = do
   bc <- ask
   mr <- liftIO $ bitBlastWith bc t
@@ -278,7 +294,7 @@ bvRelRule d litFn = matchArgs (asGlobalDef d) termFn
           be <- asks bcEngine
           liftIO $ BBool <$> litFn be x' y'
 
-bvRules :: forall s l . (LV.Storable l) => RuleSet s l
+bvRules :: forall s l . LV.Storable l => RuleSet s l
 bvRules
   = termRule (asExtCns `thenMatcher` matchExtCns)
   <> termRule (binBVRule "Prelude.bvAdd" beAddInt)
@@ -340,8 +356,6 @@ matchLocalVar i = lift $ do
   case Map.lookup i vm of
     Just v -> return v
     Nothing -> fail "Term contains unexpected free variable."
-
-
 
 matchTupleValue :: LV.Storable l => [SharedTerm s] -> RuleBlaster s l (BValue l)
 matchTupleValue m = lift $ BTuple <$> traverse blastAny m
