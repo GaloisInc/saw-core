@@ -58,8 +58,8 @@ bitblast_bveq = bitblastTestCase "bitblast_bveq" mk_term is_valid
           w <- scNat sc 32
           vecType <- scPreludeVec sc
           i32 <- vecType w =<< scPreludeBool sc
-          y <- scFreshGlobal sc "y" i32
           x <- scFreshGlobal sc "x" i32
+          y <- scFreshGlobal sc "y" i32
           bvEq <- scApplyPreludeBvEq sc
           bvEq w x y
         is_valid v = SV.take 32 v == SV.drop 32 v
