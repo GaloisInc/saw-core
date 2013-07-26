@@ -313,6 +313,8 @@ bvRules
   <> termRule (bvRelRule "Prelude.bvslt" beSignedLt)
   <> termRule (bvRelRule "Prelude.bvule" beUnsignedLeq)
   <> termRule (bvRelRule "Prelude.bvult" beUnsignedLt)
+  -- Shift
+  <> termRule prelude_bvSShr_lsb
 
   <> termRule (asGlobalDef "Prelude.ite" `matchArgs` 
                (iteOp :: SharedTerm s
@@ -320,7 +322,7 @@ bvRules
                       -> SharedTerm s
                       -> SharedTerm s
                       -> RuleBlaster s l (BValue l)))
-
+  -- Primitives
   <> termRule (asLocalVar `thenMatcher` matchLocalVar)
   <> termRule (asAnyTupleValue              `thenMatcher` matchTupleValue)
   <> termRule (asTupleSelector blastMatcher
@@ -328,9 +330,18 @@ bvRules
   <> termRule (asAnyRecordValue `thenMatcher` matchRecordValue)
   <> termRule (asRecordSelector blastMatcher
                  `thenMatcher` uncurry bRecordSelect)
-
   <> termRule (asAnyVecLit `thenMatcher` matchVecValue)
 
+
+-- Least-significant bit first implementation.
+prelude_bvSShr_lsb :: LV.Storable l => Rule s l (BValue l)
+prelude_bvSShr_lsb = pat `thenMatcher` litFn
+  where pat = asGlobalDef "Prelude.bvSShr" <:> asAnyNatLit <:> asAny <:> asAnyNatLit
+        litFn (() :*: w :*: x :*: n) = lift $ do
+          x' <- blastBV (w+1) x
+          let msb = LV.last x'
+          let n' = fromIntegral $ min n (w+1)
+          return (lvVector (LV.drop n' x' LV.++ LV.replicate n' msb))
 
 blastMatcher :: (LV.Storable l) => Matcher (RuleBlaster s l) (SharedTerm s) (BValue l)
 blastMatcher = asVar $ \t -> lift (blastAny t)
@@ -379,9 +390,9 @@ opTable :: LV.Storable l => Map Ident (BValueOp s l)
 opTable =
     Map.mapKeys (mkIdent preludeName) $
     Map.fromList $
-    [ ("bvSShr", bvSignedShrOp)
-    , ("bvShr", bvUnsignedShrOp)
+    [ ("bvShr", bvUnsignedShrOp)
     , ("bvShl", bvShlOp)
+    , ("bvNot", bvNotOp)
     , ("eq", equalOp)
     , ("bvNat", bvNatOp)
     , ("and", boolOp beAnd)
@@ -432,6 +443,12 @@ notOp be eval [mx] =
     do x <- asBBool =<< eval mx
        return (BBool (beNeg be x))
 notOp _ _ _ = wrongArity "not op"
+
+bvNotOp :: LV.Storable l => BValueOp s l
+bvNotOp be eval [_, mx] =
+    do x <- asBVector =<< eval mx
+       return (lvVector (LV.map (beNeg be) x))
+bvNotOp _ _ _ = wrongArity "bvNot op"
 
 appendOp :: LV.Storable l => BValueOp s l
 appendOp _ eval [_, _, _, mx, my] =
@@ -515,15 +532,6 @@ bvSliceOp _ eval [_, mi, mn, _, mx] =
        x <- asBVector =<< eval mx
        return (lvVector (LV.take n (LV.drop i x)))
 bvSliceOp _ _ _ = wrongArity "slice op"
-
-bvSignedShrOp :: (LV.Storable l) => BValueOp s l
-bvSignedShrOp be eval [_, xt, nt] =
-    do x <- asBVector =<< eval xt
-       n <- asBNat nt
-       let w = LV.length x
-           nv = beVectorFromInt be w (toInteger n)
-       liftIO (fmap lvVector (beSignedShr be x nv))
-bvSignedShrOp _ _ _ = wrongArity "SShr op"
 
 bvUnsignedShrOp :: (LV.Storable l) => BValueOp s l
 bvUnsignedShrOp be eval [_, xt, nt] =
