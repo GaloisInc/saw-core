@@ -95,5 +95,6 @@ test-suite test-sawcore
     Tests.BitBlast
     Tests.Common
     Tests.Parser
+    Tests.Rewriter
     Tests.SharedTerm
- 
+    
