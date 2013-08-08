@@ -87,7 +87,6 @@ class Renderable a m t b where
   -- | Returns a function for matching all the arguments.
   argFn :: a -> [t] -> m (b,[t])
 
-
 instance Monad m => Renderable a m t a where
   mapMatcher = id
   argPats _ _ = []

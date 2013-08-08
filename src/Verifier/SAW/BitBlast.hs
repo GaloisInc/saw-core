@@ -6,8 +6,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
-
 module Verifier.SAW.BitBlast
   ( BValue(..)
   , flattenBValue
@@ -38,8 +38,10 @@ module Verifier.SAW.BitBlast
   ) where
 
 import Control.Applicative
+import Control.Exception (assert)
 import Control.Lens
 import Control.Monad
+import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.Trans.Error
 import Control.Monad.Trans.Maybe
@@ -50,6 +52,7 @@ import qualified Data.Map as Map
 import Data.Monoid
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as LV
+import Text.PrettyPrint.Leijen hiding ((<$>), (<>))
 
 import Verifier.SAW.Prim
 import qualified Verifier.SAW.Recognizer as R
@@ -105,14 +108,14 @@ data BShape
    | TupleShape [BShape]
    | RecShape (Map FieldName BShape)
 
-parseShape :: SharedTerm s -> Either String BShape
+parseShape :: (Applicative m, Monad m) => SharedTerm s -> m BShape
 parseShape (R.asBoolType -> Just ()) = return BoolShape
 parseShape (R.isVecType return -> Just (n R.:*: tp)) =
   VecShape n <$> parseShape tp
 parseShape (R.asTupleType -> Just ts) = TupleShape <$> traverse parseShape ts
 parseShape (R.asRecordType -> Just tm) = RecShape <$> traverse parseShape tm
 parseShape t = do
-  Left $ "bitBlast: unsupported argument type: " ++ show t
+  fail $ "bitBlast: unsupported argument type: " ++ show t
 
 -- | @checkShape s v@ verifies that @v@ has shape @s@.
 checkShape :: Monad m => BShape -> BValue l -> m ()
@@ -137,7 +140,7 @@ newVars be (RecShape tm ) = BRecord <$> traverse (newVars be) tm
 bitBlast :: (LV.Storable l) => BitEngine l -> SharedTerm s -> IO (Either BBErr (BValue l))
 bitBlast be (R.asLambdaList -> (args, rhs)) = do
   bc <- newBCache be bvRules
-  case traverse (parseShape . snd) args of
+  case runIdentity $ runErrorT $ traverse (parseShape . snd) args of
     Left msg -> return (Left msg)
     Right shapes -> do
       vars <- traverse (newVars be) shapes
@@ -202,7 +205,9 @@ bitBlastWith bc t0 = runErrorT (go t0)
               , Just f <- Map.lookup ident opTable ->
                    pushNew =<< f be go xs
               | otherwise ->
-                  fail $ "unsupported expression: " ++ take 80 (show t)
+                  fail $ show $ 
+                   text "unsupported expression:" <$$>
+                   indent 2 (scPrettyTermDoc t)
 
 type BValueOp s l
   = BitEngine l
@@ -297,6 +302,7 @@ bvRelRule d litFn = matchArgs (asGlobalDef d) termFn
 bvRules :: forall s l . LV.Storable l => RuleSet s l
 bvRules
   = termRule (asExtCns `thenMatcher` matchExtCns)
+  <> termRule bvNat_rule
   <> termRule (binBVRule "Prelude.bvAdd" beAddInt)
   <> termRule (binBVRule "Prelude.bvSub" beSubInt)
   <> termRule (binBVRule "Prelude.bvMul" beMulInt)
@@ -314,7 +320,12 @@ bvRules
   <> termRule (bvRelRule "Prelude.bvule" beUnsignedLeq)
   <> termRule (bvRelRule "Prelude.bvult" beUnsignedLt)
   -- Shift
-  <> termRule prelude_bvSShr_lsb
+  <> termRule prelude_bvShl_bv_lsb
+  <> termRule prelude_bvShl_nat_lsb
+  <> termRule prelude_bvShr_bv_lsb
+  <> termRule prelude_bvShr_nat_lsb
+  <> termRule prelude_bvSShr_bv_lsb
+  <> termRule prelude_bvSShr_nat_lsb
 
   <> termRule (asGlobalDef "Prelude.ite" `matchArgs` 
                (iteOp :: SharedTerm s
@@ -332,33 +343,91 @@ bvRules
                  `thenMatcher` uncurry bRecordSelect)
   <> termRule (asAnyVecLit `thenMatcher` matchVecValue)
 
+lvShl :: LV.Storable l => LV.Vector l ->  Nat -> l -> LV.Vector l
+lvShl v i l = LV.replicate j l LV.++ LV.take (n-j) v
+  where n = LV.length v
+        j = fromIntegral i `min` n
 
--- Least-significant bit first implementation.
-prelude_bvSShr_lsb :: LV.Storable l => Rule s l (BValue l)
-prelude_bvSShr_lsb = pat `thenMatcher` litFn
-  where pat = asGlobalDef "Prelude.bvSShr" <:> asAnyNatLit <:> asAny <:> asAnyNatLit
-        litFn (() :*: w :*: x :*: n) = lift $ do
+lvShr :: LV.Storable l => LV.Vector l ->  Nat -> l -> LV.Vector l
+lvShr v i l = LV.drop j v LV.++ LV.replicate j l
+  where j = fromIntegral i `min` LV.length v
+
+asBvToNat :: (Applicative m, Monad m, Termlike t) => Matcher m t (Nat :*: t)
+asBvToNat = asGlobalDef "Prelude.bvToNat" <:>> asAnyNatLit <:> asAny
+
+-- | Shift-left; Least-significant bit first implementation.
+-- Second argument may be (bvToNat _ x)
+prelude_bvShl_bv_lsb :: LV.Storable l => Rule s l (BValue l)
+prelude_bvShl_bv_lsb = pat `thenMatcher` litFn
+  where pat = asGlobalDef "Prelude.bvShl" <:>> asAnyNatLit <:> asAny <:> asBvToNat
+        litFn (w :*: x :*: (w' :*: n)) = lift $ do
+          x' <- blastBV w x
+          assert (w == w') $ do
+            n' <- blastBV w' n
+            be <- asks bcEngine
+            liftIO $ lvVector <$> beShl be x' n'
+
+-- | Shift-left; Least-significant bit first implementation.
+prelude_bvShl_nat_lsb :: LV.Storable l => Rule s l (BValue l)
+prelude_bvShl_nat_lsb = pat `thenMatcher` litFn
+  where pat = asGlobalDef "Prelude.bvShr" <:>> asAnyNatLit <:> asAny <:> asAnyNatLit
+        litFn (w :*: x :*: n) = lift $ do
+          x' <- blastBV w x
+          f <- beFalse <$> asks bcEngine
+          return $ lvVector $ lvShl x' n f
+
+-- | Unsigned shift-right; Least-significant bit first implementation.
+-- Second argument may be (bvToNat _ x)
+prelude_bvShr_bv_lsb :: LV.Storable l => Rule s l (BValue l)
+prelude_bvShr_bv_lsb = pat `thenMatcher` litFn
+  where pat = asGlobalDef "Prelude.bvShr" <:>> asAnyNatLit <:> asAny <:> asBvToNat
+        litFn (w :*: x :*: (w' :*: n)) = lift $ do
+          x' <- blastBV w x
+          assert (w == w') $ do
+            n' <- blastBV w' n
+            be <- asks bcEngine
+            liftIO $ lvVector <$> beUnsignedShr be x' n'
+
+-- | Unsigned shift-right; Least-significant bit first implementation.
+prelude_bvShr_nat_lsb :: LV.Storable l => Rule s l (BValue l)
+prelude_bvShr_nat_lsb = pat `thenMatcher` litFn
+  where pat = asGlobalDef "Prelude.bvShr" <:>> asAnyNatLit <:> asAny <:> asAnyNatLit
+        litFn (w :*: x :*: n) = lift $ do
+          x' <- blastBV w x
+          f <- beFalse <$> asks bcEngine
+          return $ lvVector $ lvShr x' n f
+
+-- | Signed shift-right; Least-significant bit first implementation.
+-- Second argument may be (bvToNat _ x)
+prelude_bvSShr_bv_lsb :: LV.Storable l => Rule s l (BValue l)
+prelude_bvSShr_bv_lsb = pat `thenMatcher` litFn
+  where pat = asGlobalDef "Prelude.bvSShr" <:>> asAnyNatLit <:> asAny <:> asBvToNat
+        litFn (w :*: x :*: (w' :*: n)) = lift $ do
+          x' <- blastBV (w+1) x
+          assert (w == w') $ do
+            n' <- blastBV w' n
+            be <- asks bcEngine
+            liftIO $ lvVector <$> beSignedShr be x' n'
+
+-- | Signed shift-right; Least-significant bit first implementation.
+prelude_bvSShr_nat_lsb :: LV.Storable l => Rule s l (BValue l)
+prelude_bvSShr_nat_lsb = pat `thenMatcher` litFn
+  where pat = asGlobalDef "Prelude.bvSShr" <:>> asAnyNatLit <:> asAny <:> asAnyNatLit
+        litFn (w :*: x :*: n) = lift $ do
           x' <- blastBV (w+1) x
           let msb = LV.last x'
-          let n' = fromIntegral $ min n (w+1)
-          return (lvVector (LV.drop n' x' LV.++ LV.replicate n' msb))
+          return $ lvVector $ lvShr x' n msb
 
 blastMatcher :: (LV.Storable l) => Matcher (RuleBlaster s l) (SharedTerm s) (BValue l)
 blastMatcher = asVar $ \t -> lift (blastAny t)
 
-matchShape :: Monad m => SharedTerm s -> m BShape
-matchShape t =
-  case parseShape t of
-    Left msg -> fail msg
-    Right s -> return s
-
 instance Matchable (RuleBlaster s l) (SharedTerm s) BShape where
-  defaultMatcher = asVar matchShape
+  defaultMatcher = asVar parseShape
 
 matchExtCns :: ExtCns (SharedTerm s) -> RuleBlaster s l (BValue l)
 matchExtCns ec = lift $ do
    be <- asks bcEngine
-   shape <- matchShape (ecType ec)
+   shape <- parseShape (ecType ec)
    liftIO (newVars be shape)
 
 matchLocalVar :: DeBruijnIndex -> RuleBlaster s l (BValue l)
@@ -380,7 +449,7 @@ matchVecValue :: LV.Storable l
               => (SharedTerm s, V.Vector (SharedTerm s))
               -> RuleBlaster s l (BValue l)
 matchVecValue (tp,v) = lift $ do
-  shape <- matchShape tp
+  shape <- parseShape tp
   BVector <$> V.mapM (blastWithShape shape) v
 
 termRule :: Rule s l (BValue l) -> RuleSet s l
@@ -390,11 +459,8 @@ opTable :: LV.Storable l => Map Ident (BValueOp s l)
 opTable =
     Map.mapKeys (mkIdent preludeName) $
     Map.fromList $
-    [ ("bvShr", bvUnsignedShrOp)
-    , ("bvShl", bvShlOp)
-    , ("bvNot", bvNotOp)
+    [ ("bvNot", bvNotOp)
     , ("eq", equalOp)
-    , ("bvNat", bvNatOp)
     , ("and", boolOp beAnd)
     , ("xor", boolOp beXor)
     , ("or", boolOp beOr)
@@ -431,12 +497,12 @@ equalOp be eval args@[R.asBitvectorType -> Just _, _, _] =
     bvRelOp beEqVector be eval args
 equalOp _ _ _ = wrongArity "equality op"
 
-bvNatOp :: LV.Storable l => BValueOp s l
-bvNatOp be _ [mw, mx] = do
-  w <- fromIntegral <$> asBNat mw
-  x <- toInteger <$> asBNat mx
-  return (lvVector (beVectorFromInt be w x))
-bvNatOp _ _ _ = wrongArity "bvNat op"
+bvNat_rule :: LV.Storable l => Rule s l (BValue l)
+bvNat_rule = pat `thenMatcher` litFn
+  where pat = asGlobalDef "Prelude.bvNat" <:>> asAnyNatLit <:> asAnyNatLit
+        litFn (w :*: x) = do
+          be <- asks bcEngine
+          return (lvVector (beVectorFromInt be (fromIntegral w) (toInteger x)))
 
 notOp :: BValueOp s l
 notOp be eval [mx] =
@@ -467,7 +533,7 @@ iteOp :: (LV.Storable l)
       => SharedTerm s -> SharedTerm s -> SharedTerm s -> SharedTerm s
       -> RuleBlaster s l (BValue l)
 iteOp tp mb mx my = lift $ do
-  shape <- matchShape tp
+  shape <- parseShape tp
   b <- blastBit mb
   be <- asks bcEngine
   case () of
@@ -532,24 +598,6 @@ bvSliceOp _ eval [_, mi, mn, _, mx] =
        x <- asBVector =<< eval mx
        return (lvVector (LV.take n (LV.drop i x)))
 bvSliceOp _ _ _ = wrongArity "slice op"
-
-bvUnsignedShrOp :: (LV.Storable l) => BValueOp s l
-bvUnsignedShrOp be eval [_, xt, nt] =
-    do x <- asBVector =<< eval xt
-       n <- asBNat nt
-       let w = LV.length x
-           nv = beVectorFromInt be w (toInteger n)
-       liftIO (fmap lvVector (beUnsignedShr be x nv))
-bvUnsignedShrOp _ _ _ = wrongArity "SShr op"
-
-bvShlOp :: (LV.Storable l) => BValueOp s l
-bvShlOp be eval [_, xt, nt] =
-    do x <- asBVector =<< eval xt
-       n <- asBNat nt
-       let w = LV.length x
-           nv = beVectorFromInt be w (toInteger n)
-       liftIO (fmap lvVector (beShl be x nv))
-bvShlOp _ _ _ = wrongArity "Shl op"
 
 ----------------------------------------------------------------------
 -- Destructors for BValues
