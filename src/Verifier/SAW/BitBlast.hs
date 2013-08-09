@@ -114,6 +114,7 @@ parseShape :: (Applicative m, Monad m) => SharedTerm s -> m BShape
 parseShape (R.asBoolType -> Just ()) = return BoolShape
 parseShape (R.isVecType return -> Just (n R.:*: tp)) =
   VecShape n <$> parseShape tp
+parseShape (R.asBitvectorType -> Just n) = pure (VecShape n BoolShape)
 parseShape (R.asTupleType -> Just ts) = TupleShape <$> traverse parseShape ts
 parseShape (R.asRecordType -> Just tm) = RecShape <$> traverse parseShape tm
 parseShape t = do
