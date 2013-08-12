@@ -171,6 +171,7 @@ evalTermF global lam rec env tf =
     FTermF ftf              ->
       case ftf of
         GlobalDef ident     -> pure $ global ident
+        Constant _ t        -> rec t
         App t1 t2           -> apply <$> rec t1 <*> rec t2
         TupleValue ts       -> VTuple <$> traverse rec (V.fromList ts)
         TupleType {}        -> pure VType
