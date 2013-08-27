@@ -373,7 +373,7 @@ prelude_bvShl_bv_lsb = pat `thenMatcher` litFn
 -- | Shift-left; Least-significant bit first implementation.
 prelude_bvShl_nat_lsb :: (Eq l, LV.Storable l) => Rule s l (BValue l)
 prelude_bvShl_nat_lsb = pat `thenMatcher` litFn
-  where pat = asGlobalDef "Prelude.bvShr" <:>> asAnyNatLit <:> asAny <:> asAnyNatLit
+  where pat = asGlobalDef "Prelude.bvShl" <:>> asAnyNatLit <:> asAny <:> asAnyNatLit
         litFn (w :*: x :*: n) = lift $ do
           x' <- blastBV w x
           f <- beFalse <$> asks bcEngine
