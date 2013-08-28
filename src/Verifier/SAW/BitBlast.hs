@@ -257,7 +257,7 @@ blastBV n t = do
   case mr of
     Left msg -> fail msg -- Bitblast failed.
     Right v -> do
-      lv <- asBVector v
+      lv <- asLitVector v
       when (fromIntegral (LV.length lv) /= n) $ do
         fail $ "blastBit given bad vector."
       return lv
@@ -462,28 +462,30 @@ opTable :: (Eq l, LV.Storable l) => Map Ident (BValueOp s l)
 opTable =
     Map.mapKeys (mkIdent preludeName) $
     Map.fromList $
-    [ ("bvNot", bvNotOp)
-    , ("eq", equalOp)
-    , ("and", boolOp beAnd)
-    , ("xor", boolOp beXor)
-    , ("or", boolOp beOr)
-    , ("boolEq", boolOp beEq)
-    , ("not", notOp)
-    , ("append", appendOp)
-    , ("single", singleOp)
-    , ("bvTrunc", bvTruncOp)
-    , ("bvUExt", bvUExtOp)
-    , ("bvSExt", bvSExtOp)
-    , ("get", bvGetBitOp)
-    , ("slice", bvSliceOp)
+    [ ("bvNot"    , bvNotOp     )
+    , ("eq"       , equalOp     )
+    , ("and"      , boolOp beAnd)
+    , ("xor"      , boolOp beXor)
+    , ("or"       , boolOp beOr )
+    , ("boolEq"   , boolOp beEq )
+    , ("not"      , notOp       )
+    , ("append"   , appendOp    )
+    , ("single"   , singleOp    )
+    , ("bvTrunc"  , bvTruncOp   )
+    , ("bvUExt"   , bvUExtOp    )
+    , ("bvSExt"   , bvSExtOp    )
+    , ("get"      , getOp       )
+    , ("set"      , setOp       )
+    , ("replicate", replicateOp )
+    , ("slice"    , bvSliceOp   )
     ]
 
 bvRelOp :: (LV.Storable l)
         => (BitEngine l -> LitVector l -> LitVector l -> IO l)
         -> BValueOp s l
 bvRelOp f be eval [_, mx, my] =
-    do x <- asBVector =<< eval mx
-       y <- asBVector =<< eval my
+    do x <- asLitVector =<< eval mx
+       y <- asLitVector =<< eval my
        liftIO $ BBool <$> f be x y
 bvRelOp _ _ _ _ = wrongArity "relational op"
 
@@ -515,14 +517,14 @@ notOp _ _ _ = wrongArity "not op"
 
 bvNotOp :: LV.Storable l => BValueOp s l
 bvNotOp be eval [_, mx] =
-    do x <- asBVector =<< eval mx
+    do x <- asLitVector =<< eval mx
        return (lvVector (LV.map (beNeg be) x))
 bvNotOp _ _ _ = wrongArity "bvNot op"
 
 appendOp :: LV.Storable l => BValueOp s l
 appendOp _ eval [_, _, _, mx, my] =
-    do x <- asBVector =<< eval mx
-       y <- asBVector =<< eval my
+    do x <- asLitVector =<< eval mx
+       y <- asLitVector =<< eval my
        return (lvVector ((LV.++) x y))
 appendOp _ _ _ = wrongArity "append op"
 
@@ -562,7 +564,7 @@ iteOp tp mb mx my = lift $ do
 bvTruncOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvTruncOp be eval [_, mj, mx] =
     do j <- asBNat mj
-       x <- asBVector =<< eval mx
+       x <- asLitVector =<< eval mx
        return (lvVector (beTrunc be (fromIntegral j) x))
 bvTruncOp _ _ _ = wrongArity "trunc op"
 
@@ -570,7 +572,7 @@ bvUExtOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvUExtOp be eval [mi, mj, mx] =
     do i <- asBNat mi
        j <- asBNat mj
-       x <- asBVector =<< eval mx
+       x <- asLitVector =<< eval mx
        return (lvVector (beZext be (fromIntegral (i + j)) x))
 bvUExtOp _ _ _ = wrongArity "UExt op"
 
@@ -578,35 +580,59 @@ bvSExtOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvSExtOp be eval [mi, mj, mx] =
     do i <- asBNat mi
        j <- asBNat mj
-       x <- asBVector =<< eval mx
+       x <- asLitVector =<< eval mx
        return (lvVector (beSext be (fromIntegral (i + j + 1)) x))
 bvSExtOp _ _ _ = wrongArity "SExt op"
 
-bvGetBitOp :: (LV.Storable l) => BValueOp s l
-bvGetBitOp _ eval [mn, mty, mx, mf] =
+getOp :: LV.Storable l => BValueOp s l
+getOp _be eval [mn, _mty, mx, mf] =
     do _n <- asBNat mn
-       () <- R.asBoolType mty
        x <- asBVector =<< eval mx
        case R.asCtor mf of
          Just ("Prelude.FinVal", [mi, _]) -> do
            i <- asBNat mi
-           return (BBool (x LV.! fromIntegral i))
-         _ -> fail "badly typed bitvector get"
-bvGetBitOp _ _ _ = wrongArity "get op"
+           return ((V.!) x (fromIntegral i))
+         _ -> fail "get: invalid index"
+getOp _ _ _ = wrongArity "get op"
+
+-- set :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e -> Vec n e;
+setOp :: LV.Storable l => BValueOp s l
+setOp _be eval [mn, _me, mv, mf, mx] =
+    do _n <- asBNat mn
+       v <- asBVector =<< eval mv
+       x <- eval mx
+       case R.asCtor mf of
+         Just ("Prelude.FinVal", [mi, _]) -> do
+           i <- asBNat mi
+           return (BVector ((V.//) v [(fromIntegral i, x)]))
+         _ -> fail $ "set: invalid index: " ++ show mf
+setOp _ _ _ = wrongArity "set op"
+
+-- replicate :: (n :: Nat) -> (e :: sort 0) -> e -> Vec n e;
+replicateOp :: BValueOp s l
+replicateOp _be eval [mn, _me, mx] =
+    do n <- fromIntegral <$> asBNat mn
+       x <- eval mx
+       return (BVector (V.replicate n x))
+replicateOp _ _ _ = wrongArity "replicate op"
 
 bvSliceOp :: LV.Storable l => BValueOp s l
 bvSliceOp _ eval [_, mi, mn, _, mx] =
     do i <- fromIntegral <$> asBNat mi
        n <- fromIntegral <$> asBNat mn
-       x <- asBVector =<< eval mx
+       x <- asLitVector =<< eval mx
        return (lvVector (LV.take n (LV.drop i x)))
 bvSliceOp _ _ _ = wrongArity "slice op"
 
 ----------------------------------------------------------------------
 -- Destructors for BValues
 
-asBVector :: (LV.Storable l, Functor m, Monad m) => BValue l -> m (LitVector l)
-asBVector (BVector v) = lvFromV <$> V.mapM asBBool v
+asLitVector :: (LV.Storable l, Functor m, Monad m) => BValue l -> m (LitVector l)
+asLitVector (BVector v) = lvFromV <$> V.mapM asBBool v
+asLitVector _ = fail "expected Vector"
+
+asBVector :: (LV.Storable l, Functor m, Monad m) => BValue l -> m (V.Vector (BValue l))
+asBVector (BVector v) = return v
 asBVector _ = fail "expected Vector"
 
 asBBool :: Monad m => BValue l -> m l
