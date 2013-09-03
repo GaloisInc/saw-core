@@ -36,7 +36,7 @@ data Value
     -- TODO: Use strict, packed string datatype
     | VTuple !(Vector Value)
     | VRecord !(Map FieldName Value)
-    | VCtorApp !String !(Vector Value)
+    | VCtorApp !Ident !(Vector Value)
     -- TODO: Use strict, packed string datatype
     | VVector !(Vector Value)
     | VFloat !Float
@@ -64,8 +64,8 @@ instance Show Value where
                      (foldr (.) id (intersperse (showString ",") (map shows (V.toList vv))))
         VRecord _ -> error "unimplemented: show VRecord" -- !(Map FieldName Value)
         VCtorApp s vv
-            | V.null vv -> showString s
-            | otherwise -> showString s . showList (V.toList vv)
+            | V.null vv -> shows s
+            | otherwise -> shows s . showList (V.toList vv)
         VVector vv -> showList (V.toList vv)
         VFloat float -> shows float
         VDouble double -> shows double
@@ -93,12 +93,12 @@ instance Eq Value where
 
 valTupleSelect :: Int -> Value -> Value
 valTupleSelect i (VTuple v) = (V.!) v (i - 1)
-valTupleSelect i v = VCtorApp (show i) (V.singleton v)
+valTupleSelect i v = VCtorApp (mkIdent preludeName (show i)) (V.singleton v)
 --valTupleSelect _ _ = error "valTupleSelect"
 
 valRecordSelect :: FieldName -> Value -> Value
 valRecordSelect k (VRecord vm) | Just v <- Map.lookup k vm = v
-valRecordSelect k v = VCtorApp k (V.singleton v)
+valRecordSelect k v = VCtorApp (mkIdent preludeName k) (V.singleton v)
 --valRecordSelect _ _ = error "valRecordSelect"
 
 apply :: Value -> Value -> Value
@@ -120,7 +120,7 @@ matchValue p x =
                                _         -> Nothing
       PRecord _   -> error "matchValue PRecord unimplemented"
       PCtor i ps  -> case x of
-                       VCtorApp s xv | show i == s -> matchValues ps (V.toList xv)
+                       VCtorApp s xv | i == s -> matchValues ps (V.toList xv)
                        VTrue | i == "Prelude.True" && null ps -> Just Map.empty
                        VFalse | i == "Prelude.False" && null ps -> Just Map.empty
                        _ -> Nothing
@@ -179,7 +179,7 @@ evalTermF global lam rec env tf =
         RecordValue tm      -> VRecord <$> traverse rec tm
         RecordSelector t k  -> valRecordSelect k <$> rec t
         RecordType {}       -> pure VType
-        CtorApp ident ts    -> VCtorApp (show ident) <$> traverse rec (V.fromList ts)
+        CtorApp ident ts    -> VCtorApp ident <$> traverse rec (V.fromList ts)
         DataTypeApp {}      -> pure VType
         Sort {}             -> pure VType
         NatLit n            -> pure $ VNat n
