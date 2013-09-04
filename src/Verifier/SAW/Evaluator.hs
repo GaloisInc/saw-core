@@ -162,6 +162,7 @@ evalTermF :: (Show t, Applicative f) => (Ident -> Value) -> ([Value] -> t -> Val
               -> (t -> f Value) -> [Value] -> TermF t -> f Value
 evalTermF global lam rec env tf =
   case tf of
+    App t1 t2               -> apply <$> rec t1 <*> rec t2
     Lambda (PVar _ 0 _) _ t -> pure $ VFun (\x -> lam (x : env) t)
     Lambda _ _ _            -> error "evalTermF Lambda (non-var) unimplemented"
     Pi {}                   -> pure $ VType
@@ -174,7 +175,6 @@ evalTermF global lam rec env tf =
     FTermF ftf              ->
       case ftf of
         GlobalDef ident     -> pure $ global ident
-        App t1 t2           -> apply <$> rec t1 <*> rec t2
         TupleValue ts       -> VTuple <$> traverse rec (V.fromList ts)
         TupleType {}        -> pure VType
         TupleSelector t j   -> valTupleSelect j <$> rec t
