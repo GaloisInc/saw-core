@@ -384,6 +384,8 @@ preludePrims = Map.fromList
   , ("Prelude.bvule"   , toValue Prim.bvule)
   , ("Prelude.get"     , toValue get')
   , ("Prelude.append"  , toValue append')
+  , ("Prelude.and"     , toValue (&&))
+  , ("Prelude.not"     , toValue not)
   , ("Prelude.eq"      , toValue (const (==) :: () -> Value -> Value -> Bool))
   , ("Prelude.ite"     ,
      toValue (Prim.ite :: () -> Bool -> Value -> Value -> Value))
