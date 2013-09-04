@@ -16,6 +16,8 @@ import Data.Bits
 import Data.List ( intersperse )
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IMap
 import Data.Maybe (fromMaybe)
 import Data.Traversable
 import Data.Vector (Vector)
@@ -223,50 +225,50 @@ evalSharedTerm :: (Ident -> Value) -> SharedTerm s -> Value
 evalSharedTerm global t = evalOpen global (mkMemoClosed global t) [] t
 
 -- | Precomputing the memo table for closed subterms.
-mkMemoClosed :: forall s. (Ident -> Value) -> SharedTerm s -> Map TermIndex Value
+mkMemoClosed :: forall s. (Ident -> Value) -> SharedTerm s -> IntMap Value
 mkMemoClosed global t = memoClosed
   where
-    memoClosed = fst (State.execState (go t) (Map.empty, Map.empty))
-    go :: SharedTerm s -> State.State (Map TermIndex Value, Map TermIndex BitSet) BitSet
+    memoClosed = fst (State.execState (go t) (IMap.empty, IMap.empty))
+    go :: SharedTerm s -> State.State (IntMap Value, IntMap BitSet) BitSet
     go (STApp i tf) = do
       (_, bmemo) <- State.get
-      case Map.lookup i bmemo of
+      case IMap.lookup i bmemo of
         Just b -> return b
         Nothing -> do
           b <- freesTermF <$> traverse go tf
           let v = evalClosedTermF global memoClosed tf
           State.modify (\(vm, bm) ->
-            (if b == 0 then Map.insert i v vm else vm, Map.insert i b bm))
+            (if b == 0 then IMap.insert i v vm else vm, IMap.insert i b bm))
           return b
 
 -- | Evaluator for closed terms, used to populate @memoClosed@.
-evalClosedTermF :: (Ident -> Value) -> Map TermIndex Value -> TermF (SharedTerm s) -> Value
+evalClosedTermF :: (Ident -> Value) -> IntMap Value -> TermF (SharedTerm s) -> Value
 evalClosedTermF global memoClosed tf = runIdentity (evalTermF global lam rec [] tf)
   where
     lam = evalOpen global memoClosed
     rec (STApp i _) =
-      case Map.lookup i memoClosed of
+      case IMap.lookup i memoClosed of
         Just v -> pure v
         Nothing -> error "evalClosedTermF: internal error"
 
 -- | Evaluator for open terms; parameterized by a precomputed table @memoClosed@.
-evalOpen :: forall s. (Ident -> Value) -> Map TermIndex Value
+evalOpen :: forall s. (Ident -> Value) -> IntMap Value
          -> [Value] -> SharedTerm s -> Value
-evalOpen global memoClosed env t = State.evalState (go t) Map.empty
+evalOpen global memoClosed env t = State.evalState (go t) IMap.empty
   where
-    go :: SharedTerm s -> State.State (Map TermIndex Value) Value
+    go :: SharedTerm s -> State.State (IntMap Value) Value
     go (STApp i tf) =
-      case Map.lookup i memoClosed of
+      case IMap.lookup i memoClosed of
         Just v -> return v
         Nothing -> do
           memoLocal <- State.get
-          case Map.lookup i memoLocal of
+          case IMap.lookup i memoLocal of
             Just v -> return v
             Nothing -> do
               v <- evalF tf
-              State.modify (Map.insert i v)
+              State.modify (IMap.insert i v)
               return v
-    evalF :: TermF (SharedTerm s) -> State.State (Map TermIndex Value) Value
+    evalF :: TermF (SharedTerm s) -> State.State (IntMap Value) Value
     evalF tf = evalTermF global (evalOpen global memoClosed) go env tf
 
 ------------------------------------------------------------
