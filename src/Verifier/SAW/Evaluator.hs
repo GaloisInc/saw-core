@@ -16,6 +16,8 @@ import Data.Bits
 import Data.List ( intersperse )
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IMap
 import Data.Maybe (fromMaybe)
 import Data.Traversable
 import Data.Vector (Vector)
@@ -36,7 +38,7 @@ data Value
     -- TODO: Use strict, packed string datatype
     | VTuple !(Vector Value)
     | VRecord !(Map FieldName Value)
-    | VCtorApp !String !(Vector Value)
+    | VCtorApp !Ident !(Vector Value)
     -- TODO: Use strict, packed string datatype
     | VVector !(Vector Value)
     | VFloat !Float
@@ -64,8 +66,8 @@ instance Show Value where
                      (foldr (.) id (intersperse (showString ",") (map shows (V.toList vv))))
         VRecord _ -> error "unimplemented: show VRecord" -- !(Map FieldName Value)
         VCtorApp s vv
-            | V.null vv -> showString s
-            | otherwise -> showString s . showList (V.toList vv)
+            | V.null vv -> shows s
+            | otherwise -> shows s . showList (V.toList vv)
         VVector vv -> showList (V.toList vv)
         VFloat float -> shows float
         VDouble double -> shows double
@@ -93,12 +95,12 @@ instance Eq Value where
 
 valTupleSelect :: Int -> Value -> Value
 valTupleSelect i (VTuple v) = (V.!) v (i - 1)
-valTupleSelect i v = VCtorApp (show i) (V.singleton v)
+valTupleSelect i v = VCtorApp (mkIdent preludeName (show i)) (V.singleton v)
 --valTupleSelect _ _ = error "valTupleSelect"
 
 valRecordSelect :: FieldName -> Value -> Value
 valRecordSelect k (VRecord vm) | Just v <- Map.lookup k vm = v
-valRecordSelect k v = VCtorApp k (V.singleton v)
+valRecordSelect k v = VCtorApp (mkIdent preludeName k) (V.singleton v)
 --valRecordSelect _ _ = error "valRecordSelect"
 
 apply :: Value -> Value -> Value
@@ -120,7 +122,7 @@ matchValue p x =
                                _         -> Nothing
       PRecord _   -> error "matchValue PRecord unimplemented"
       PCtor i ps  -> case x of
-                       VCtorApp s xv | show i == s -> matchValues ps (V.toList xv)
+                       VCtorApp s xv | i == s -> matchValues ps (V.toList xv)
                        VTrue | i == "Prelude.True" && null ps -> Just Map.empty
                        VFalse | i == "Prelude.False" && null ps -> Just Map.empty
                        _ -> Nothing
@@ -160,6 +162,7 @@ evalTermF :: (Show t, Applicative f) => (Ident -> Value) -> ([Value] -> t -> Val
               -> (t -> f Value) -> [Value] -> TermF t -> f Value
 evalTermF global lam rec env tf =
   case tf of
+    App t1 t2               -> apply <$> rec t1 <*> rec t2
     Lambda (PVar _ 0 _) _ t -> pure $ VFun (\x -> lam (x : env) t)
     Lambda _ _ _            -> error "evalTermF Lambda (non-var) unimplemented"
     Pi {}                   -> pure $ VType
@@ -172,14 +175,13 @@ evalTermF global lam rec env tf =
     FTermF ftf              ->
       case ftf of
         GlobalDef ident     -> pure $ global ident
-        App t1 t2           -> apply <$> rec t1 <*> rec t2
         TupleValue ts       -> VTuple <$> traverse rec (V.fromList ts)
         TupleType {}        -> pure VType
         TupleSelector t j   -> valTupleSelect j <$> rec t
         RecordValue tm      -> VRecord <$> traverse rec tm
         RecordSelector t k  -> valRecordSelect k <$> rec t
         RecordType {}       -> pure VType
-        CtorApp ident ts    -> VCtorApp (show ident) <$> traverse rec (V.fromList ts)
+        CtorApp ident ts    -> VCtorApp ident <$> traverse rec (V.fromList ts)
         DataTypeApp {}      -> pure VType
         Sort {}             -> pure VType
         NatLit n            -> pure $ VNat n
@@ -223,50 +225,50 @@ evalSharedTerm :: (Ident -> Value) -> SharedTerm s -> Value
 evalSharedTerm global t = evalOpen global (mkMemoClosed global t) [] t
 
 -- | Precomputing the memo table for closed subterms.
-mkMemoClosed :: forall s. (Ident -> Value) -> SharedTerm s -> Map TermIndex Value
+mkMemoClosed :: forall s. (Ident -> Value) -> SharedTerm s -> IntMap Value
 mkMemoClosed global t = memoClosed
   where
-    memoClosed = fst (State.execState (go t) (Map.empty, Map.empty))
-    go :: SharedTerm s -> State.State (Map TermIndex Value, Map TermIndex BitSet) BitSet
+    memoClosed = fst (State.execState (go t) (IMap.empty, IMap.empty))
+    go :: SharedTerm s -> State.State (IntMap Value, IntMap BitSet) BitSet
     go (STApp i tf) = do
       (_, bmemo) <- State.get
-      case Map.lookup i bmemo of
+      case IMap.lookup i bmemo of
         Just b -> return b
         Nothing -> do
           b <- freesTermF <$> traverse go tf
           let v = evalClosedTermF global memoClosed tf
           State.modify (\(vm, bm) ->
-            (if b == 0 then Map.insert i v vm else vm, Map.insert i b bm))
+            (if b == 0 then IMap.insert i v vm else vm, IMap.insert i b bm))
           return b
 
 -- | Evaluator for closed terms, used to populate @memoClosed@.
-evalClosedTermF :: (Ident -> Value) -> Map TermIndex Value -> TermF (SharedTerm s) -> Value
+evalClosedTermF :: (Ident -> Value) -> IntMap Value -> TermF (SharedTerm s) -> Value
 evalClosedTermF global memoClosed tf = runIdentity (evalTermF global lam rec [] tf)
   where
     lam = evalOpen global memoClosed
     rec (STApp i _) =
-      case Map.lookup i memoClosed of
+      case IMap.lookup i memoClosed of
         Just v -> pure v
         Nothing -> error "evalClosedTermF: internal error"
 
 -- | Evaluator for open terms; parameterized by a precomputed table @memoClosed@.
-evalOpen :: forall s. (Ident -> Value) -> Map TermIndex Value
+evalOpen :: forall s. (Ident -> Value) -> IntMap Value
          -> [Value] -> SharedTerm s -> Value
-evalOpen global memoClosed env t = State.evalState (go t) Map.empty
+evalOpen global memoClosed env t = State.evalState (go t) IMap.empty
   where
-    go :: SharedTerm s -> State.State (Map TermIndex Value) Value
+    go :: SharedTerm s -> State.State (IntMap Value) Value
     go (STApp i tf) =
-      case Map.lookup i memoClosed of
+      case IMap.lookup i memoClosed of
         Just v -> return v
         Nothing -> do
           memoLocal <- State.get
-          case Map.lookup i memoLocal of
+          case IMap.lookup i memoLocal of
             Just v -> return v
             Nothing -> do
               v <- evalF tf
-              State.modify (Map.insert i v)
+              State.modify (IMap.insert i v)
               return v
-    evalF :: TermF (SharedTerm s) -> State.State (Map TermIndex Value) Value
+    evalF :: TermF (SharedTerm s) -> State.State (IntMap Value) Value
     evalF tf = evalTermF global (evalOpen global memoClosed) go env tf
 
 ------------------------------------------------------------
@@ -382,6 +384,8 @@ preludePrims = Map.fromList
   , ("Prelude.bvule"   , toValue Prim.bvule)
   , ("Prelude.get"     , toValue get')
   , ("Prelude.append"  , toValue append')
+  , ("Prelude.and"     , toValue (&&))
+  , ("Prelude.not"     , toValue not)
   , ("Prelude.eq"      , toValue (const (==) :: () -> Value -> Value -> Bool))
   , ("Prelude.ite"     ,
      toValue (Prim.ite :: () -> Bool -> Value -> Value -> Value))
