@@ -14,6 +14,7 @@ module Verifier.SAW.BitBlast
   ( BValue(..)
   , flattenBValue
   , bitBlast
+  , bitBlastWithEnv
   , lvVector
     -- * Explicitly cached interface
   , LV.Storable
@@ -141,8 +142,12 @@ newVars be (TupleShape ts) = BTuple <$> traverse (newVars be) ts
 newVars be (RecShape tm ) = BRecord <$> traverse (newVars be) tm
 
 bitBlast :: (Eq l, LV.Storable l) => BitEngine l -> SharedTerm s -> IO (Either BBErr (BValue l))
-bitBlast be (R.asLambdaList -> (args, rhs)) = do
-  bc <- newBCache be bvRules
+bitBlast be = bitBlastWithEnv be Map.empty
+
+bitBlastWithEnv :: (Eq l, LV.Storable l) => BitEngine l -> Map VarIndex (BValue l)
+                -> SharedTerm s -> IO (Either BBErr (BValue l))
+bitBlastWithEnv be ecEnv (R.asLambdaList -> (args, rhs)) = do
+  bc <- newBCache be (bvRulesWithEnv ecEnv)
   case runIdentity $ runErrorT $ traverse (parseShape . snd) args of
     Left msg -> return (Left msg)
     Right shapes -> do
@@ -303,8 +308,11 @@ bvRelRule d litFn = matchArgs (asGlobalDef d) termFn
           liftIO $ BBool <$> litFn be x' y'
 
 bvRules :: forall s l . (Eq l, LV.Storable l) => RuleSet s l
-bvRules
-  = termRule (asExtCns `thenMatcher` matchExtCns)
+bvRules = bvRulesWithEnv Map.empty
+
+bvRulesWithEnv :: forall s l . (Eq l, LV.Storable l) => Map VarIndex (BValue l) -> RuleSet s l
+bvRulesWithEnv ecEnv
+  = termRule (asExtCns `thenMatcher` matchExtCns ecEnv)
   <> termRule bvNat_rule
   <> termRule (binBVRule "Prelude.bvAdd" beAddInt)
   <> termRule (binBVRule "Prelude.bvSub" beSubInt)
@@ -427,11 +435,14 @@ blastMatcher = asVar $ \t -> lift (blastAny t)
 instance Matchable (RuleBlaster s l) (SharedTerm s) BShape where
   defaultMatcher = asVar parseShape
 
-matchExtCns :: ExtCns (SharedTerm s) -> RuleBlaster s l (BValue l)
-matchExtCns ec = lift $ do
-   be <- asks bcEngine
-   shape <- parseShape (ecType ec)
-   liftIO (newVars be shape)
+matchExtCns :: Map VarIndex (BValue l) -> ExtCns (SharedTerm s) -> RuleBlaster s l (BValue l)
+matchExtCns ecEnv ec =
+  case Map.lookup (ecVarIndex ec) ecEnv of
+    Just bv -> return bv
+    Nothing -> lift $ do
+      be <- asks bcEngine
+      shape <- parseShape (ecType ec)
+      liftIO (newVars be shape)
 
 matchLocalVar :: DeBruijnIndex -> RuleBlaster s l (BValue l)
 matchLocalVar i = lift $ do
