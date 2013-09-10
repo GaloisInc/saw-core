@@ -139,15 +139,22 @@ networkAsSharedTerms ntk sc inputTerms outputLits = do
   -- Get evaluator
   scNot <- scApplyPreludeNot sc
   scAnd <- scApplyPreludeAnd sc
+  scOr <- scApplyPreludeOr sc
+  scImp <- scApplyPreludeImplies sc
   scFalse <- scApplyPreludeFalse sc
-  let viewFn (AndLit x y) = do
-        --putStrLn "AndLit"
-        scAnd x y
-      viewFn (NotLit x) = scNot x
-      viewFn (InputLit i) = return $ inputTerms V.! i
-      viewFn FalseLit = return scFalse
-  evalFn <- litEvaluator ntk viewFn     
-  traverse evalFn outputLits
+  -- | Left means negated, Right means not negated.
+  let viewFn (AndLit (Right x) (Right y)) = Right <$> scAnd x y
+      viewFn (AndLit (Left  x) (Left  y)) = Left  <$> scOr x y
+      viewFn (AndLit (Left  x) (Right y)) = Left  <$> scImp y x
+      viewFn (AndLit (Right x) (Left  y)) = Left  <$> scImp x y
+      viewFn (NotLit (Right x)) = return $ Left  x
+      viewFn (NotLit (Left  x)) = return $ Right x
+      viewFn (InputLit i) = return $ Right $ inputTerms V.! i
+      viewFn FalseLit = return $ Right scFalse
+  let neg (Left  x) = scNot x
+      neg (Right x) = return x
+  evalFn <- litEvaluator ntk viewFn
+  traverse evalFn outputLits >>= traverse neg
 
 -- | Create vector for each input literal from expected types.
 bitblastVarsAsInputLits :: forall s

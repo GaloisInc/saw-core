@@ -479,6 +479,7 @@ opTable =
     , ("xor"      , boolOp beXor)
     , ("or"       , boolOp beOr )
     , ("boolEq"   , boolOp beEq )
+    , ("implies"  , boolOp beImplies)
     , ("not"      , notOp       )
     , ("append"   , appendOp    )
     , ("single"   , singleOp    )
