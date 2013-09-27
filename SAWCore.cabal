@@ -18,7 +18,7 @@ library
     filepath,
     ghc-prim,
     hashable >= 1.2,
-    lens >= 3.8,
+    lens >= 3.8 && < 3.9.1,
     mtl,
     parsec,
     pretty,
@@ -97,4 +97,4 @@ test-suite test-sawcore
     Tests.Parser
     Tests.Rewriter
     Tests.SharedTerm
-    
+
