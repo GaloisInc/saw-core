@@ -98,3 +98,9 @@ test-suite test-sawcore
     Tests.Rewriter
     Tests.SharedTerm
 
+executable extcore-info
+  main-is: extcore-info.hs
+  hs-source-dirs: tools
+  build-depends:
+      base >= 4
+    , saw-core
