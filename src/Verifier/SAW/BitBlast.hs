@@ -512,7 +512,7 @@ equalOp :: (Eq l, LV.Storable l) => BValueOp s l
 equalOp be eval [R.asBoolType -> Just (), mx, my] = boolOp beEq be eval [mx, my]
 equalOp be eval args@[R.asBitvectorType -> Just _, _, _] =
     bvRelOp beEqVector be eval args
-equalOp _ _ _ = wrongArity "equality op"
+equalOp _ _ args = wrongArity ("equality op: " ++ show args)
 
 bvNat_rule :: LV.Storable l => Rule s l (BValue l)
 bvNat_rule = pat `thenMatcher` litFn
