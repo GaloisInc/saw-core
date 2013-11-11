@@ -97,8 +97,10 @@ flattenBValue (BRecord vm) = LV.concat (flattenBValue <$> Map.elems vm)
 type BBErr = String
 type BBMonad = ErrorT BBErr IO
 
-wrongArity :: String -> BBMonad a
-wrongArity s = fail $ "wrong number of function arguments to " ++ s
+wrongArity :: (Show t) => String -> [t] -> BBMonad a
+wrongArity s args =
+  fail $ "wrong number or type of function arguments to " ++
+         s ++ ": " ++ show args
 
 ----------------------------------------------------------------------
 
@@ -499,20 +501,22 @@ bvRelOp f be eval [_, mx, my] =
     do x <- asLitVector =<< eval mx
        y <- asLitVector =<< eval my
        liftIO $ BBool <$> f be x y
-bvRelOp _ _ _ _ = wrongArity "relational op"
+bvRelOp _ _ _ args = wrongArity "relational op" args
 
 boolOp :: (BitEngine l -> l -> l -> IO l) -> BValueOp s l
 boolOp f be eval [mx, my] =
     do x <- asBBool =<< eval mx
        y <- asBBool =<< eval my
        liftIO (fmap BBool (f be x y))
-boolOp _ _ _ _ = wrongArity "boolean op"
+boolOp _ _ _ args = wrongArity "boolean op" args
 
 equalOp :: (Eq l, LV.Storable l) => BValueOp s l
 equalOp be eval [R.asBoolType -> Just (), mx, my] = boolOp beEq be eval [mx, my]
-equalOp be eval args@[R.asBitvectorType -> Just _, _, _] =
-    bvRelOp beEqVector be eval args
-equalOp _ _ args = wrongArity ("equality op: " ++ show args)
+equalOp be eval [_, mx, my] =
+    do x <- flattenBValue <$> eval mx
+       y <- flattenBValue <$> eval my
+       liftIO $ BBool <$> beEqVector be x y
+equalOp _ _ args = wrongArity "equality op" args
 
 bvNat_rule :: LV.Storable l => Rule s l (BValue l)
 bvNat_rule = pat `thenMatcher` litFn
@@ -525,26 +529,26 @@ notOp :: BValueOp s l
 notOp be eval [mx] =
     do x <- asBBool =<< eval mx
        return (BBool (beNeg be x))
-notOp _ _ _ = wrongArity "not op"
+notOp _ _ args = wrongArity "not op" args
 
 bvNotOp :: LV.Storable l => BValueOp s l
 bvNotOp be eval [_, mx] =
     do x <- asLitVector =<< eval mx
        return (lvVector (LV.map (beNeg be) x))
-bvNotOp _ _ _ = wrongArity "bvNot op"
+bvNotOp _ _ args = wrongArity "bvNot op" args
 
 appendOp :: LV.Storable l => BValueOp s l
 appendOp _ eval [_, _, _, mx, my] =
     do x <- asLitVector =<< eval mx
        y <- asLitVector =<< eval my
        return (lvVector ((LV.++) x y))
-appendOp _ _ _ = wrongArity "append op"
+appendOp _ _ args = wrongArity "append op" args
 
 singleOp :: LV.Storable l => BValueOp s l
 singleOp _ eval [_, mx] =
     do x <- asBBool =<< eval mx
        return (lvVector (LV.singleton x))
-singleOp _ _ _ = wrongArity "single op"
+singleOp _ _ args = wrongArity "single op" args
 
 iteOp :: (Eq l, LV.Storable l)
       => SharedTerm s -> SharedTerm s -> SharedTerm s -> SharedTerm s
@@ -578,7 +582,7 @@ bvTruncOp be eval [_, mj, mx] =
     do j <- asBNat mj
        x <- asLitVector =<< eval mx
        return (lvVector (beTrunc be (fromIntegral j) x))
-bvTruncOp _ _ _ = wrongArity "trunc op"
+bvTruncOp _ _ args = wrongArity "trunc op" args
 
 bvUExtOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvUExtOp be eval [mi, mj, mx] =
@@ -586,7 +590,7 @@ bvUExtOp be eval [mi, mj, mx] =
        j <- asBNat mj
        x <- asLitVector =<< eval mx
        return (lvVector (beZext be (fromIntegral (i + j)) x))
-bvUExtOp _ _ _ = wrongArity "UExt op"
+bvUExtOp _ _ args = wrongArity "UExt op" args
 
 bvSExtOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvSExtOp be eval [mi, mj, mx] =
@@ -594,7 +598,7 @@ bvSExtOp be eval [mi, mj, mx] =
        j <- asBNat mj
        x <- asLitVector =<< eval mx
        return (lvVector (beSext be (fromIntegral (i + j + 1)) x))
-bvSExtOp _ _ _ = wrongArity "SExt op"
+bvSExtOp _ _ args = wrongArity "SExt op" args
 
 getOp :: LV.Storable l => BValueOp s l
 getOp _be eval [mn, _mty, mx, mf] =
@@ -605,7 +609,7 @@ getOp _be eval [mn, _mty, mx, mf] =
            i <- asBNat mi
            return ((V.!) x (fromIntegral i))
          _ -> fail "get: invalid index"
-getOp _ _ _ = wrongArity "get op"
+getOp _ _ args = wrongArity "get op" args
 
 -- set :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e -> Vec n e;
 setOp :: LV.Storable l => BValueOp s l
@@ -618,7 +622,7 @@ setOp _be eval [mn, _me, mv, mf, mx] =
            i <- asBNat mi
            return (BVector ((V.//) v [(fromIntegral i, x)]))
          _ -> fail $ "set: invalid index: " ++ show mf
-setOp _ _ _ = wrongArity "set op"
+setOp _ _ args = wrongArity "set op" args
 
 -- replicate :: (n :: Nat) -> (e :: sort 0) -> e -> Vec n e;
 replicateOp :: BValueOp s l
@@ -626,7 +630,7 @@ replicateOp _be eval [mn, _me, mx] =
     do n <- fromIntegral <$> asBNat mn
        x <- eval mx
        return (BVector (V.replicate n x))
-replicateOp _ _ _ = wrongArity "replicate op"
+replicateOp _ _ args = wrongArity "replicate op" args
 
 bvSliceOp :: LV.Storable l => BValueOp s l
 bvSliceOp _ eval [_, mi, mn, _, mx] =
@@ -634,7 +638,7 @@ bvSliceOp _ eval [_, mi, mn, _, mx] =
        n <- fromIntegral <$> asBNat mn
        x <- asLitVector =<< eval mx
        return (lvVector (LV.take n (LV.drop i x)))
-bvSliceOp _ _ _ = wrongArity "slice op"
+bvSliceOp _ _ args = wrongArity "slice op" args
 
 ----------------------------------------------------------------------
 -- Destructors for BValues
