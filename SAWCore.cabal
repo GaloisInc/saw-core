@@ -13,6 +13,7 @@ library
     binary,
     bytestring,
     containers,
+    cryptol-parser,
     directory,
     fgl >= 5.3,
     filepath,
@@ -43,6 +44,7 @@ library
      Verifier.SAW.Export.SMT.Version2
      Verifier.SAW.Export.Yices
      Verifier.SAW.Import.AIG
+     Verifier.SAW.Import.Cryptol
      Verifier.SAW.Cache
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
