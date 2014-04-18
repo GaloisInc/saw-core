@@ -492,6 +492,8 @@ opTable =
     , ("set"      , setOp       )
     , ("replicate", replicateOp )
     , ("slice"    , bvSliceOp   )
+    , ("join"     , joinOp      )
+    , ("split"    , splitOp     )
     ]
 
 bvRelOp :: (LV.Storable l)
@@ -639,6 +641,32 @@ bvSliceOp _ eval [_, mi, mn, _, mx] =
        x <- asLitVector =<< eval mx
        return (lvVector (LV.take n (LV.drop i x)))
 bvSliceOp _ _ args = wrongArity "slice op" args
+
+joinOp :: LV.Storable l => BValueOp s l
+joinOp _ eval [mm, mn, _me, mv] =
+    do v <- eval mv
+       m <- fromIntegral <$> asBNat mm
+       n <- fromIntegral <$> asBNat mn
+       checkShape (VecShape m (VecShape n BoolShape)) v
+       return (lvVector (flattenBValue v))
+joinOp _ _ args = wrongArity "join op" args
+
+chunk :: Int -> V.Vector a -> V.Vector (V.Vector a)
+chunk n v | V.length v <= n = V.singleton v
+          | otherwise = V.cons (V.take n v) (chunk n (V.drop n v))
+
+splitOp :: LV.Storable l => BValueOp s l
+splitOp _ eval [mm, mn, _me, mv] =
+    do v <- eval mv
+       m <- fromIntegral <$> asBNat mm
+       n <- fromIntegral <$> asBNat mn
+       checkShape (VecShape (m * n) BoolShape) v
+       lv <- asBVector v
+       let lvParts = chunk (fromIntegral n) lv
+           bv = BVector (V.map BVector lvParts)
+       checkShape (VecShape m (VecShape n BoolShape)) bv
+       return bv
+splitOp _ _ args = wrongArity "split op" args
 
 ----------------------------------------------------------------------
 -- Destructors for BValues
