@@ -1,28 +1,57 @@
-{-# OPTIONS_GHC -Wall -Werror #-}
+{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Verifier.SAW.Import.Cryptol where
 
 import Control.Applicative
 import Control.Monad (join)
+import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe (fromJust)
 import Data.Traversable
 
 import qualified Cryptol.TypeCheck.AST as C
 import qualified Cryptol.Prims.Syntax as P
+import Cryptol.TypeCheck.TypeOf (fastTypeOf)
 
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST (mkSort)
 
-{-
-data Kind   = KType
-            | KNum
-            | KProp
-            | Kind :-> Kind
--}
-
 unimplemented :: Monad m => String -> m a
 unimplemented name = fail ("unimplemented: " ++ name)
+
+--------------------------------------------------------------------------------
+-- Type Environments
+
+data Env s = Env
+  { envT :: Map Int (SharedTerm s)     -- ^ Type variables are referenced by unique id
+  , envE :: Map C.QName (SharedTerm s) -- ^ Term variables are referenced by name
+  , envC :: Map C.QName C.Schema       -- ^ Cryptol type environment
+  }
+
+emptyEnv :: Env s
+emptyEnv = Env Map.empty Map.empty Map.empty
+
+liftTerm :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
+liftTerm sc = incVars sc 0 1
+
+-- | Increment dangling bound variables of all types in environment.
+liftEnv :: SharedContext s -> Env s -> IO (Env s)
+liftEnv sc env = Env <$> traverse (liftTerm sc) (envT env) <*> traverse (liftTerm sc) (envE env) <*> pure (envC env)
+
+bindTParam :: SharedContext s -> C.TParam -> SharedTerm s -> Env s -> IO (Env s)
+bindTParam sc tp k env = do
+  env' <- liftEnv sc env
+  v <- scLocalVar sc 0 k
+  return $ env' { envT = Map.insert (C.tpUnique tp) v (envT env') }
+
+bindQName :: SharedContext s -> C.QName -> C.Schema -> SharedTerm s -> Env s -> IO (Env s)
+bindQName sc qname schema t env = do
+  env' <- liftEnv sc env
+  v <- scLocalVar sc 0 t
+  return $ env' { envE = Map.insert qname v (envE env'), envC = Map.insert qname schema (envC env') }
+
+--------------------------------------------------------------------------------
 
 importKind :: SharedContext s -> C.Kind -> IO (SharedTerm s)
 importKind sc kind =
@@ -32,15 +61,15 @@ importKind sc kind =
     C.KProp       -> scSort sc (mkSort 0)
     (C.:->) k1 k2 -> join $ scFun sc <$> importKind sc k1 <*> importKind sc k2
 
-type TypeEnv s = Map.Map C.QName (SharedTerm s)
-
-importType :: SharedContext s -> TypeEnv s -> C.Type -> IO (SharedTerm s)
+importType :: SharedContext s -> Env s -> C.Type -> IO (SharedTerm s)
 importType sc env ty =
   case ty of
     C.TVar tvar ->
       case tvar of
         C.TVFree{} {- Int Kind (Set TVar) Doc -} -> unimplemented "TVFree"
-        C.TVBound{} {- Int Kind -} -> unimplemented "TVBound"
+        C.TVBound i _k   -> case Map.lookup i (envT env) of
+                              Just t -> return t
+                              Nothing -> fail "internal error: importType TVBound"
     C.TUser _ _ t  -> go t
     C.TRec fs      -> scRecordType sc =<< traverse go (Map.fromList [ (nameToString n, t) | (n, t) <- fs ])
     C.TCon tcon tyargs ->
@@ -88,6 +117,28 @@ nameToString (C.NewName p i) = show p ++ show i
 
 qnameToString :: C.QName -> String
 qnameToString (C.QName _ name) = nameToString name
+
+tparamToString :: C.TParam -> String
+--tparamToString tp = maybe "_" qnameToString (C.tpName tp)
+tparamToString tp = maybe ("u" ++ show (C.tpUnique tp)) qnameToString (C.tpName tp)
+
+importPropsType :: SharedContext s -> Env s -> [C.Prop] -> C.Type -> IO (SharedTerm s)
+importPropsType sc env [] ty = importType sc env ty
+importPropsType sc env (prop : props) ty = do
+  p <- importType sc env prop
+  t <- importPropsType sc env props ty
+  scFun sc p t
+
+importPolyType :: SharedContext s -> Env s -> [C.TParam] -> [C.Prop] -> C.Type -> IO (SharedTerm s)
+importPolyType sc env [] props ty = importPropsType sc env props ty
+importPolyType sc env (tp : tps) props ty = do
+  k <- importKind sc (C.tpKind tp)
+  env' <- bindTParam sc tp k env
+  t <- importPolyType sc env' tps props ty
+  scPi sc (tparamToString tp) k t
+
+importSchema :: SharedContext s -> Env s -> C.Schema -> IO (SharedTerm s)
+importSchema sc env (C.Forall tparams props ty) = importPolyType sc env tparams props ty
 
 -- | Convert built-in constants to SAWCore.
 importECon :: SharedContext s -> P.ECon -> IO (SharedTerm s)
@@ -151,9 +202,6 @@ importECon sc econ =
     P.ECPMod        -> unimplemented "ECPMod"        -- {a,b} (fin a, fin b) => [a] -> [b+1] -> [b]
     P.ECRandom      -> unimplemented "ECRandom"      -- {a} => [32] -> a -- Random values
 
-type ExprEnv s = Map.Map C.QName (SharedTerm s)
-type Env s = (TypeEnv s, ExprEnv s)
-
 importExpr :: SharedContext s -> Env s -> C.Expr -> IO (SharedTerm s)
 importExpr sc env expr =
   case expr of
@@ -166,17 +214,73 @@ importExpr sc env expr =
         C.TupleSel i _          -> join $ scTupleSelector sc <$> go e <*> pure i
         C.RecordSel name _      -> join $ scRecordSelect sc <$> go e <*> pure (nameToString name)
         C.ListSel _i _maybeLen      -> unimplemented "ListSel" -- ^ List selection. pos (Maybe length)
-    C.EIf _e1 _e2 _e3               -> unimplemented "EIf" -- join $ scIte sc <$> go e1 <*> go e2 <*> go e3
-    C.EComp{} {-Type Expr [[Match]]-} -> unimplemented "EComp" -- ^ List comprehensions The type caches the type of the expr.
-    C.EVar _qName                   -> unimplemented "EVar" -- ^ Use of a bound variable
-    C.ETAbs _tParam _expr           -> unimplemented "ETAbs" -- ^ Function Value
+    C.EIf e1 e2 e3              -> join $ scIte sc <$> ty t <*> go e1 <*> go e2 <*> go e3
+                                     where t = fastTypeOf (envC env) e2
+    C.EComp _ e mss             -> importComp sc env e mss
+    C.EVar qname                    ->
+      case Map.lookup qname (envE env) of
+        Just e'                     -> return e'
+        Nothing                     -> fail "internal error: unknown variable"
+    C.ETAbs tp e                    -> do k <- importKind sc (C.tpKind tp)
+                                          env' <- bindTParam sc tp k env
+                                          e' <- importExpr sc env' e
+                                          scLambda sc (tparamToString tp) k e'
     C.ETApp e t                     -> join $ scApply sc <$> go e <*> ty t
     C.EApp e1 e2                    -> join $ scApply sc <$> go e1 <*> go e2
-    C.EAbs qname t e                -> join $ scLambda sc (qnameToString qname) <$> ty t <*> go e
-    C.EProofAbs {- x -} _prop _expr -> unimplemented "EProofAbs"
+    C.EAbs x t e                    -> do t' <- ty t
+                                          env' <- bindQName sc x (C.Forall [] [] t) t' env
+                                          e' <- importExpr sc env' e
+                                          scLambda sc (qnameToString x) t' e'
+    C.EProofAbs {- x -} prop e1     -> do _p <- importType sc env prop
+                                          _e <- importExpr sc env e1
+                                          unimplemented "EProofAbs"
     C.EProofApp _expr {- proof -}   -> unimplemented "EProofApp"
+      {- TODO: Compute type of expr. Then look at the prop at the head of the list. Build a proof of the Prop if possible and apply it. -}
     C.ECast _expr _type             -> unimplemented "ECast"
     C.EWhere{} {-Expr [DeclGroup]-} -> unimplemented "EWhere"
   where
     go = importExpr sc env
-    ty = importType sc (fst env)
+    ty = importType sc env
+
+-- TODO: move to Cryptol/TypeCheck/AST.hs
+tIsSeq :: C.Type -> Maybe (C.Type, C.Type)
+tIsSeq ty = case C.tNoUser ty of
+              C.TCon (C.TC C.TCSeq) [n, a] -> Just (n, a)
+              _                            -> Nothing
+
+importMatches :: SharedContext s -> Env s -> [C.Match]
+              -> IO (SharedTerm s, SharedTerm s, SharedTerm s, [(C.QName, C.Type)])
+importMatches sc _env [] = do
+  result <- scGlobalApply sc "Prelude.done" []
+  n <- scNat sc 1
+  a <- scDataTypeApp sc "Prelude.TUnit" []
+  return (result, n, a, [])
+
+importMatches sc env (C.From qname _ty expr : matches) = do
+  let (len, ty) = fromJust (tIsSeq (fastTypeOf (envC env) expr))
+  m <- importType sc env len
+  a <- importType sc env ty
+  xs <- importExpr sc env expr
+  env' <- bindQName sc qname (C.Forall [] [] ty) a env
+  (body, n, b, args) <- importMatches sc env' matches
+  f <- scLambda sc (qnameToString qname) a body
+  result <- scGlobalApply sc "Prelude.from" [a, b, m, n, xs, f]
+  mn <- scGlobalApply sc "Prelude.mulENat" [m, n]
+  ab <- scTupleType sc [a, b]
+  return (result, mn, ab, (qname, ty) : args)
+
+importMatches _sc _env (C.Let {} : _matches) = unimplemented "Let"
+
+importComp :: SharedContext s -> Env s -> C.Expr -> [[C.Match]] -> IO (SharedTerm s)
+importComp sc env _expr mss =
+  do branches <- traverse (importMatches sc env) mss
+     let zipAll [] = fail "zero-branch list comprehension"
+         zipAll [(xs, m, a, _)] = return (xs, m, a)
+         zipAll ((xs, m, a, _) : bs) =
+           do (ys, n, b) <- zipAll bs
+              zs <- scGlobalApply sc "Prelude.zipSeq" [a, b, m, n, xs, ys]
+              mn <- scGlobalApply sc "Prelude.minENat" [m, n]
+              ab <- scTupleType sc [a, b]
+              return (zs, mn, ab)
+     (zipped, _len, _ty) <- zipAll branches
+     return zipped -- FIXME: need to map function over this
