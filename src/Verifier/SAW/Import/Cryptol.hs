@@ -74,7 +74,7 @@ importType sc env ty =
             C.TCDiv    -> unimplemented "TCDiv" -- KNum :-> KNum :-> KNum
             C.TCMod    -> unimplemented "TCMod" -- KNum :-> KNum :-> KNum
             C.TCExp    -> unimplemented "TCExp" -- KNum :-> KNum :-> KNum
-            C.TCMin    -> unimplemented "TCMin" -- KNum :-> KNum :-> KNum
+            C.TCMin    -> join $ scGlobalApply sc "Prelude.minENat" <$> traverse go tyargs
             C.TCMax    -> unimplemented "TCMax" -- KNum :-> KNum :-> KNum
             C.TCLenFromThen   -> unimplemented "TCLenFromThen" -- KNum :-> KNum :-> KNum :-> KNum
             --C.TCLenFromTo     -> unimplemented "TCLenFromTo" -- KNum :-> KNum :-> KNum
