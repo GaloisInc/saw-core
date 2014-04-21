@@ -146,61 +146,61 @@ importECon sc econ =
   case econ of
     P.ECTrue        -> scBool sc True
     P.ECFalse       -> scBool sc False
-    P.ECDemote      -> unimplemented "ECDemote"      -- ^ Converts a numeric type into its corresponding value.
+    P.ECDemote      -> scGlobalDef sc "EC.Demote"      -- ^ Converts a numeric type into its corresponding value.
                                                      -- { val, bits } (fin val, fin bits, bits >= width val) => [bits]
-    P.ECPlus        -> unimplemented "ECPlus"        -- {a} (Arith a) => a -> a -> a
-    P.ECMinus       -> unimplemented "ECMinus"       -- {a} (Arith a) => a -> a -> a
-    P.ECMul         -> unimplemented "ECMul"         -- {a} (Arith a) => a -> a -> a
-    P.ECDiv         -> unimplemented "ECDiv"         -- {a} (Arith a) => a -> a -> a
-    P.ECMod         -> unimplemented "ECMod"         -- {a} (Arith a) => a -> a -> a
-    P.ECExp         -> unimplemented "ECExp"         -- {a} (Arith a) => a -> a -> a
-    P.ECLg2         -> unimplemented "ECLg2"         -- {a} (Arith a) => a -> a
-    P.ECNeg         -> unimplemented "ECNeg"         -- {a} (Arith a) => a -> a
-    P.ECLt          -> unimplemented "ECLt"          -- {a} (Cmp a) => a -> a -> Bit
-    P.ECGt          -> unimplemented "ECGt"          -- {a} (Cmp a) => a -> a -> Bit
-    P.ECLtEq        -> unimplemented "ECLtEq"        -- {a} (Cmp a) => a -> a -> Bit
-    P.ECGtEq        -> unimplemented "ECGtEq"        -- {a} (Cmp a) => a -> a -> Bit
-    P.ECEq          -> unimplemented "ECEq"          -- {a} (Cmp a) => a -> a -> Bit
-    P.ECNotEq       -> unimplemented "ECNotEq"       -- {a} (Cmp a) => a -> a -> Bit
-    P.ECFunEq       -> unimplemented "ECFunEq"       -- {a b} (Cmp b) => (a -> b) -> (a -> b) -> a -> Bit
-    P.ECFunNotEq    -> unimplemented "ECFunNotEq"    -- {a b} (Cmp b) => (a -> b) -> (a -> b) -> a -> Bit
-    P.ECMin         -> unimplemented "ECMin"         -- {a} (Cmp a) => a -> a -> a
-    P.ECMax         -> unimplemented "ECMax"         -- {a} (Cmp a) => a -> a -> a
-    P.ECAnd         -> unimplemented "ECAnd"         -- {a} a -> a -> a        -- Bits a
-    P.ECOr          -> unimplemented "ECOr"          -- {a} a -> a -> a        -- Bits a
-    P.ECXor         -> unimplemented "ECXor"         -- {a} a -> a -> a        -- Bits a
-    P.ECCompl       -> unimplemented "ECCompl"       -- {a} a -> a             -- Bits a
-    P.ECZero        -> unimplemented "ECZero"        -- {a} a                  -- Bits a
-    P.ECShiftL      -> unimplemented "ECShiftL"      -- {m,n,a} (fin m) => [m] a -> [n] -> [m] a
-    P.ECShiftR      -> unimplemented "ECShiftR"      -- {m,n,a} (fin m) => [m] a -> [n] -> [m] a
-    P.ECRotL        -> unimplemented "ECRotL"        -- {m,n,a} (fin m) => [m] a -> [n] -> [m] a
-    P.ECRotR        -> unimplemented "ECRotR"        -- {m,n,a} (fin m) => [m] a -> [n] -> [m] a
-    P.ECCat         -> unimplemented "ECCat"         -- {a,b,d} (fin a) => [a] d -> [b] d -> [a + b] d
-    P.ECSplitAt     -> unimplemented "ECSplitAt"     -- {a,b,c} (fin a) => [a+b] c -> ([a]c,[b]c)
-    P.ECJoin        -> unimplemented "ECJoin"        -- {a,b,c} (fin b) => [a][b]c -> [a * b]c
-    P.ECSplit       -> unimplemented "ECSplit"       -- {a,b,c} (fin b) => [a * b] c -> [a][b] c
-    P.ECReverse     -> unimplemented "ECReverse"     -- {a,b} (fin a) => [a] b -> [a] b
-    P.ECTranspose   -> unimplemented "ECTranspose"   -- {a,b,c} [a][b]c -> [b][a]c
-    P.ECAt          -> unimplemented "ECAt"          -- {n,a,m} [n]a -> [m] -> a
-    P.ECAtRange     -> unimplemented "ECAtRange"     -- {n,a,m,i} [n]a -> [m][i] -> [m]a
-    P.ECAtBack      -> unimplemented "ECAtBack"      -- {n,a,m} (fin n) => [n]a -> [m] -> a
-    P.ECAtRangeBack -> unimplemented "ECAtRangeBack" -- {front,back,a} (fin front) => [front + back]a -> ([front]a, [back]a)
-    P.ECFromThen    -> unimplemented "ECFromThen"
+    P.ECPlus        -> scGlobalDef sc "EC.Plus"        -- {a} (Arith a) => a -> a -> a
+    P.ECMinus       -> scGlobalDef sc "EC.Minus"       -- {a} (Arith a) => a -> a -> a
+    P.ECMul         -> scGlobalDef sc "EC.Mul"         -- {a} (Arith a) => a -> a -> a
+    P.ECDiv         -> scGlobalDef sc "EC.Div"         -- {a} (Arith a) => a -> a -> a
+    P.ECMod         -> scGlobalDef sc "EC.Mod"         -- {a} (Arith a) => a -> a -> a
+    P.ECExp         -> scGlobalDef sc "EC.Exp"         -- {a} (Arith a) => a -> a -> a
+    P.ECLg2         -> scGlobalDef sc "EC.Lg2"         -- {a} (Arith a) => a -> a
+    P.ECNeg         -> scGlobalDef sc "EC.Neg"         -- {a} (Arith a) => a -> a
+    P.ECLt          -> scGlobalDef sc "EC.Lt"          -- {a} (Cmp a) => a -> a -> Bit
+    P.ECGt          -> scGlobalDef sc "EC.Gt"          -- {a} (Cmp a) => a -> a -> Bit
+    P.ECLtEq        -> scGlobalDef sc "EC.LtEq"        -- {a} (Cmp a) => a -> a -> Bit
+    P.ECGtEq        -> scGlobalDef sc "EC.GtEq"        -- {a} (Cmp a) => a -> a -> Bit
+    P.ECEq          -> scGlobalDef sc "EC.Eq"          -- {a} (Cmp a) => a -> a -> Bit
+    P.ECNotEq       -> scGlobalDef sc "EC.NotEq"       -- {a} (Cmp a) => a -> a -> Bit
+    P.ECFunEq       -> scGlobalDef sc "EC.FunEq"       -- {a b} (Cmp b) => (a -> b) -> (a -> b) -> a -> Bit
+    P.ECFunNotEq    -> scGlobalDef sc "EC.FunNotEq"    -- {a b} (Cmp b) => (a -> b) -> (a -> b) -> a -> Bit
+    P.ECMin         -> scGlobalDef sc "EC.Min"         -- {a} (Cmp a) => a -> a -> a
+    P.ECMax         -> scGlobalDef sc "EC.Max"         -- {a} (Cmp a) => a -> a -> a
+    P.ECAnd         -> scGlobalDef sc "EC.And"         -- {a} a -> a -> a        -- Bits a
+    P.ECOr          -> scGlobalDef sc "EC.Or"          -- {a} a -> a -> a        -- Bits a
+    P.ECXor         -> scGlobalDef sc "EC.Xor"         -- {a} a -> a -> a        -- Bits a
+    P.ECCompl       -> scGlobalDef sc "EC.Compl"       -- {a} a -> a             -- Bits a
+    P.ECZero        -> scGlobalDef sc "EC.Zero"        -- {a} a                  -- Bits a
+    P.ECShiftL      -> scGlobalDef sc "EC.ShiftL"      -- {m,n,a} (fin m) => [m] a -> [n] -> [m] a
+    P.ECShiftR      -> scGlobalDef sc "EC.ShiftR"      -- {m,n,a} (fin m) => [m] a -> [n] -> [m] a
+    P.ECRotL        -> scGlobalDef sc "EC.RotL"        -- {m,n,a} (fin m) => [m] a -> [n] -> [m] a
+    P.ECRotR        -> scGlobalDef sc "EC.RotR"        -- {m,n,a} (fin m) => [m] a -> [n] -> [m] a
+    P.ECCat         -> scGlobalDef sc "EC.Cat"         -- {a,b,d} (fin a) => [a] d -> [b] d -> [a + b] d
+    P.ECSplitAt     -> scGlobalDef sc "EC.SplitAt"     -- {a,b,c} (fin a) => [a+b] c -> ([a]c,[b]c)
+    P.ECJoin        -> scGlobalDef sc "EC.Join"        -- {a,b,c} (fin b) => [a][b]c -> [a * b]c
+    P.ECSplit       -> scGlobalDef sc "EC.Split"       -- {a,b,c} (fin b) => [a * b] c -> [a][b] c
+    P.ECReverse     -> scGlobalDef sc "EC.Reverse"     -- {a,b} (fin a) => [a] b -> [a] b
+    P.ECTranspose   -> scGlobalDef sc "EC.Transpose"   -- {a,b,c} [a][b]c -> [b][a]c
+    P.ECAt          -> scGlobalDef sc "EC.At"          -- {n,a,m} [n]a -> [m] -> a
+    P.ECAtRange     -> scGlobalDef sc "EC.AtRange"     -- {n,a,m,i} [n]a -> [m][i] -> [m]a
+    P.ECAtBack      -> scGlobalDef sc "EC.AtBack"      -- {n,a,m} (fin n) => [n]a -> [m] -> a
+    P.ECAtRangeBack -> scGlobalDef sc "EC.AtRangeBack" -- {front,back,a} (fin front) => [front + back]a -> ([front]a, [back]a)
+    P.ECFromThen    -> scGlobalDef sc "EC.FromThen"
                                -- fromThen : {first,next,bits}
                                --             ( fin first, fin next, fin bits
                                --             , bits >= width first, bits >= width next
                                --             , lengthFromThen first next bits == len
                                --             )
                                --          => [len] [bits]
-    P.ECFromTo      -> unimplemented "ECFromTo"
-    P.ECFromThenTo  -> unimplemented "ECFromThenTo"
-    P.ECInfFrom     -> unimplemented "ECInfFrom"     -- {a} (fin a) => [a] -> [inf][a]
-    P.ECInfFromThen -> unimplemented "ECInfFromThen" -- {a} (fin a) => [a] -> [a] -> [inf][a]
-    P.ECError       -> unimplemented "ECError"       -- {at,len} (fin len) => [len][8] -> at -- Run-time error
-    P.ECPMul        -> unimplemented "ECPMul"        -- {a,b} (fin a, fin b) => [a] -> [b] -> [max 1 (a + b) - 1]
-    P.ECPDiv        -> unimplemented "ECPDiv"        -- {a,b} (fin a, fin b) => [a] -> [b] -> [a]
-    P.ECPMod        -> unimplemented "ECPMod"        -- {a,b} (fin a, fin b) => [a] -> [b+1] -> [b]
-    P.ECRandom      -> unimplemented "ECRandom"      -- {a} => [32] -> a -- Random values
+    P.ECFromTo      -> scGlobalDef sc "EC.FromTo"
+    P.ECFromThenTo  -> scGlobalDef sc "EC.FromThenTo"
+    P.ECInfFrom     -> scGlobalDef sc "EC.InfFrom"     -- {a} (fin a) => [a] -> [inf][a]
+    P.ECInfFromThen -> scGlobalDef sc "EC.InfFromThen" -- {a} (fin a) => [a] -> [a] -> [inf][a]
+    P.ECError       -> scGlobalDef sc "EC.Error"       -- {at,len} (fin len) => [len][8] -> at -- Run-time error
+    P.ECPMul        -> scGlobalDef sc "EC.PMul"        -- {a,b} (fin a, fin b) => [a] -> [b] -> [max 1 (a + b) - 1]
+    P.ECPDiv        -> scGlobalDef sc "EC.PDiv"        -- {a,b} (fin a, fin b) => [a] -> [b] -> [a]
+    P.ECPMod        -> scGlobalDef sc "EC.PMod"        -- {a,b} (fin a, fin b) => [a] -> [b+1] -> [b]
+    P.ECRandom      -> scGlobalDef sc "EC.Random"      -- {a} => [32] -> a -- Random values
 
 importExpr :: SharedContext s -> Env s -> C.Expr -> IO (SharedTerm s)
 importExpr sc env expr =
