@@ -312,6 +312,10 @@ bvRelRule d litFn = matchArgs (asGlobalDef d) termFn
 bvRules :: forall s l . (Eq l, LV.Storable l) => RuleSet s l
 bvRules = bvRulesWithEnv Map.empty
 
+beFlip :: (BitEngine l -> LitVector l -> LitVector l -> IO l)
+       -> (BitEngine l -> LitVector l -> LitVector l -> IO l)
+beFlip f be x y = f be y x
+
 bvRulesWithEnv :: forall s l . (Eq l, LV.Storable l) => Map VarIndex (BValue l) -> RuleSet s l
 bvRulesWithEnv ecEnv
   = termRule (asExtCns `thenMatcher` matchExtCns ecEnv)
@@ -332,6 +336,11 @@ bvRulesWithEnv ecEnv
   <> termRule (bvRelRule "Prelude.bvslt" beSignedLt)
   <> termRule (bvRelRule "Prelude.bvule" beUnsignedLeq)
   <> termRule (bvRelRule "Prelude.bvult" beUnsignedLt)
+  -- TODO: should we do an ordering normalization pass before bit blasting?
+  <> termRule (bvRelRule "Prelude.bvsge" (beFlip beSignedLeq))
+  <> termRule (bvRelRule "Prelude.bvsgt" (beFlip beSignedLt))
+  <> termRule (bvRelRule "Prelude.bvuge" (beFlip beUnsignedLeq))
+  <> termRule (bvRelRule "Prelude.bvugt" (beFlip beUnsignedLt))
   -- Shift
   <> termRule prelude_bvShl_bv_lsb
   <> termRule prelude_bvShl_nat_lsb
