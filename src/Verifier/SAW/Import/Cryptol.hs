@@ -290,8 +290,8 @@ importExpr sc env expr =
 -- seem.) We might want to think about generating let or where
 -- expressions instead.
 importDeclGroups :: SharedContext s -> Env s -> [C.DeclGroup] -> IO (Env s)
-importDeclGroups sc env [] = return env
-importDeclGroups sc env (C.Recursive decls : _) = unimplemented $ "Recursive: " ++ show (map C.dName decls)
+importDeclGroups _sc env [] = return env
+importDeclGroups _sc _env (C.Recursive decls : _) = unimplemented $ "Recursive: " ++ show (map C.dName decls)
 importDeclGroups sc env (C.NonRecursive decl : dgs) =
   do rhs <- importExpr sc env (C.dDefinition decl)
      let env' = env { envE = Map.insert (C.dName decl) rhs (envE env)
