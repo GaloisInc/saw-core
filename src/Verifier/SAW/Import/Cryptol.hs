@@ -255,10 +255,24 @@ importExpr sc env expr =
                                               scApply sc e prf
                                          s -> fail $ "EProofApp: invalid type: " ++ show (e1, s)
     C.ECast _expr _type             -> unimplemented "ECast"
-    C.EWhere{} {-Expr [DeclGroup]-} -> unimplemented "EWhere"
+    C.EWhere e dgs                  -> do env' <- importDeclGroups sc env dgs
+                                          importExpr sc env' e
   where
     go = importExpr sc env
     ty = importType sc env
+
+-- | Currently this imports declaration groups by inlining all the
+-- definitions. (With subterm sharing, this is not as bad as it might
+-- seem.) We might want to think about generating let or where
+-- expressions instead.
+importDeclGroups :: SharedContext s -> Env s -> [C.DeclGroup] -> IO (Env s)
+importDeclGroups sc env [] = return env
+importDeclGroups sc env (C.Recursive decls : _) = unimplemented $ "Recursive: " ++ show (map C.dName decls)
+importDeclGroups sc env (C.NonRecursive decl : dgs) =
+  do rhs <- importExpr sc env (C.dDefinition decl)
+     let env' = env { envE = Map.insert (C.dName decl) rhs (envE env)
+                    , envC = Map.insert (C.dName decl) (C.dSignature decl) (envC env) }
+     importDeclGroups sc env' dgs
 
 -- TODO: move to Cryptol/TypeCheck/AST.hs
 tIsSeq :: C.Type -> Maybe (C.Type, C.Type)
