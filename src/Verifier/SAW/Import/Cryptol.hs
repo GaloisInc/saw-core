@@ -225,7 +225,11 @@ importExpr :: SharedContext s -> Env s -> C.Expr -> IO (SharedTerm s)
 importExpr sc env expr =
   case expr of
     C.ECon econ                 -> importECon sc econ -- ^ Built-in constant
-    C.EList _es _t              -> unimplemented "EList" -- ^ List value (with type of elements)
+    C.EList es t                -> do t' <- ty t
+                                      n' <- scNat sc (fromIntegral (length es))
+                                      es' <- traverse go es
+                                      v' <- scVector sc t' es'
+                                      scGlobalApply sc "Cryptol.EList" [t', n', v']
     C.ETuple es                 -> scTuple sc =<< traverse go es
     C.ERec _ {-[(Name,Expr)]-}  -> unimplemented "ERec" -- ^ Record value
     C.ESel e sel                ->           -- ^ Elimination for tuple/record/list
