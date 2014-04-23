@@ -26,18 +26,23 @@ unimplemented name = fail ("unimplemented: " ++ name)
 data Env s = Env
   { envT :: Map Int (SharedTerm s)     -- ^ Type variables are referenced by unique id
   , envE :: Map C.QName (SharedTerm s) -- ^ Term variables are referenced by name
+  , envP :: Map C.Prop (SharedTerm s)  -- ^ Bound propositions are referenced implicitly by their types
   , envC :: Map C.QName C.Schema       -- ^ Cryptol type environment
   }
 
 emptyEnv :: Env s
-emptyEnv = Env Map.empty Map.empty Map.empty
+emptyEnv = Env Map.empty Map.empty Map.empty Map.empty
 
 liftTerm :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
 liftTerm sc = incVars sc 0 1
 
 -- | Increment dangling bound variables of all types in environment.
 liftEnv :: SharedContext s -> Env s -> IO (Env s)
-liftEnv sc env = Env <$> traverse (liftTerm sc) (envT env) <*> traverse (liftTerm sc) (envE env) <*> pure (envC env)
+liftEnv sc env =
+  Env <$> traverse (liftTerm sc) (envT env)
+      <*> traverse (liftTerm sc) (envE env)
+      <*> traverse (liftTerm sc) (envP env)
+      <*> pure (envC env)
 
 bindTParam :: SharedContext s -> C.TParam -> SharedTerm s -> Env s -> IO (Env s)
 bindTParam sc tp k env = do
@@ -50,6 +55,12 @@ bindQName sc qname schema t env = do
   env' <- liftEnv sc env
   v <- scLocalVar sc 0 t
   return $ env' { envE = Map.insert qname v (envE env'), envC = Map.insert qname schema (envC env') }
+
+bindProp :: SharedContext s -> C.Prop -> SharedTerm s -> Env s -> IO (Env s)
+bindProp sc prop t env = do
+  env' <- liftEnv sc env
+  v <- scLocalVar sc 0 t
+  return $ env' { envP = Map.insert prop v (envP env') }
 
 --------------------------------------------------------------------------------
 
@@ -231,9 +242,10 @@ importExpr sc env expr =
                                           env' <- bindQName sc x (C.Forall [] [] t) t' env
                                           e' <- importExpr sc env' e
                                           scLambda sc (qnameToString x) t' e'
-    C.EProofAbs {- x -} prop e1     -> do _p <- importType sc env prop
-                                          _e <- importExpr sc env e1
-                                          unimplemented "EProofAbs"
+    C.EProofAbs prop e1             -> do p <- importType sc env prop
+                                          env' <- bindProp sc prop p env
+                                          e <- importExpr sc env' e1
+                                          scLambda sc "_" p e
     C.EProofApp _expr {- proof -}   -> unimplemented "EProofApp"
       {- TODO: Compute type of expr. Then look at the prop at the head of the list. Build a proof of the Prop if possible and apply it. -}
     C.ECast _expr _type             -> unimplemented "ECast"
