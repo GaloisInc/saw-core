@@ -46,6 +46,7 @@ library
      Verifier.SAW.Import.AIG
      Verifier.SAW.Import.Cryptol
      Verifier.SAW.Cache
+     Verifier.SAW.CryptolPrelude
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
      Verifier.SAW.ParserUtils

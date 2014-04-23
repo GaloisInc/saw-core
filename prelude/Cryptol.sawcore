@@ -1,0 +1,166 @@
+--------------------------------------------------------------------------------
+-- Cryptol primitives for SAWCore
+
+module Cryptol where
+
+import Prelude;
+
+--------------------------------------------------------------------------------
+-- Extended natural numbers
+
+data Num :: sort 0 where {
+    TCNum :: Nat -> Num;
+    TCInf :: Num;
+  }
+
+TCWidth :: Num -> Num;
+TCLg2 :: Num -> Num;
+
+TCAdd :: Num -> Num -> Num;
+TCAdd (TCNum x) (TCNum y) = TCNum (addNat x y);
+TCAdd (TCNum _) TCInf = TCInf;
+TCAdd TCInf _ = TCInf;
+
+TCSub :: Num -> Num -> Num;
+
+TCMul :: Num -> Num -> Num;
+TCMul (TCNum x) (TCNum y) = TCNum (mulNat x y);
+TCMul (TCNum x) TCInf = ite Num (equalNat 0 x) (TCNum 0) TCInf;
+TCMul TCInf (TCNum y) = ite Num (equalNat 0 y) (TCNum 0) TCInf;
+TCMul TCInf TCInf = TCInf;
+
+TCDiv :: Num -> Num -> Num;
+TCMod :: Num -> Num -> Num;
+TCExp :: Num -> Num -> Num;
+
+TCMin :: Num -> Num -> Num;
+TCMin (TCNum x) (TCNum y) = TCNum (minNat x y);
+TCMin (TCNum x) TCInf = TCNum x;
+TCMin TCInf (TCNum y) = TCNum y;
+TCMin TCInf TCInf = TCInf;
+
+TCMax :: Num -> Num -> Num;
+
+TCLenFromThen :: Num -> Num -> Num -> Num;
+TCLenFromThenTo :: Num -> Num -> Num -> Num;
+
+--------------------------------------------------------------------------------
+-- Possibly infinite sequences
+
+Seq :: Num -> sort 0 -> sort 0;
+Seq (TCNum n) a = Vec n a;
+Seq TCInf a = Nat -> a;
+
+--------------------------------------------------------------------------------
+-- Predicate symbols
+
+KProp :: sort 1;
+KProp = sort 0;
+
+PEqual :: Num -> Num -> KProp;
+PNeq   :: Num -> Num -> KProp;
+PGeq   :: Num -> Num -> KProp;
+PFin   :: Num -> KProp;
+-- PHas Selector
+PArith :: sort 0 -> KProp;
+PCmp   :: sort 0 -> KProp;
+
+--------------------------------------------------------------------------------
+-- Auxiliary functions
+
+EProofApp :: (a :: KProp) -> a;
+ECast :: (a b :: sort 0) -> a -> b;
+EList :: (a :: sort 0) -> (n :: Nat) -> Vec n a -> Seq (TCNum n) a;
+EListSel :: (a :: sort 0) -> (n :: Num) -> Seq n a -> Nat -> a;
+
+-- List comprehensions
+
+from :: (a b :: sort 0) -> (m n :: Num) -> Seq m a -> (a -> Seq n b) -> Seq (TCMul m n) #(a, b);
+zipSeq :: (a b :: sort 0) -> (m n :: Num) -> Seq m a -> Seq n b -> Seq (TCMin m n) #(a, b);
+
+--------------------------------------------------------------------------------
+-- Primitive Cryptol functions
+
+ECDemote :: (val bits :: Num) -> PFin val -> PFin bits -> PGeq bits (TCWidth val) -> Seq bits Bool;
+
+-- Arith
+ECPlus  :: (a :: sort 0) -> PArith a -> a -> a -> a;
+ECMinus :: (a :: sort 0) -> PArith a -> a -> a -> a;
+ECMul   :: (a :: sort 0) -> PArith a -> a -> a -> a;
+ECDiv   :: (a :: sort 0) -> PArith a -> a -> a -> a;
+ECMod   :: (a :: sort 0) -> PArith a -> a -> a -> a;
+ECExp   :: (a :: sort 0) -> PArith a -> a -> a -> a;
+ECLg2   :: (a :: sort 0) -> PArith a -> a -> a;
+ECNeg   :: (a :: sort 0) -> PArith a -> a -> a;
+
+-- Cmp
+ECLt    :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
+ECGt    :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
+ECLtEq  :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
+ECGtEq  :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
+ECEq    :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
+ECNotEq :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
+
+ECFunEq    :: (a b :: sort 0) -> PCmp b -> (a -> b) -> (a -> b) -> a -> Bool;
+ECFunNotEq :: (a b :: sort 0) -> PCmp b -> (a -> b) -> (a -> b) -> a -> Bool;
+
+ECMin :: (a :: sort 0) -> PCmp a -> a -> a -> a;
+ECMax :: (a :: sort 0) -> PCmp a -> a -> a -> a;
+
+-- Logic
+ECAnd   :: (a :: sort 0) -> a -> a -> a;
+ECOr    :: (a :: sort 0) -> a -> a -> a;
+ECXor   :: (a :: sort 0) -> a -> a -> a;
+ECCompl :: (a :: sort 0) -> a -> a;
+ECZero  :: (a :: sort 0) -> a;
+
+-- Sequences
+ECShiftL :: (m n :: Num) -> (a :: sort 0) -> Seq m a -> Seq n Bool -> Seq m a;
+ECShiftR :: (m n :: Num) -> (a :: sort 0) -> Seq m a -> Seq n Bool -> Seq m a;
+ECRotL   :: (m n :: Num) -> (a :: sort 0) -> Seq m a -> Seq n Bool -> Seq m a;
+ECRotR   :: (m n :: Num) -> (a :: sort 0) -> Seq m a -> Seq n Bool -> Seq m a;
+
+ECCat :: (m n :: Num) -> (a :: sort 0) -> PFin m -> Seq m a -> Seq n a -> Seq (TCAdd m n) a;
+ECSplitAt :: (m n :: Num) -> (a :: sort 0) -> PFin m -> Seq (TCAdd m n) a -> #(Seq m a, Seq n a);
+ECJoin    :: (m n :: Num) -> (a :: sort 0) -> PFin n -> Seq m (Seq n a) -> Seq (TCMul m n) a;
+ECSplit   :: (m n :: Num) -> (a :: sort 0) -> PFin n -> Seq (TCMul m n) a -> Seq m (Seq n a);
+
+ECReverse   :: (n :: Num) -> (a :: sort 0) -> PFin n -> Seq n a -> Seq n a;
+ECTranspose :: (m n :: Num) -> (a :: sort 0) -> Seq m (Seq n a) -> Seq n (Seq m a);
+
+ECAt :: (n :: Num) -> (a :: sort 0) -> (m :: Num) -> Seq n a -> Seq m Bool -> a;
+ECAtRange :: (n :: Num) -> (a :: sort 0) -> (m i :: Num) -> PFin i -> Seq n a -> Seq m (Seq i Bool) -> Seq m a;
+ECAtBack :: (n :: Num) -> (a :: sort 0) -> (m :: Num) -> PFin n -> Seq n a -> Seq m Bool -> a;
+ECAtRangeBack :: (n :: Num) -> (a :: sort 0) -> (m i :: Num) -> PFin n -> Seq n a -> Seq m (Seq i Bool) -> Seq m a;
+
+-- Static word sequences
+ECFromThen :: (first next bits len :: Num) -> PFin first -> PFin next -> PFin bits
+           -> PGeq bits (TCWidth first) -> PGeq bits (TCWidth next)
+           -> PEqual (TCLenFromThen first next bits) len
+           -> Seq len (Seq bits Bool);
+
+ECFromTo :: (first last bits :: Num) -> PFin last -> PFin bits
+         -> PGeq last first -> PGeq bits (TCWidth last)
+         -> Seq (TCAdd (TCNum 1) (TCSub last first)) (Seq bits Bool);
+
+-- Infinite word sequences
+ECInfFrom     :: (n :: Num) -> PFin n -> Seq n Bool -> Seq TCInf (Seq n Bool);
+ECInfFromThen :: (n :: Num) -> PFin n -> Seq n Bool -> Seq n Bool -> Seq TCInf (Seq n Bool);
+
+-- Run-time error
+ECError :: (a :: sort 0) -> (len :: Num) -> PFin len -> Seq len (Seq (TCNum 8) Bool) -> a;
+
+-- Polynomials
+ECPMul :: (a b :: Num) -> PFin a -> PFin b -> Seq a Bool -> Seq b Bool
+       -> Seq (TCSub (TCMax (TCNum 1) (TCAdd a b)) (TCNum 1)) Bool;
+
+ECPDiv :: (a b :: Num) -> PFin a -> PFin b
+       -> Seq a Bool -> Seq b Bool -> Seq a Bool;
+
+ECPMod :: (a b :: Num) -> PFin a -> PFin b
+       -> Seq a Bool -> Seq (TCAdd (TCNum 1) b) Bool -> Seq b Bool;
+
+-- Random values
+ECRandom :: (a :: sort 0) -> Seq (TCNum 32) Bool -> a;
+
+--------------------------------------------------------------------------------
