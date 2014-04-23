@@ -236,7 +236,15 @@ importExpr sc env expr =
       case sel of
         C.TupleSel i _          -> join $ scTupleSelector sc <$> go e <*> pure i
         C.RecordSel name _      -> join $ scRecordSelect sc <$> go e <*> pure (nameToString name)
-        C.ListSel _i _maybeLen      -> unimplemented "ListSel" -- ^ List selection. pos (Maybe length)
+        C.ListSel i _maybeLen   -> do let t = fastTypeOf (envC env) e
+                                      (n, a) <- case tIsSeq t of
+                                                  Just (n, a) -> return (n, a)
+                                                  Nothing -> fail "ListSel: not a list type"
+                                      a' <- importType sc env a
+                                      n' <- importType sc env n
+                                      e' <- importExpr sc env e
+                                      i' <- scNat sc (fromIntegral i)
+                                      scGlobalApply sc "Cryptol.EListSel" [a', n', e', i']
     C.EIf e1 e2 e3              -> join $ scIte sc <$> ty t <*> go e1 <*> go e2 <*> go e3
                                      where t = fastTypeOf (envC env) e2
     C.EComp _ e mss             -> importComp sc env e mss
