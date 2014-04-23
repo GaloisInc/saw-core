@@ -12,7 +12,7 @@ import Data.Traversable
 
 import qualified Cryptol.TypeCheck.AST as C
 import qualified Cryptol.Prims.Syntax as P
-import Cryptol.TypeCheck.TypeOf (fastTypeOf)
+import Cryptol.TypeCheck.TypeOf (fastTypeOf, fastSchemaOf)
 
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.TypedAST (mkSort)
@@ -246,8 +246,14 @@ importExpr sc env expr =
                                           env' <- bindProp sc prop p env
                                           e <- importExpr sc env' e1
                                           scLambda sc "_" p e
-    C.EProofApp _expr {- proof -}   -> unimplemented "EProofApp"
-      {- TODO: Compute type of expr. Then look at the prop at the head of the list. Build a proof of the Prop if possible and apply it. -}
+    C.EProofApp e1                  -> case fastSchemaOf (envC env) e1 of
+                                         C.Forall [] (p1 : _) _ ->
+                                           do e <- importExpr sc env e1
+                                              -- TODO: Build a proof of the Prop if possible and apply it.
+                                              p <- importType sc env p1
+                                              prf <- scGlobalApply sc "Prelude.ProofApp" [p]
+                                              scApply sc e prf
+                                         s -> fail $ "EProofApp: invalid type: " ++ show (e1, s)
     C.ECast _expr _type             -> unimplemented "ECast"
     C.EWhere{} {-Expr [DeclGroup]-} -> unimplemented "EWhere"
   where
