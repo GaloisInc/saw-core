@@ -274,7 +274,11 @@ importExpr sc env expr =
                                               prf <- scGlobalApply sc "Cryptol.EProofApp" [p]
                                               scApply sc e prf
                                          s -> fail $ "EProofApp: invalid type: " ++ show (e1, s)
-    C.ECast _expr _type             -> unimplemented "ECast"
+    C.ECast e1 t2                   -> do let t1 = fastTypeOf (envC env) e1
+                                          t1' <- ty t1
+                                          t2' <- ty t2
+                                          e1' <- go e1
+                                          scGlobalApply sc "Cryptol.ECast" [t1', t2', e1']
     C.EWhere e dgs                  -> do env' <- importDeclGroups sc env dgs
                                           importExpr sc env' e
   where
