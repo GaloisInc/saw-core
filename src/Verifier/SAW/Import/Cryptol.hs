@@ -247,7 +247,7 @@ importExpr sc env expr =
                                       scGlobalApply sc "Cryptol.EListSel" [a', n', e', i']
     C.EIf e1 e2 e3              -> join $ scIte sc <$> ty t <*> go e1 <*> go e2 <*> go e3
                                      where t = fastTypeOf (envC env) e2
-    C.EComp _ e mss             -> importComp sc env e mss
+    C.EComp t e mss             -> importComp sc env t e mss
     C.EVar qname                    ->
       case Map.lookup qname (envE env) of
         Just e'                     -> return e'
@@ -304,39 +304,87 @@ tIsSeq ty = case C.tNoUser ty of
               C.TCon (C.TC C.TCSeq) [n, a] -> Just (n, a)
               _                            -> Nothing
 
-importMatches :: SharedContext s -> Env s -> [C.Match]
-              -> IO (SharedTerm s, SharedTerm s, SharedTerm s, [(C.QName, C.Type)])
-importMatches sc _env [] = do
-  result <- scGlobalApply sc "Prelude.done" []
-  n <- scNat sc 1
-  a <- scDataTypeApp sc "Prelude.TUnit" []
-  return (result, n, a, [])
+--------------------------------------------------------------------------------
+-- List comprehensions
 
-importMatches sc env (C.From qname _ty expr : matches) = do
-  let (len, ty) = fromJust (tIsSeq (fastTypeOf (envC env) expr))
-  m <- importType sc env len
-  a <- importType sc env ty
-  xs <- importExpr sc env expr
-  env' <- bindQName sc qname (C.Forall [] [] ty) a env
-  (body, n, b, args) <- importMatches sc env' matches
-  f <- scLambda sc (qnameToString qname) a body
-  result <- scGlobalApply sc "Cryptol.from" [a, b, m, n, xs, f]
-  mn <- scGlobalApply sc "Cryptol.TCMul" [m, n]
-  ab <- scTupleType sc [a, b]
-  return (result, mn, ab, (qname, ty) : args)
-
-importMatches _sc _env (C.Let {} : _matches) = unimplemented "Let"
-
-importComp :: SharedContext s -> Env s -> C.Expr -> [[C.Match]] -> IO (SharedTerm s)
-importComp sc env _expr mss =
-  do branches <- traverse (importMatches sc env) mss
-     let zipAll [] = fail "zero-branch list comprehension"
-         zipAll [(xs, m, a, _)] = return (xs, m, a)
-         zipAll ((xs, m, a, _) : bs) =
-           do (ys, n, b) <- zipAll bs
-              zs <- scGlobalApply sc "Cryptol.zipSeq" [a, b, m, n, xs, ys]
+importComp :: SharedContext s -> Env s -> C.Type -> C.Expr -> [[C.Match]] -> IO (SharedTerm s)
+importComp sc env listT expr mss =
+  do let zipAll [] = fail "zero-branch list comprehension"
+         zipAll [branch] =
+           do (xs, len, ty, args) <- importMatches sc env branch
+              m <- importType sc env len
+              a <- importType sc env ty
+              return (xs, m, a, [args])
+         zipAll (branch : branches) =
+           do (xs, len, ty, args) <- importMatches sc env branch
+              m <- importType sc env len
+              a <- importType sc env ty
+              (ys, n, b, argss) <- zipAll branches
+              zs <- scGlobalApply sc "Cryptol.zip" [a, b, m, n, xs, ys]
               mn <- scGlobalApply sc "Cryptol.TCMin" [m, n]
               ab <- scTupleType sc [a, b]
-              return (zs, mn, ab)
-     (zipped, _len, _ty) <- zipAll branches
-     return zipped -- FIXME: need to map function over this
+              return (zs, mn, ab, args : argss)
+     (xs, n, a, argss) <- zipAll mss
+     let (_, elemT) = fromJust (C.tIsSeq listT)
+     f <- lambdaTuples sc env elemT expr argss
+     b <- importType sc env elemT
+     scGlobalApply sc "Cryptol.map" [a, b, n, f, xs]
+
+lambdaTuples :: SharedContext s -> Env s -> C.Type -> C.Expr -> [[(C.QName, C.Type)]] -> IO (SharedTerm s)
+lambdaTuples sc env _ty expr [] = importExpr sc env expr
+lambdaTuples sc env ty expr (args : argss) =
+  do f <- lambdaTuple sc env ty expr argss args
+     if null args || null argss
+       then return f
+       else do a <- importType sc env (tNestedTuple (map snd args))
+               b <- importType sc env (tNestedTuple (map (tNestedTuple . map snd) argss))
+               c <- importType sc env ty
+               scGlobalApply sc "Cryptol.uncurry" [a, b, c, f]
+
+lambdaTuple :: SharedContext s -> Env s -> C.Type -> C.Expr -> [[(C.QName, C.Type)]] -> [(C.QName, C.Type)] -> IO (SharedTerm s)
+lambdaTuple sc env ty expr argss [] = lambdaTuples sc env ty expr argss
+lambdaTuple sc env ty expr argss ((x, t) : args) =
+  do a <- importType sc env t
+     env' <- bindQName sc x (C.Forall [] [] t) a env
+     e <- lambdaTuple sc env' ty expr argss args
+     f <- scLambda sc (qnameToString x) a e
+     if null args
+        then return f
+        else do b <- importType sc env (tNestedTuple (map snd args))
+                c <- importType sc env ty
+                scGlobalApply sc "Cryptol.uncurry" [a, b, c, f]
+
+tNestedTuple :: [C.Type] -> C.Type
+tNestedTuple [] = C.tTuple []
+tNestedTuple [t] = t
+tNestedTuple (t : ts) = C.tTuple [t, tNestedTuple ts]
+
+
+-- | Returns the term, length type, element tuple type, bound variables
+importMatches :: SharedContext s -> Env s -> [C.Match]
+              -> IO (SharedTerm s, C.Type, C.Type, [(C.QName, C.Type)])
+importMatches _sc _env [] = fail "importMatches: empty comprehension branch"
+importMatches sc env [C.From qname _ty expr] = do
+  (len, ty) <- case tIsSeq (fastTypeOf (envC env) expr) of
+                 Just x -> return x
+                 Nothing -> fail $ "internal error: From: " ++ show (fastTypeOf (envC env) expr)
+  xs <- importExpr sc env expr
+  return (xs, len, ty, [(qname, ty)])
+
+importMatches sc env (C.From qname _ty1 expr : matches) = do
+  (len1, ty1) <- case tIsSeq (fastTypeOf (envC env) expr) of
+                 Just x -> return x
+                 Nothing -> fail $ "internal error: From: " ++ show (fastTypeOf (envC env) expr)
+  --let (len, ty) = fromJust (tIsSeq (fastTypeOf (envC env) expr))
+  m <- importType sc env len1
+  a <- importType sc env ty1
+  xs <- importExpr sc env expr
+  env' <- bindQName sc qname (C.Forall [] [] ty1) a env
+  (body, len2, ty2, args) <- importMatches sc env' matches
+  n <- importType sc env len2
+  b <- importType sc env ty2
+  f <- scLambda sc (qnameToString qname) a body
+  result <- scGlobalApply sc "Cryptol.from" [a, b, m, n, xs, f]
+  return (result, (C..*.) len1 len2, C.tTuple [ty1, ty2], (qname, ty1) : args)
+
+importMatches _sc _env (C.Let {} : _matches) = unimplemented "Let"
