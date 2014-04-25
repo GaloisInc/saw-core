@@ -7,7 +7,6 @@ module Verifier.SAW.CryptolPrelude
 
 import Verifier.SAW.Prelude
 import Verifier.SAW.ParserUtils
-import Verifier.SAW.SharedTerm
 
 $(runDecWriter $ do
     prelude <- defineImport [|preludeModule|] preludeModule
