@@ -78,6 +78,8 @@ EIf :: (a :: sort 0) -> Bool -> a -> a -> a;
 
 uncurry :: (a b c :: sort 0) -> (a -> b -> c) -> (#(a, b) -> c);
 from :: (a b :: sort 0) -> (m n :: Num) -> Seq m a -> (a -> Seq n b) -> Seq (TCMul m n) #(a, b);
+single :: (a :: sort 0) -> a -> Seq (TCNum 1) a;
+mlet :: (a b :: sort 0) -> (n :: Num) -> a -> (a -> Seq n b) -> Seq n #(a, b);
 zip :: (a b :: sort 0) -> (m n :: Num) -> Seq m a -> Seq n b -> Seq (TCMin m n) #(a, b);
 map :: (a b :: sort 0) -> (n :: Num) -> (a -> b) -> Seq n a -> Seq n b;
 

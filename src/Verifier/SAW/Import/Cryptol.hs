@@ -367,10 +367,12 @@ tNestedTuple [t] = t
 tNestedTuple (t : ts) = C.tTuple [t, tNestedTuple ts]
 
 
--- | Returns the term, length type, element tuple type, bound variables
+-- | Returns the shared term, length type, element tuple type, bound
+-- variables.
 importMatches :: SharedContext s -> Env s -> [C.Match]
               -> IO (SharedTerm s, C.Type, C.Type, [(C.QName, C.Type)])
 importMatches _sc _env [] = fail "importMatches: empty comprehension branch"
+
 importMatches sc env [C.From qname _ty expr] = do
   (len, ty) <- case tIsSeq (fastTypeOf (envC env) expr) of
                  Just x -> return x
@@ -380,9 +382,8 @@ importMatches sc env [C.From qname _ty expr] = do
 
 importMatches sc env (C.From qname _ty1 expr : matches) = do
   (len1, ty1) <- case tIsSeq (fastTypeOf (envC env) expr) of
-                 Just x -> return x
-                 Nothing -> fail $ "internal error: From: " ++ show (fastTypeOf (envC env) expr)
-  --let (len, ty) = fromJust (tIsSeq (fastTypeOf (envC env) expr))
+                   Just x -> return x
+                   Nothing -> fail $ "internal error: From: " ++ show (fastTypeOf (envC env) expr)
   m <- importType sc env len1
   a <- importType sc env ty1
   xs <- importExpr sc env expr
@@ -394,4 +395,25 @@ importMatches sc env (C.From qname _ty1 expr : matches) = do
   result <- scGlobalApply sc "Cryptol.from" [a, b, m, n, xs, f]
   return (result, (C..*.) len1 len2, C.tTuple [ty1, ty2], (qname, ty1) : args)
 
-importMatches _sc _env (C.Let {} : _matches) = unimplemented "Let"
+importMatches sc env [C.Let decl] =
+  do e <- importExpr sc env (C.dDefinition decl)
+     ty1 <- case C.dSignature decl of
+              C.Forall [] [] ty1 -> return ty1
+              _ -> unimplemented "polymorphic Let"
+     a <- importType sc env ty1
+     result <- scGlobalApply sc "Cryptol.single" [a, e]
+     return (result, C.tOne, ty1, [(C.dName decl, ty1)])
+
+importMatches sc env (C.Let decl : matches) =
+  do e <- importExpr sc env (C.dDefinition decl)
+     ty1 <- case C.dSignature decl of
+              C.Forall [] [] ty1 -> return ty1
+              _ -> unimplemented "polymorphic Let"
+     a <- importType sc env ty1
+     env' <- bindQName sc (C.dName decl) (C.dSignature decl) a env
+     (body, len, ty2, args) <- importMatches sc env' matches
+     n <- importType sc env len
+     b <- importType sc env ty2
+     f <- scLambda sc (qnameToString (C.dName decl)) a body
+     result <- scGlobalApply sc "Cryptol.mlet" [a, b, n, e, f]
+     return (result, len, C.tTuple [ty1, ty2], (C.dName decl, ty1) : args)
