@@ -44,22 +44,22 @@ liftEnv sc env =
       <*> traverse (liftTerm sc) (envP env)
       <*> pure (envC env)
 
-bindTParam :: SharedContext s -> C.TParam -> SharedTerm s -> Env s -> IO (Env s)
-bindTParam sc tp k env = do
+bindTParam :: SharedContext s -> C.TParam -> Env s -> IO (Env s)
+bindTParam sc tp env = do
   env' <- liftEnv sc env
-  v <- scLocalVar sc 0 k
+  v <- scLocalVar sc 0
   return $ env' { envT = Map.insert (C.tpUnique tp) v (envT env') }
 
-bindQName :: SharedContext s -> C.QName -> C.Schema -> SharedTerm s -> Env s -> IO (Env s)
-bindQName sc qname schema t env = do
+bindQName :: SharedContext s -> C.QName -> C.Schema -> Env s -> IO (Env s)
+bindQName sc qname schema env = do
   env' <- liftEnv sc env
-  v <- scLocalVar sc 0 t
+  v <- scLocalVar sc 0
   return $ env' { envE = Map.insert qname v (envE env'), envC = Map.insert qname schema (envC env') }
 
-bindProp :: SharedContext s -> C.Prop -> SharedTerm s -> Env s -> IO (Env s)
-bindProp sc prop t env = do
+bindProp :: SharedContext s -> C.Prop -> Env s -> IO (Env s)
+bindProp sc prop env = do
   env' <- liftEnv sc env
-  v <- scLocalVar sc 0 t
+  v <- scLocalVar sc 0
   return $ env' { envP = Map.insert prop v (envP env') }
 
 --------------------------------------------------------------------------------
@@ -149,7 +149,7 @@ importPolyType :: SharedContext s -> Env s -> [C.TParam] -> [C.Prop] -> C.Type -
 importPolyType sc env [] props ty = importPropsType sc env props ty
 importPolyType sc env (tp : tps) props ty = do
   k <- importKind sc (C.tpKind tp)
-  env' <- bindTParam sc tp k env
+  env' <- bindTParam sc tp env
   t <- importPolyType sc env' tps props ty
   scPi sc (tparamToString tp) k t
 
@@ -256,17 +256,17 @@ importExpr sc env expr =
         Just e'                     -> return e'
         Nothing                     -> fail "internal error: unknown variable"
     C.ETAbs tp e                    -> do k <- importKind sc (C.tpKind tp)
-                                          env' <- bindTParam sc tp k env
+                                          env' <- bindTParam sc tp env
                                           e' <- importExpr sc env' e
                                           scLambda sc (tparamToString tp) k e'
     C.ETApp e t                     -> join $ scApply sc <$> go e <*> ty t
     C.EApp e1 e2                    -> join $ scApply sc <$> go e1 <*> go e2
     C.EAbs x t e                    -> do t' <- ty t
-                                          env' <- bindQName sc x (C.Forall [] [] t) t' env
+                                          env' <- bindQName sc x (C.Forall [] [] t) env
                                           e' <- importExpr sc env' e
                                           scLambda sc (qnameToString x) t' e'
     C.EProofAbs prop e1             -> do p <- importType sc env prop
-                                          env' <- bindProp sc prop p env
+                                          env' <- bindProp sc prop env
                                           e <- importExpr sc env' e1
                                           scLambda sc "_" p e
     C.EProofApp e1                  -> case fastSchemaOf (envC env) e1 of
@@ -352,7 +352,7 @@ lambdaTuple :: SharedContext s -> Env s -> C.Type -> C.Expr -> [[(C.QName, C.Typ
 lambdaTuple sc env ty expr argss [] = lambdaTuples sc env ty expr argss
 lambdaTuple sc env ty expr argss ((x, t) : args) =
   do a <- importType sc env t
-     env' <- bindQName sc x (C.Forall [] [] t) a env
+     env' <- bindQName sc x (C.Forall [] [] t) env
      e <- lambdaTuple sc env' ty expr argss args
      f <- scLambda sc (qnameToString x) a e
      if null args
@@ -387,7 +387,7 @@ importMatches sc env (C.From qname _ty1 expr : matches) = do
   m <- importType sc env len1
   a <- importType sc env ty1
   xs <- importExpr sc env expr
-  env' <- bindQName sc qname (C.Forall [] [] ty1) a env
+  env' <- bindQName sc qname (C.Forall [] [] ty1) env
   (body, len2, ty2, args) <- importMatches sc env' matches
   n <- importType sc env len2
   b <- importType sc env ty2
@@ -410,7 +410,7 @@ importMatches sc env (C.Let decl : matches) =
               C.Forall [] [] ty1 -> return ty1
               _ -> unimplemented "polymorphic Let"
      a <- importType sc env ty1
-     env' <- bindQName sc (C.dName decl) (C.dSignature decl) a env
+     env' <- bindQName sc (C.dName decl) (C.dSignature decl) env
      (body, len, ty2, args) <- importMatches sc env' matches
      n <- importType sc env len
      b <- importType sc env ty2
