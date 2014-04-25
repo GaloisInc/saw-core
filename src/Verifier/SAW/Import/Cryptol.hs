@@ -245,8 +245,11 @@ importExpr sc env expr =
                                       e' <- importExpr sc env e
                                       i' <- scNat sc (fromIntegral i)
                                       scGlobalApply sc "Cryptol.EListSel" [a', n', e', i']
-    C.EIf e1 e2 e3              -> join $ scIte sc <$> ty t <*> go e1 <*> go e2 <*> go e3
-                                     where t = fastTypeOf (envC env) e2
+    C.EIf e1 e2 e3              -> do t' <- importType sc env (fastTypeOf (envC env) e2)
+                                      e1' <- importExpr sc env e1
+                                      e2' <- importExpr sc env e2
+                                      e3' <- importExpr sc env e3
+                                      scGlobalApply sc "Cryptol.EIf" [t', e1', e2', e3']
     C.EComp t e mss             -> importComp sc env t e mss
     C.EVar qname                    ->
       case Map.lookup qname (envE env) of

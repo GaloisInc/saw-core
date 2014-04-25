@@ -72,6 +72,7 @@ EProofApp :: (a :: KProp) -> a;
 ECast :: (a b :: sort 0) -> a -> b;
 EList :: (a :: sort 0) -> (n :: Nat) -> Vec n a -> Seq (TCNum n) a;
 EListSel :: (a :: sort 0) -> (n :: Num) -> Seq n a -> Nat -> a;
+EIf :: (a :: sort 0) -> Bool -> a -> a -> a;
 
 -- List comprehensions
 
