@@ -331,7 +331,11 @@ importComp sc env listT expr mss =
      let (_, elemT) = fromJust (C.tIsSeq listT)
      f <- lambdaTuples sc env elemT expr argss
      b <- importType sc env elemT
-     scGlobalApply sc "Cryptol.map" [a, b, n, f, xs]
+     ys <- scGlobalApply sc "Cryptol.map" [a, b, n, f, xs]
+     -- The resulting type might not match the annotation, so we coerce
+     t1 <- scGlobalApply sc "Cryptol.Seq" [n, b]
+     t2 <- importType sc env listT
+     scGlobalApply sc "Cryptol.ECast" [t1, t2, ys]
 
 lambdaTuples :: SharedContext s -> Env s -> C.Type -> C.Expr -> [[(C.QName, C.Type)]] -> IO (SharedTerm s)
 lambdaTuples sc env _ty expr [] = importExpr sc env expr
