@@ -312,6 +312,10 @@ bvRelRule d litFn = matchArgs (asGlobalDef d) termFn
 bvRules :: forall s l . (Eq l, LV.Storable l) => RuleSet s l
 bvRules = bvRulesWithEnv Map.empty
 
+beFlip :: (BitEngine l -> LitVector l -> LitVector l -> IO l)
+       -> (BitEngine l -> LitVector l -> LitVector l -> IO l)
+beFlip f be x y = f be y x
+
 bvRulesWithEnv :: forall s l . (Eq l, LV.Storable l) => Map VarIndex (BValue l) -> RuleSet s l
 bvRulesWithEnv ecEnv
   = termRule (asExtCns `thenMatcher` matchExtCns ecEnv)
@@ -332,6 +336,11 @@ bvRulesWithEnv ecEnv
   <> termRule (bvRelRule "Prelude.bvslt" beSignedLt)
   <> termRule (bvRelRule "Prelude.bvule" beUnsignedLeq)
   <> termRule (bvRelRule "Prelude.bvult" beUnsignedLt)
+  -- TODO: should we do an ordering normalization pass before bit blasting?
+  <> termRule (bvRelRule "Prelude.bvsge" (beFlip beSignedLeq))
+  <> termRule (bvRelRule "Prelude.bvsgt" (beFlip beSignedLt))
+  <> termRule (bvRelRule "Prelude.bvuge" (beFlip beUnsignedLeq))
+  <> termRule (bvRelRule "Prelude.bvugt" (beFlip beUnsignedLt))
   -- Shift
   <> termRule prelude_bvShl_bv_lsb
   <> termRule prelude_bvShl_nat_lsb
@@ -492,6 +501,8 @@ opTable =
     , ("set"      , setOp       )
     , ("replicate", replicateOp )
     , ("slice"    , bvSliceOp   )
+    , ("join"     , joinOp      )
+    , ("split"    , splitOp     )
     ]
 
 bvRelOp :: (LV.Storable l)
@@ -639,6 +650,32 @@ bvSliceOp _ eval [_, mi, mn, _, mx] =
        x <- asLitVector =<< eval mx
        return (lvVector (LV.take n (LV.drop i x)))
 bvSliceOp _ _ args = wrongArity "slice op" args
+
+joinOp :: LV.Storable l => BValueOp s l
+joinOp _ eval [mm, mn, _me, mv] =
+    do v <- eval mv
+       m <- fromIntegral <$> asBNat mm
+       n <- fromIntegral <$> asBNat mn
+       checkShape (VecShape m (VecShape n BoolShape)) v
+       return (lvVector (flattenBValue v))
+joinOp _ _ args = wrongArity "join op" args
+
+chunk :: Int -> V.Vector a -> V.Vector (V.Vector a)
+chunk n v | V.length v <= n = V.singleton v
+          | otherwise = V.cons (V.take n v) (chunk n (V.drop n v))
+
+splitOp :: LV.Storable l => BValueOp s l
+splitOp _ eval [mm, mn, _me, mv] =
+    do v <- eval mv
+       m <- fromIntegral <$> asBNat mm
+       n <- fromIntegral <$> asBNat mn
+       checkShape (VecShape (m * n) BoolShape) v
+       lv <- asBVector v
+       let lvParts = chunk (fromIntegral n) lv
+           bv = BVector (V.map BVector lvParts)
+       checkShape (VecShape m (VecShape n BoolShape)) bv
+       return bv
+splitOp _ _ args = wrongArity "split op" args
 
 ----------------------------------------------------------------------
 -- Destructors for BValues

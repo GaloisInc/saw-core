@@ -164,7 +164,7 @@ bitblastVarsAsInputLits :: forall s
 bitblastVarsAsInputLits sc args = do
   let n = length args
   let mkLocalVar :: Int -> SharedTerm s -> IO (SharedTerm s)
-      mkLocalVar i tp = scLocalVar sc idx tp
+      mkLocalVar i _tp = scLocalVar sc idx
           -- Earlier arguments have a higher deBruijn index.
           where idx = (n - i - 1)
   inputs <- liftIO $ zipWithM mkLocalVar [0..] args

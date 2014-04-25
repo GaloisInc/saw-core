@@ -300,7 +300,7 @@ parseSBVPgm sc unint (SBV.SBVPgm (_version, irtype, revcmds, _vcs, _warnings, _u
        --putStrLn ("inSizes: " ++ show inSizes)
        unless (typSizes inTyp == inSizes) (fail "parseSBVPgm: input size mismatch")
        inputType <- scTyp sc inTyp
-       inputVar <- scLocalVar sc 0 inputType
+       inputVar <- scLocalVar sc 0
        inputTerms <- splitInputs sc inTyp inputVar
        --putStrLn "processing..."
        let nodes0 = Map.fromList (zip inNodes inputTerms)
