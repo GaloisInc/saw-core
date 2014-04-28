@@ -50,6 +50,15 @@ TCLenFromThenTo :: Num -> Num -> Num -> Num;
 Seq :: Num -> sort 0 -> sort 0;
 Seq (TCNum n) a = Vec n a;
 Seq TCInf a = Nat -> a;
+-- TODO: add infinite stream type to SAWCore prelude
+
+bvToSeq :: (n :: Nat) -> bitvector n -> Seq (TCNum n) Bool;
+bvOfSeq :: (n :: Nat) -> Seq (TCNum n) Bool -> bitvector n;
+
+{-
+vecToSeq :: (a :: sort 0) -> (n :: Nat) -> Vec n a -> Seq (TCNum n) a;
+vecOfSeq :: (a :: sort 0) -> (n :: Nat) -> Vec n a -> Seq (TCNum n) a;
+-}
 
 --------------------------------------------------------------------------------
 -- Predicate symbols
@@ -77,11 +86,14 @@ EIf :: (a :: sort 0) -> Bool -> a -> a -> a;
 -- List comprehensions
 
 uncurry :: (a b c :: sort 0) -> (a -> b -> c) -> (#(a, b) -> c);
+uncurry a b c f = (\(x :: #(a, b)) -> f (x.1) (x.2));
+
 from :: (a b :: sort 0) -> (m n :: Num) -> Seq m a -> (a -> Seq n b) -> Seq (TCMul m n) #(a, b);
 single :: (a :: sort 0) -> a -> Seq (TCNum 1) a;
 mlet :: (a b :: sort 0) -> (n :: Num) -> a -> (a -> Seq n b) -> Seq n #(a, b);
 zip :: (a b :: sort 0) -> (m n :: Num) -> Seq m a -> Seq n b -> Seq (TCMin m n) #(a, b);
 map :: (a b :: sort 0) -> (n :: Num) -> (a -> b) -> Seq n a -> Seq n b;
+--map a b (TCNum n) f xs = 
 
 --------------------------------------------------------------------------------
 -- Primitive Cryptol functions
@@ -167,5 +179,68 @@ ECPMod :: (a b :: Num) -> PFin a -> PFin b
 
 -- Random values
 ECRandom :: (a :: sort 0) -> Seq (TCNum 32) Bool -> a;
+
+
+--------------------------------------------------------------------------------
+-- Extra functions that appear after rewriting
+
+bvOfSeq_bvToSeq :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvOfSeq n (bvToSeq n x)) x;
+
+widthNat :: Nat -> Nat;
+subNat :: Nat -> Nat -> Nat;
+
+--------------------------------------------------------------------------------
+-- Rewrite rules
+
+
+-- Num operations
+TCAdd_TCNum :: (m n :: Nat) -> Eq Num (TCAdd (TCNum m) (TCNum n)) (TCNum (addNat m n));
+TCSub_TCNum :: (m n :: Nat) -> Eq Num (TCSub (TCNum m) (TCNum n)) (TCNum (subNat m n));
+TCWidth_TCNum :: (n :: Nat) -> Eq Num (TCWidth (TCNum n)) (TCNum (widthNat n));
+
+-- Boolean operations
+ECAnd_Bool :: Eq (Bool -> Bool -> Bool) (ECAnd Bool) and;
+ECOr_Bool :: Eq (Bool -> Bool -> Bool) (ECOr Bool) or;
+
+-- Bitvector operations
+ECCompl_Seq_TCNum_Bool :: (n :: Nat) -> (x :: Seq (TCNum n) Bool)
+  -> Eq (Seq (TCNum n) Bool) (ECCompl (Seq (TCNum n) Bool) x) (bvToSeq n (bvNot n (bvOfSeq n x)));
+
+ECDemote_TCNum :: (m n :: Nat) -> (p1 :: PFin (TCNum m)) -> (p2 :: PFin (TCNum n)) -> (p3 :: PGeq (TCNum n) (TCWidth (TCNum m)))
+  -> Eq (Seq (TCNum n) Bool) (ECDemote (TCNum m) (TCNum n) p1 p2 p3) (bvToSeq n (bvNat n m));
+
+ECEq_Seq_TCNum_Bool :: (n :: Nat) -> (p :: PCmp (Seq (TCNum n) Bool)) -> (x y :: Seq (TCNum n) Bool)
+  -> Eq Bool (ECEq (Seq (TCNum n) Bool) p x y) (bvEq n (bvOfSeq n x) (bvOfSeq n y));
+
+ECGtEq_Seq_TCNum_Bool :: (n :: Nat) -> (p :: PCmp (Seq (TCNum n) Bool)) -> (x y :: Seq (TCNum n) Bool)
+  -> Eq Bool (ECGtEq (Seq (TCNum n) Bool) p x y) (bvuge n (bvOfSeq n x) (bvOfSeq n y));
+
+ECLt_Seq_TCNum_Bool :: (n :: Nat) -> (p :: PCmp (Seq (TCNum n) Bool)) -> (x y :: Seq (TCNum n) Bool)
+  -> Eq Bool (ECLt (Seq (TCNum n) Bool) p x y) (bvult n (bvOfSeq n x) (bvOfSeq n y));
+
+ECLtEq_Seq_TCNum_Bool :: (n :: Nat) -> (p :: PCmp (Seq (TCNum n) Bool)) -> (x y :: Seq (TCNum n) Bool)
+  -> Eq Bool (ECLtEq (Seq (TCNum n) Bool) p x y) (bvule n (bvOfSeq n x) (bvOfSeq n y));
+
+ECNotEq_Seq_TCNum_Bool :: (n :: Nat) -> (p :: PCmp (Seq (TCNum n) Bool)) -> (x y :: Seq (TCNum n) Bool)
+  -> Eq Bool (ECNotEq (Seq (TCNum n) Bool) p x y) (bvNe n (bvOfSeq n x) (bvOfSeq n y));
+
+ECMinus_Seq_TCNum_Bool :: (n :: Nat) -> (p :: PArith (Seq (TCNum n) Bool)) -> (x y :: Seq (TCNum n) Bool)
+  -> Eq (Seq (TCNum n) Bool) (ECMinus (Seq (TCNum n) Bool) p x y) (bvToSeq n (bvSub n (bvOfSeq n x) (bvOfSeq n y)));
+
+ECZero_Seq_TCNum_Bool :: (n :: Nat) -> Eq (Seq (TCNum n) Bool) (ECZero (Seq (TCNum n) Bool)) (bvToSeq n (bvNat n 0));
+
+--
+
+ECast_same :: (a :: sort 0) -> (x :: a) -> Eq a (ECast a a x) x;
+
+Seq_TCNum :: (n :: Nat) -> (a :: sort 0) -> Eq (sort 0) (Seq (TCNum n) a) (Vec n a);
+Seq_TCNum_Bool :: (n :: Nat) -> Eq (sort 0) (Seq (TCNum n) Bool) (bitvector n);
+
+subNat_0 :: (n :: Nat) -> Eq Nat (subNat n 0) n;
+
+-- TODO: implement these rules more generally with conversions:
+subNat_5_1 :: Eq Nat (subNat 5 1) 4;
+widthNat_4 :: Eq Nat (widthNat 4) 3;
+widthNat_5 :: Eq Nat (widthNat 5) 3;
 
 --------------------------------------------------------------------------------
