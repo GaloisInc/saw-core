@@ -163,8 +163,7 @@ evalTermF :: (Show t, Applicative f) => (Ident -> Value) -> ([Value] -> t -> Val
 evalTermF global lam rec env tf =
   case tf of
     App t1 t2               -> apply <$> rec t1 <*> rec t2
-    Lambda (PVar _ 0 _) _ t -> pure $ VFun (\x -> lam (x : env) t)
-    Lambda _ _ _            -> error "evalTermF Lambda (non-var) unimplemented"
+    Lambda _ _ t            -> pure $ VFun (\x -> lam (x : env) t)
     Pi {}                   -> pure $ VType
     Let ds t                -> pure $ lam env' t
                                  where
