@@ -18,7 +18,7 @@ library
     filepath,
     ghc-prim,
     hashable >= 1.2,
-    lens >= 3.8 && < 3.9.1,
+    lens >= 3.8 && < 4.0,
     mtl,
     parsec,
     pretty,
