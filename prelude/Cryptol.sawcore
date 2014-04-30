@@ -45,6 +45,20 @@ TCLenFromThen :: Num -> Num -> Num -> Num;
 TCLenFromThenTo :: Num -> Num -> Num -> Num;
 
 --------------------------------------------------------------------------------
+-- Possibly unbounded sequence indexes
+
+Index :: Num -> sort 0;
+Index (TCNum n) = Fin n;
+Index TCInf = Nat;
+
+indexMinL :: (m n :: Num) -> Index (TCMin m n) -> Index m;
+indexMinR :: (m n :: Num) -> Index (TCMin m n) -> Index n;
+
+indexSplit :: (m n :: Num) -> Index (TCMul m n) -> #(Index m, Index n);
+indexFst :: (m n :: Num) -> Index (TCMul m n) -> Index m;
+indexSnd :: (m n :: Num) -> Index (TCMul m n) -> Index n;
+
+--------------------------------------------------------------------------------
 -- Possibly infinite sequences
 
 Seq :: Num -> sort 0 -> sort 0;
@@ -52,13 +66,22 @@ Seq (TCNum n) a = Vec n a;
 Seq TCInf a = Nat -> a;
 -- TODO: add infinite stream type to SAWCore prelude
 
-bvToSeq :: (n :: Nat) -> bitvector n -> Seq (TCNum n) Bool;
-bvOfSeq :: (n :: Nat) -> Seq (TCNum n) Bool -> bitvector n;
+make :: (n :: Num) -> (a :: sort 0) -> (Index n -> a) -> Seq n a;
+make (TCNum n) a f = Prelude.generate n a f;
+make TCInf a f = f;
 
-{-
-vecToSeq :: (a :: sort 0) -> (n :: Nat) -> Vec n a -> Seq (TCNum n) a;
-vecOfSeq :: (a :: sort 0) -> (n :: Nat) -> Vec n a -> Seq (TCNum n) a;
--}
+peek :: (n :: Num) -> (a :: sort 0) -> Seq n a -> Index n -> a;
+peek (TCNum n) a v i = Prelude.get n a v i;
+peek TCInf a v i = v i;
+
+bvToSeq :: (n :: Nat) -> bitvector n -> Seq (TCNum n) Bool;
+bvToSeq n x = x;
+
+bvOfSeq :: (n :: Nat) -> Seq (TCNum n) Bool -> bitvector n;
+bvOfSeq n x = x;
+
+vecToSeq :: (n :: Nat) -> (a :: sort 0) -> Vec n a -> Seq (TCNum n) a;
+vecOfSeq :: (n :: Nat) -> (a :: sort 0) -> Seq (TCNum n) a -> Vec n a;
 
 --------------------------------------------------------------------------------
 -- Predicate symbols
@@ -74,6 +97,14 @@ PFin   :: Num -> KProp;
 PArith :: sort 0 -> KProp;
 PCmp   :: sort 0 -> KProp;
 
+Instance_PFin_TCNum :: (n :: Nat) -> PFin (TCNum n);
+
+theNat :: (m :: Num) -> PFin m -> Nat;
+--theNat _ (Instance_PFin_TCNum n) = n;
+
+theVec :: (m :: Num) -> (a :: sort 0) -> (p :: PFin m) -> Seq m a -> Vec (theNat m p) a;
+--theVec _ a (Instance_PFin_TCNum n) xs = vecOfSeq a n xs;
+
 --------------------------------------------------------------------------------
 -- Auxiliary functions
 
@@ -83,17 +114,34 @@ EList :: (a :: sort 0) -> (n :: Nat) -> Vec n a -> Seq (TCNum n) a;
 EListSel :: (a :: sort 0) -> (n :: Num) -> Seq n a -> Nat -> a;
 EIf :: (a :: sort 0) -> Bool -> a -> a -> a;
 
+--------------------------------------------------------------------------------
 -- List comprehensions
 
+-- TODO: use Prelude one
 uncurry :: (a b c :: sort 0) -> (a -> b -> c) -> (#(a, b) -> c);
 uncurry a b c f = (\(x :: #(a, b)) -> f (x.1) (x.2));
 
 from :: (a b :: sort 0) -> (m n :: Num) -> Seq m a -> (a -> Seq n b) -> Seq (TCMul m n) #(a, b);
+from a b m n xs f =
+  make (TCMul m n) #(a, b)
+    (\(i :: Index (TCMul m n)) ->
+      (peek m a xs (indexFst m n i),
+       peek n b (f (peek m a xs (indexFst m n i))) (indexSnd m n i)));
+
 single :: (a :: sort 0) -> a -> Seq (TCNum 1) a;
+single a x = make (TCNum 1) a (\(i :: Index (TCNum 1)) -> x);
+
 mlet :: (a b :: sort 0) -> (n :: Num) -> a -> (a -> Seq n b) -> Seq n #(a, b);
+mlet a b n x f = make n #(a, b) (\(i :: Index n) -> (x, peek n b (f x) i));
+
 zip :: (a b :: sort 0) -> (m n :: Num) -> Seq m a -> Seq n b -> Seq (TCMin m n) #(a, b);
+zip a b m n xs ys =
+  make (TCMin m n) #(a, b)
+    (\(i :: Index (TCMin m n)) ->
+      (peek m a xs (indexMinL m n i), peek n b ys (indexMinR m n i)));
+
 map :: (a b :: sort 0) -> (n :: Num) -> (a -> b) -> Seq n a -> Seq n b;
---map a b (TCNum n) f xs = 
+map a b n f xs = make n b (\(i :: Index n) -> f (peek n a xs i));
 
 --------------------------------------------------------------------------------
 -- Primitive Cryptol functions
@@ -184,10 +232,22 @@ ECRandom :: (a :: sort 0) -> Seq (TCNum 32) Bool -> a;
 --------------------------------------------------------------------------------
 -- Extra functions that appear after rewriting
 
-bvOfSeq_bvToSeq :: (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvOfSeq n (bvToSeq n x)) x;
-
 widthNat :: Nat -> Nat;
 subNat :: Nat -> Nat -> Nat;
+
+bvOfSeq_bvToSeq ::
+  (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvOfSeq n (bvToSeq n x)) x;
+
+peek_make ::
+  (n :: Num) -> (a :: sort 0) -> (f :: Index n -> a) -> (i :: Index n)
+  -> Eq a (peek n a (make n a f) i) (f i);
+
+peek_TCNum ::
+  (n :: Nat) -> (a :: sort 0) -> (xs :: Seq (TCNum n) a) -> (i :: Index (TCNum n))
+  -> Eq a (peek (TCNum n) a xs i) (get n a (vecOfSeq n a xs) i);
+
+--peek (TCNum n) a v i = Prelude.get n a v i;
+--peek TCInf a v i = v i;
 
 --------------------------------------------------------------------------------
 -- Rewrite rules
