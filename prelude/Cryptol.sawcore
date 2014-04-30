@@ -47,57 +47,92 @@ TCLenFromThenTo :: Num -> Num -> Num -> Num;
 --------------------------------------------------------------------------------
 -- Possibly unbounded sequence indexes
 
-Index :: Num -> sort 0;
-Index (TCNum n) = Fin n;
-Index TCInf = Nat;
+data Index :: Num -> sort 0 where {
+    IndexNum :: (n :: Nat) -> Fin n -> Index (TCNum n);
+    IndexInf :: Nat -> Index TCInf;
+  }
+
+unIndexNum :: (n :: Nat) -> Index (TCNum n) -> Fin n;
+unIndexNum _ (IndexNum _ i) = i;
+
+unIndexInf :: Index TCInf -> Nat;
+unIndexInf (IndexInf i) = i;
 
 indexMinL :: (m n :: Num) -> Index (TCMin m n) -> Index m;
+--indexMinL (TCNum m) (TCNum n) i = ...
+indexMinL (TCNum m) TCInf i = i;
+indexMinL TCInf (TCNum n) i = IndexInf (finFront n (unIndexNum n i));
+indexMinL TCInf TCInf i = i;
+
 indexMinR :: (m n :: Num) -> Index (TCMin m n) -> Index n;
+--indexMinR (TCNum m) (TCNum n) i = ...
+indexMinR (TCNum m) TCInf i = IndexInf (finFront m (unIndexNum m i));
+indexMinR TCInf (TCNum n) i = i;
+indexMinR TCInf TCInf i = i;
 
 indexSplit :: (m n :: Num) -> Index (TCMul m n) -> #(Index m, Index n);
+
 indexFst :: (m n :: Num) -> Index (TCMul m n) -> Index m;
+indexFst (TCNum m) (TCNum n) i = IndexNum m (finFst m n (unIndexNum (mulNat m n) i));
+-- TODO: more cases
+
 indexSnd :: (m n :: Num) -> Index (TCMul m n) -> Index n;
+indexSnd (TCNum m) (TCNum n) i = IndexNum n (finSnd m n (unIndexNum (mulNat m n) i));
+-- TODO: more cases
 
 --------------------------------------------------------------------------------
 -- Possibly infinite sequences
 
-Seq :: Num -> sort 0 -> sort 0;
-Seq (TCNum n) a = Vec n a;
-Seq TCInf a = Nat -> a;
--- TODO: add infinite stream type to SAWCore prelude
+data Seq :: Num -> sort 0 -> sort 0 where {
+    SeqNum :: (n :: Nat) -> (a :: sort 0) -> Vec n a -> Seq (TCNum n) a;
+    SeqInf :: (a :: sort 0) -> (Nat -> a) -> Seq TCInf a;
+  }
+
+unSeqNum :: (n :: Nat) -> (a :: sort 0) -> Seq (TCNum n) a -> Vec n a;
+unSeqNum _ _ (SeqNum _ _ v) = v;
+
+unSeqInf :: (a :: sort 0) -> Seq TCInf a -> Nat -> a;
+unSeqInf _ (SeqInf _ f) = f;
 
 make :: (n :: Num) -> (a :: sort 0) -> (Index n -> a) -> Seq n a;
-make (TCNum n) a f = Prelude.generate n a f;
-make TCInf a f = f;
+make (TCNum n) a f = SeqNum n a (Prelude.generate n a (\(i :: Fin n) -> f (IndexNum n i)));
+make TCInf a f = SeqInf a (\(i :: Nat) -> f (IndexInf i));
 
 peek :: (n :: Num) -> (a :: sort 0) -> Seq n a -> Index n -> a;
-peek (TCNum n) a v i = Prelude.get n a v i;
-peek TCInf a v i = v i;
+peek (TCNum n) a v i = Prelude.get n a (unSeqNum n a v) (unIndexNum n i);
+peek TCInf a v i = unSeqInf a v (unIndexInf i);
 
 bvToSeq :: (n :: Nat) -> bitvector n -> Seq (TCNum n) Bool;
-bvToSeq n x = x;
+bvToSeq n x = SeqNum n Bool x;
 
 bvOfSeq :: (n :: Nat) -> Seq (TCNum n) Bool -> bitvector n;
-bvOfSeq n x = x;
-
-vecToSeq :: (n :: Nat) -> (a :: sort 0) -> Vec n a -> Seq (TCNum n) a;
-vecOfSeq :: (n :: Nat) -> (a :: sort 0) -> Seq (TCNum n) a -> Vec n a;
+bvOfSeq n x = unSeqNum n Bool x;
 
 --------------------------------------------------------------------------------
 -- Predicate symbols
 
-KProp :: sort 1;
-KProp = sort 0;
+PEqual :: Num -> Num -> sort 0;
+PNeq   :: Num -> Num -> sort 0;
+PGeq   :: Num -> Num -> sort 0;
 
-PEqual :: Num -> Num -> KProp;
-PNeq   :: Num -> Num -> KProp;
-PGeq   :: Num -> Num -> KProp;
-PFin   :: Num -> KProp;
+data PFin :: Num -> sort 0 where {
+    PFinNum :: (n :: Nat) -> PFin (TCNum n);
+  }
+
 -- PHas Selector
-PArith :: sort 0 -> KProp;
-PCmp   :: sort 0 -> KProp;
 
-Instance_PFin_TCNum :: (n :: Nat) -> PFin (TCNum n);
+data PArith :: sort 0 -> sort 0 where {
+    PArithWord :: (n :: Nat) -> PArith (Seq (TCNum n) Bool);
+    PArithSeq :: (n :: Num) -> (a :: sort 0) -> PArith a -> PArith (Seq n a);
+    PArithPair :: (a b :: sort 0) -> PArith a -> PArith b -> PArith #(a, b);
+  }
+
+data PCmp :: sort 0 -> sort 0 where {
+    PCmpBit :: PCmp Bool;
+    PCmpWord :: (n :: Nat) -> PCmp (Seq (TCNum n) Bool);
+    PCmpSeq :: (n :: Nat) -> (a :: sort 0) -> PCmp a -> PCmp (Seq (TCNum n) a);
+    PCmpPair :: (a b :: sort 0) -> PCmp a -> PCmp b -> PCmp #(a, b);
+  }
 
 theNat :: (m :: Num) -> PFin m -> Nat;
 --theNat _ (Instance_PFin_TCNum n) = n;
@@ -108,9 +143,12 @@ theVec :: (m :: Num) -> (a :: sort 0) -> (p :: PFin m) -> Seq m a -> Vec (theNat
 --------------------------------------------------------------------------------
 -- Auxiliary functions
 
-EProofApp :: (a :: KProp) -> a;
+EProofApp :: (a :: sort 0) -> a;
 ECast :: (a b :: sort 0) -> a -> b;
+
 EList :: (a :: sort 0) -> (n :: Nat) -> Vec n a -> Seq (TCNum n) a;
+EList a n v = SeqNum n a v;
+
 EListSel :: (a :: sort 0) -> (n :: Num) -> Seq n a -> Nat -> a;
 EIf :: (a :: sort 0) -> Bool -> a -> a -> a;
 
@@ -209,7 +247,10 @@ ECFromTo :: (first last bits :: Num) -> PFin last -> PFin bits
          -> Seq (TCAdd (TCNum 1) (TCSub last first)) (Seq bits Bool);
 
 -- Infinite word sequences
-ECInfFrom     :: (n :: Num) -> PFin n -> Seq n Bool -> Seq TCInf (Seq n Bool);
+ECInfFrom :: (n :: Num) -> PFin n -> Seq n Bool -> Seq TCInf (Seq n Bool);
+ECInfFrom _ (PFinNum n) (SeqNum _ _ w) =
+  SeqInf (Seq (TCNum n) Bool) (\(i :: Nat) -> SeqNum n Bool (bvAdd n w (bvNat n i)));
+
 ECInfFromThen :: (n :: Num) -> PFin n -> Seq n Bool -> Seq n Bool -> Seq TCInf (Seq n Bool);
 
 -- Run-time error
@@ -241,13 +282,6 @@ bvOfSeq_bvToSeq ::
 peek_make ::
   (n :: Num) -> (a :: sort 0) -> (f :: Index n -> a) -> (i :: Index n)
   -> Eq a (peek n a (make n a f) i) (f i);
-
-peek_TCNum ::
-  (n :: Nat) -> (a :: sort 0) -> (xs :: Seq (TCNum n) a) -> (i :: Index (TCNum n))
-  -> Eq a (peek (TCNum n) a xs i) (get n a (vecOfSeq n a xs) i);
-
---peek (TCNum n) a v i = Prelude.get n a v i;
---peek TCInf a v i = v i;
 
 --------------------------------------------------------------------------------
 -- Rewrite rules

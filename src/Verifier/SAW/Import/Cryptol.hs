@@ -107,7 +107,7 @@ importType sc env ty =
                                scCtorApp sc "Cryptol.TCNum" [n']
             C.TCInf      -> scCtorApp sc "Cryptol.TCInf" []
             C.TCBit      -> scBoolType sc -- null tyargs
-            C.TCSeq      -> join $ scGlobalApply sc "Cryptol.Seq" <$> traverse go tyargs -- ^ @[_] _@
+            C.TCSeq      -> join $ scDataTypeApp sc "Cryptol.Seq" <$> traverse go tyargs -- ^ @[_] _@
             C.TCFun      -> join $ scFun sc <$> go (tyargs !! 0) <*> go (tyargs !! 1) -- ^ @_ -> _@
             C.TCTuple _n -> join $ scTupleType sc <$> traverse go tyargs -- ^ @(_, _, _)@
             C.TCNewtype (C.UserTC _qn _k) -> unimplemented "TCNewtype" -- ^ user-defined, @T@
@@ -116,10 +116,10 @@ importType sc env ty =
             C.PEqual         -> join $ scGlobalApply sc "Cryptol.PEqual" <$> traverse go tyargs -- ^ @_ == _@
             C.PNeq           -> join $ scGlobalApply sc "Cryptol.PNeq"   <$> traverse go tyargs -- ^ @_ /= _@
             C.PGeq           -> join $ scGlobalApply sc "Cryptol.PGeq"   <$> traverse go tyargs -- ^ @_ >= _@
-            C.PFin           -> join $ scGlobalApply sc "Cryptol.PFin"   <$> traverse go tyargs -- ^ @fin _@
+            C.PFin           -> join $ scDataTypeApp sc "Cryptol.PFin"   <$> traverse go tyargs -- ^ @fin _@
             C.PHas _selector -> unimplemented "PHas"
-            C.PArith         -> join $ scGlobalApply sc "Cryptol.PArith" <$> traverse go tyargs -- ^ @Arith _@
-            C.PCmp           -> join $ scGlobalApply sc "Cryptol.PCmp"   <$> traverse go tyargs -- ^ @Cmp _@
+            C.PArith         -> join $ scDataTypeApp sc "Cryptol.PArith" <$> traverse go tyargs -- ^ @Arith _@
+            C.PCmp           -> join $ scDataTypeApp sc "Cryptol.PCmp"   <$> traverse go tyargs -- ^ @Cmp _@
         C.TF tf ->
           do tf' <- importTFun sc tf
              tyargs' <- traverse go tyargs
@@ -333,7 +333,7 @@ importComp sc env listT expr mss =
      b <- importType sc env elemT
      ys <- scGlobalApply sc "Cryptol.map" [a, b, n, f, xs]
      -- The resulting type might not match the annotation, so we coerce
-     t1 <- scGlobalApply sc "Cryptol.Seq" [n, b]
+     t1 <- scDataTypeApp sc "Cryptol.Seq" [n, b]
      t2 <- importType sc env listT
      scGlobalApply sc "Cryptol.ECast" [t1, t2, ys]
 
