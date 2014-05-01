@@ -122,15 +122,14 @@ data PFin :: Num -> sort 0 where {
 -- PHas Selector
 
 data PArith :: sort 0 -> sort 0 where {
-    PArithWord :: (n :: Nat) -> PArith (Seq (TCNum n) Bool);
+    PArithWord :: (n :: Num) -> PFin n -> PArith (Seq n Bool);
     PArithSeq :: (n :: Num) -> (a :: sort 0) -> PArith a -> PArith (Seq n a);
     PArithPair :: (a b :: sort 0) -> PArith a -> PArith b -> PArith #(a, b);
   }
 
 data PCmp :: sort 0 -> sort 0 where {
     PCmpBit :: PCmp Bool;
-    PCmpWord :: (n :: Nat) -> PCmp (Seq (TCNum n) Bool);
-    PCmpSeq :: (n :: Nat) -> (a :: sort 0) -> PCmp a -> PCmp (Seq (TCNum n) a);
+    PCmpSeq :: (n :: Num) -> (a :: sort 0) -> PFin n -> PCmp a -> PCmp (Seq n a);
     PCmpPair :: (a b :: sort 0) -> PCmp a -> PCmp b -> PCmp #(a, b);
   }
 
