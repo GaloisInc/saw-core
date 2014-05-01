@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Verifier.SAW.Import.Cryptol where
 
@@ -8,7 +9,7 @@ import Control.Monad (join)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
-import Data.Traversable
+import Data.Traversable hiding (sequence)
 
 import qualified Cryptol.TypeCheck.AST as C
 import qualified Cryptol.Prims.Syntax as P
@@ -156,6 +157,37 @@ importPolyType sc env (tp : tps) props ty = do
 importSchema :: SharedContext s -> Env s -> C.Schema -> IO (SharedTerm s)
 importSchema sc env (C.Forall tparams props ty) = importPolyType sc env tparams props ty
 
+proveProp :: SharedContext s -> Env s -> C.Prop -> IO (SharedTerm s)
+proveProp sc env prop =
+  case prop of
+    (C.pIsFin -> Just (C.tIsNum -> Just n))
+      -> scCtorApp sc "Cryptol.PFinNum" =<< sequence [scNat sc (fromInteger n)]
+    (C.pIsArith -> Just (C.tIsSeq -> Just (n, C.tIsBit -> True)))
+      -> scCtorApp sc "Cryptol.PArithWord" =<< sequence [ty n, pr (C.pFin n)]
+    (C.pIsArith -> Just (C.tIsSeq -> Just (n, t))) | definitelyNotBit t
+      -> scCtorApp sc "Cryptol.PArithSeq" =<< sequence [ty n, ty t, pr (C.pArith t)]
+    (C.pIsArith -> Just (C.tIsTuple -> Just [t1, t2]))
+      -> scCtorApp sc "Cryptol.PArithPair" =<< sequence [ty t1, ty t2, pr (C.pArith t1), pr (C.pArith t2)]
+    (C.pIsCmp -> Just (C.tIsBit -> True))
+      -> scCtorApp sc "Cryptol.PCmpBit" []
+    (C.pIsCmp -> Just (C.tIsSeq -> Just (n, t)))
+      -> scCtorApp sc "Cryptol.PCmpSeq" =<< sequence [ty n, ty t, pr (C.pFin n), pr (C.pCmp t)]
+    (C.pIsCmp -> Just (C.tIsTuple -> Just [t1, t2]))
+      -> scCtorApp sc "Cryptol.PCmpPair" =<< sequence [ty t1, ty t2, pr (C.pCmp t1), pr (C.pCmp t2)]
+    -- FIXME: handle arbitrary sized tuples and records
+    _ -> case Map.lookup prop (envP env) of
+           Just prf -> return prf
+           Nothing -> scGlobalApply sc "Cryptol.EProofApp" =<< sequence [ty prop]
+  where
+    ty = importType sc env
+    pr = proveProp sc env
+    definitelyNotBit t =
+      case t of
+        C.TCon tc _    -> tc /= C.TC C.TCBit
+        C.TVar _       -> False
+        C.TUser _ _ t1 -> definitelyNotBit t1
+        C.TRec _       -> True
+
 -- | Convert built-in constants to SAWCore.
 importECon :: SharedContext s -> P.ECon -> IO (SharedTerm s)
 importECon sc econ =
@@ -268,13 +300,11 @@ importExpr sc env expr =
     C.EProofAbs prop e1             -> do p <- importType sc env prop
                                           env' <- bindProp sc prop env
                                           e <- importExpr sc env' e1
-                                          scLambda sc "_" p e
+                                          scLambda sc "_P" p e
     C.EProofApp e1                  -> case fastSchemaOf (envC env) e1 of
                                          C.Forall [] (p1 : _) _ ->
                                            do e <- importExpr sc env e1
-                                              -- TODO: Build a proof of the Prop if possible and apply it.
-                                              p <- importType sc env p1
-                                              prf <- scGlobalApply sc "Cryptol.EProofApp" [p]
+                                              prf <- proveProp sc env p1
                                               scApply sc e prf
                                          s -> fail $ "EProofApp: invalid type: " ++ show (e1, s)
     C.ECast e1 t2                   -> do let t1 = fastTypeOf (envC env) e1
