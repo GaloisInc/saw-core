@@ -237,7 +237,7 @@ importExpr sc env expr =
         C.TupleSel i _          -> join $ scTupleSelector sc <$> go e <*> pure i
         C.RecordSel name _      -> join $ scRecordSelect sc <$> go e <*> pure (nameToString name)
         C.ListSel i _maybeLen   -> do let t = fastTypeOf (envC env) e
-                                      (n, a) <- case tIsSeq t of
+                                      (n, a) <- case C.tIsSeq t of
                                                   Just (n, a) -> return (n, a)
                                                   Nothing -> fail "ListSel: not a list type"
                                       a' <- importType sc env a
@@ -300,12 +300,6 @@ importDeclGroups sc env (C.NonRecursive decl : dgs) =
      let env' = env { envE = Map.insert (C.dName decl) rhs (envE env)
                     , envC = Map.insert (C.dName decl) (C.dSignature decl) (envC env) }
      importDeclGroups sc env' dgs
-
--- TODO: move to Cryptol/TypeCheck/AST.hs
-tIsSeq :: C.Type -> Maybe (C.Type, C.Type)
-tIsSeq ty = case C.tNoUser ty of
-              C.TCon (C.TC C.TCSeq) [n, a] -> Just (n, a)
-              _                            -> Nothing
 
 --------------------------------------------------------------------------------
 -- List comprehensions
@@ -374,14 +368,14 @@ importMatches :: SharedContext s -> Env s -> [C.Match]
 importMatches _sc _env [] = fail "importMatches: empty comprehension branch"
 
 importMatches sc env [C.From qname _ty expr] = do
-  (len, ty) <- case tIsSeq (fastTypeOf (envC env) expr) of
+  (len, ty) <- case C.tIsSeq (fastTypeOf (envC env) expr) of
                  Just x -> return x
                  Nothing -> fail $ "internal error: From: " ++ show (fastTypeOf (envC env) expr)
   xs <- importExpr sc env expr
   return (xs, len, ty, [(qname, ty)])
 
 importMatches sc env (C.From qname _ty1 expr : matches) = do
-  (len1, ty1) <- case tIsSeq (fastTypeOf (envC env) expr) of
+  (len1, ty1) <- case C.tIsSeq (fastTypeOf (envC env) expr) of
                    Just x -> return x
                    Nothing -> fail $ "internal error: From: " ++ show (fastTypeOf (envC env) expr)
   m <- importType sc env len1
