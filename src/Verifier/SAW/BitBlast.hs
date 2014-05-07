@@ -216,7 +216,7 @@ bitBlastWith bc t0 = runErrorT (go t0)
                    pushNew =<< f be go xs
               | otherwise ->
                   fail $ show $ 
-                   text "unsupported expression:" <$$>
+                   text "unsupported expression passed to bitBlast:" <$$>
                    indent 2 (scPrettyTermDoc t)
 
 type BValueOp s l
@@ -266,7 +266,9 @@ blastBV n t = do
     Right v -> do
       lv <- asLitVector v
       when (fromIntegral (LV.length lv) /= n) $ do
-        fail $ "blastBit given bad vector."
+        fail $ "blastBit given bad vector (" ++
+               show (LV.length lv) ++ " vs " ++ show n ++
+               "): " ++ show t ++ "."
       return lv
                                                        
 type Rule s l = Matcher (RuleBlaster s l) (SharedTerm s)
@@ -619,7 +621,7 @@ getOp _be eval [mn, _mty, mx, mf] =
          Just ("Prelude.FinVal", [mi, _]) -> do
            i <- asBNat mi
            return ((V.!) x (fromIntegral i))
-         _ -> fail "get: invalid index"
+         _ -> fail $ "get: invalid index: " ++ show mf
 getOp _ _ args = wrongArity "get op" args
 
 -- set :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e -> Vec n e;
@@ -696,4 +698,4 @@ asBNat :: SharedTerm s -> BBMonad Nat
 asBNat t =
     case R.asNatLit t of
       Just n -> return n
-      Nothing -> fail "expected NatLit"
+      Nothing -> fail $ "expected NatLit (got " ++ show t ++ ")"
