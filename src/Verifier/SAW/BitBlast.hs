@@ -304,10 +304,26 @@ bvRelRule :: forall s l
           -> (BitEngine l -> LitVector l -> LitVector l -> IO l)
           -> Rule s l (BValue l)
 bvRelRule d litFn = matchArgs (asGlobalDef d) termFn
-  where termFn :: Nat -> SharedTerm s -> SharedTerm s -> RuleBlaster s l (BValue l)
+  where termFn :: Nat -> SharedTerm s -> SharedTerm s
+               -> RuleBlaster s l (BValue l)
         termFn n x y = lift $ do
           x' <- blastBV n x
           y' <- blastBV n y
+          be <- asks bcEngine
+          liftIO $ BBool <$> litFn be x' y'
+
+bvSRelRule :: forall s l
+            . (Eq l, LV.Storable l)
+           => Ident
+           -> (BitEngine l -> LitVector l -> LitVector l -> IO l)
+           -> Rule s l (BValue l)
+bvSRelRule d litFn = matchArgs (asGlobalDef d) termFn
+  where termFn :: Nat -> SharedTerm s -> SharedTerm s
+               -> RuleBlaster s l (BValue l)
+        termFn n x y = lift $ do
+          let n' = n + 1
+          x' <- blastBV n' x
+          y' <- blastBV n' y
           be <- asks bcEngine
           liftIO $ BBool <$> litFn be x' y'
 
@@ -333,16 +349,16 @@ bvRulesWithEnv ecEnv
   <> termRule (binBVRule "Prelude.bvSDiv" beQuot)
   <> termRule (binBVRule "Prelude.bvSRem" beRem)
   -- Relations
-  <> termRule (bvRelRule "Prelude.bvEq"  beEqVector)
-  <> termRule (bvRelRule "Prelude.bvsle" beSignedLeq)
-  <> termRule (bvRelRule "Prelude.bvslt" beSignedLt)
-  <> termRule (bvRelRule "Prelude.bvule" beUnsignedLeq)
-  <> termRule (bvRelRule "Prelude.bvult" beUnsignedLt)
+  <> termRule (bvRelRule  "Prelude.bvEq"  beEqVector)
+  <> termRule (bvSRelRule "Prelude.bvsle" beSignedLeq)
+  <> termRule (bvSRelRule "Prelude.bvslt" beSignedLt)
+  <> termRule (bvRelRule  "Prelude.bvule" beUnsignedLeq)
+  <> termRule (bvRelRule  "Prelude.bvult" beUnsignedLt)
   -- TODO: should we do an ordering normalization pass before bit blasting?
-  <> termRule (bvRelRule "Prelude.bvsge" (beFlip beSignedLeq))
-  <> termRule (bvRelRule "Prelude.bvsgt" (beFlip beSignedLt))
-  <> termRule (bvRelRule "Prelude.bvuge" (beFlip beUnsignedLeq))
-  <> termRule (bvRelRule "Prelude.bvugt" (beFlip beUnsignedLt))
+  <> termRule (bvSRelRule "Prelude.bvsge" (beFlip beSignedLeq))
+  <> termRule (bvSRelRule "Prelude.bvsgt" (beFlip beSignedLt))
+  <> termRule (bvRelRule  "Prelude.bvuge" (beFlip beUnsignedLeq))
+  <> termRule (bvRelRule  "Prelude.bvugt" (beFlip beUnsignedLt))
   -- Shift
   <> termRule prelude_bvShl_bv_lsb
   <> termRule prelude_bvShl_nat_lsb
