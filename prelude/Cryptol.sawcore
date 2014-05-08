@@ -6,6 +6,12 @@ module Cryptol where
 import Prelude;
 
 --------------------------------------------------------------------------------
+-- Additional operations on type Nat
+
+widthNat :: Nat -> Nat;
+subNat :: Nat -> Nat -> Nat;
+
+--------------------------------------------------------------------------------
 -- Extended natural numbers
 
 data Num :: sort 0 where {
@@ -14,6 +20,9 @@ data Num :: sort 0 where {
   }
 
 TCWidth :: Num -> Num;
+TCWidth (TCNum n) = TCNum (widthNat n);
+TCWidth TCInf = TCInf;
+
 TCLg2 :: Num -> Num;
 
 TCAdd :: Num -> Num -> Num;
@@ -22,6 +31,8 @@ TCAdd (TCNum _) TCInf = TCInf;
 TCAdd TCInf _ = TCInf;
 
 TCSub :: Num -> Num -> Num;
+TCSub (TCNum x) (TCNum y) = TCNum (subNat x y);
+-- TODO: other cases
 
 TCMul :: Num -> Num -> Num;
 TCMul (TCNum x) (TCNum y) = TCNum (mulNat x y);
@@ -181,14 +192,41 @@ map :: (a b :: sort 0) -> (n :: Num) -> (a -> b) -> Seq n a -> Seq n b;
 map a b n f xs = make n b (\(i :: Index n) -> f (peek n a xs i));
 
 --------------------------------------------------------------------------------
+-- Arith functions
+
+bvBinary :: (n :: Nat) -> (bitvector n -> bitvector n -> bitvector n)
+  -> Seq (TCNum n) Bool -> Seq (TCNum n) Bool -> Seq (TCNum n) Bool;
+bvBinary n f xs ys = bvToSeq n (f (bvOfSeq n xs) (bvOfSeq n ys));
+
+seqBinary :: (n :: Num) -> (a :: sort 0) -> (a -> a -> a) -> Seq n a -> Seq n a -> Seq n a;
+seqBinary n a f xs ys = make n a (\(i :: Index n) -> f (peek n a xs i) (peek n a ys i));
+
+pairBinary :: (a b :: sort 0) -> (a -> a -> a) -> (b -> b -> b) -> #(a, b) -> #(a, b) -> #(a, b);
+pairBinary a b f g x y = (f x.1 y.1, g x.2 y.2);
+
+arithBinary :: ((n :: Nat) -> bitvector n -> bitvector n -> bitvector n)
+         -> (a :: sort 0) -> PArith a -> a -> a -> a;
+arithBinary bvOp _ (PArithWord _ (PFinNum n)) = bvBinary n (bvOp n);
+arithBinary bvOp _ (PArithSeq n a pa) = seqBinary n a (arithBinary bvOp a pa);
+arithBinary bvOp _ (PArithPair a b pa pb) =
+  pairBinary a b (arithBinary bvOp a pa) (arithBinary bvOp b pb);
+
+--------------------------------------------------------------------------------
 -- Primitive Cryptol functions
 
 ECDemote :: (val bits :: Num) -> PFin val -> PFin bits -> PGeq bits (TCWidth val) -> Seq bits Bool;
+ECDemote _ _ (PFinNum val) (PFinNum bits) _ = bvToSeq bits (bvNat bits val);
 
 -- Arith
 ECPlus  :: (a :: sort 0) -> PArith a -> a -> a -> a;
+ECPlus = arithBinary bvAdd;
+
 ECMinus :: (a :: sort 0) -> PArith a -> a -> a -> a;
-ECMul   :: (a :: sort 0) -> PArith a -> a -> a -> a;
+ECMinus = arithBinary bvSub;
+
+ECMul :: (a :: sort 0) -> PArith a -> a -> a -> a;
+ECMul = arithBinary bvMul;
+
 ECDiv   :: (a :: sort 0) -> PArith a -> a -> a -> a;
 ECMod   :: (a :: sort 0) -> PArith a -> a -> a -> a;
 ECExp   :: (a :: sort 0) -> PArith a -> a -> a -> a;
@@ -200,11 +238,20 @@ ECLt    :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
 ECGt    :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
 ECLtEq  :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
 ECGtEq  :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
-ECEq    :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
+
+ECEq :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
+ECEq _ PCmpBit = boolEq;
+--ECEq _ (PCmpSeq n a pn pa) = allSeq n 
+ECEq _ (PCmpPair a b pa pb) =
+  (\(x :: #(a, b)) -> \(y :: #(a, b)) -> and (ECEq a pa x.1 y.1) (ECEq b pb x.2 y.2));
+
 ECNotEq :: (a :: sort 0) -> PCmp a -> a -> a -> Bool;
 
 ECFunEq    :: (a b :: sort 0) -> PCmp b -> (a -> b) -> (a -> b) -> a -> Bool;
+ECFunEq a b pb f g x = ECEq b pb (f x) (g x);
+
 ECFunNotEq :: (a b :: sort 0) -> PCmp b -> (a -> b) -> (a -> b) -> a -> Bool;
+ECFunNotEq a b pb f g x = ECNotEq b pb (f x) (g x);
 
 ECMin :: (a :: sort 0) -> PCmp a -> a -> a -> a;
 ECMax :: (a :: sort 0) -> PCmp a -> a -> a -> a;
@@ -272,9 +319,6 @@ ECRandom :: (a :: sort 0) -> Seq (TCNum 32) Bool -> a;
 --------------------------------------------------------------------------------
 -- Extra functions that appear after rewriting
 
-widthNat :: Nat -> Nat;
-subNat :: Nat -> Nat -> Nat;
-
 bvOfSeq_bvToSeq ::
   (n :: Nat) -> (x :: bitvector n) -> Eq (bitvector n) (bvOfSeq n (bvToSeq n x)) x;
 
@@ -287,9 +331,6 @@ peek_make ::
 
 
 -- Num operations
-TCAdd_TCNum :: (m n :: Nat) -> Eq Num (TCAdd (TCNum m) (TCNum n)) (TCNum (addNat m n));
-TCSub_TCNum :: (m n :: Nat) -> Eq Num (TCSub (TCNum m) (TCNum n)) (TCNum (subNat m n));
-TCWidth_TCNum :: (n :: Nat) -> Eq Num (TCWidth (TCNum n)) (TCNum (widthNat n));
 
 -- Boolean operations
 ECAnd_Bool :: Eq (Bool -> Bool -> Bool) (ECAnd Bool) and;
@@ -298,9 +339,6 @@ ECOr_Bool :: Eq (Bool -> Bool -> Bool) (ECOr Bool) or;
 -- Bitvector operations
 ECCompl_Seq_TCNum_Bool :: (n :: Nat) -> (x :: Seq (TCNum n) Bool)
   -> Eq (Seq (TCNum n) Bool) (ECCompl (Seq (TCNum n) Bool) x) (bvToSeq n (bvNot n (bvOfSeq n x)));
-
-ECDemote_TCNum :: (m n :: Nat) -> (p1 :: PFin (TCNum m)) -> (p2 :: PFin (TCNum n)) -> (p3 :: PGeq (TCNum n) (TCWidth (TCNum m)))
-  -> Eq (Seq (TCNum n) Bool) (ECDemote (TCNum m) (TCNum n) p1 p2 p3) (bvToSeq n (bvNat n m));
 
 ECEq_Seq_TCNum_Bool :: (n :: Nat) -> (p :: PCmp (Seq (TCNum n) Bool)) -> (x y :: Seq (TCNum n) Bool)
   -> Eq Bool (ECEq (Seq (TCNum n) Bool) p x y) (bvEq n (bvOfSeq n x) (bvOfSeq n y));
