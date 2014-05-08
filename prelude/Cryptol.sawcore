@@ -130,6 +130,12 @@ data PFin :: Num -> sort 0 where {
     PFinNum :: (n :: Nat) -> PFin (TCNum n);
   }
 
+pfinWidth :: (n :: Num) -> PFin n -> PFin (TCWidth n);
+pfinWidth _ (PFinNum n) = PFinNum (widthNat n);
+
+pfinSub :: (m n :: Num) -> PFin m -> PFin n -> PFin (TCSub m n);
+pfinSub _ _ (PFinNum m) (PFinNum n) = PFinNum (subNat m n);
+
 -- PHas Selector
 
 data PArith :: sort 0 -> sort 0 where {

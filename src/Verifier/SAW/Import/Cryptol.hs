@@ -162,6 +162,10 @@ proveProp sc env prop =
   case prop of
     (C.pIsFin -> Just (C.tIsNum -> Just n))
       -> scCtorApp sc "Cryptol.PFinNum" =<< sequence [scNat sc (fromInteger n)]
+    (C.pIsFin -> Just (tIsWidth -> Just n))
+      -> scGlobalApply sc "Cryptol.pfinWidth" =<< sequence [ty n, pr (C.pFin n)]
+    (C.pIsFin -> Just (tIsSub -> Just (m, n)))
+      -> scGlobalApply sc "Cryptol.pfinSub" =<< sequence [ty m, ty n, pr (C.pFin m), pr (C.pFin n)]
     (C.pIsArith -> Just (C.tIsSeq -> Just (n, C.tIsBit -> True)))
       -> scCtorApp sc "Cryptol.PArithWord" =<< sequence [ty n, pr (C.pFin n)]
     (C.pIsArith -> Just (C.tIsSeq -> Just (n, t))) | definitelyNotBit t
@@ -441,3 +445,13 @@ importMatches sc env (C.Let decl : matches) =
      f <- scLambda sc (qnameToString (C.dName decl)) a body
      result <- scGlobalApply sc "Cryptol.mlet" [a, b, n, e, f]
      return (result, len, C.tTuple [ty1, ty2], (C.dName decl, ty1) : args)
+
+tIsWidth :: C.Type -> Maybe C.Type
+tIsWidth ty = case C.tNoUser ty of
+                C.TCon (C.TF (C.TCWidth)) [t1] -> Just t1
+                _                              -> Nothing
+
+tIsSub :: C.Type -> Maybe (C.Type, C.Type)
+tIsSub ty = case C.tNoUser ty of
+              C.TCon (C.TF (C.TCSub)) [t1, t2] -> Just (t1, t2)
+              _                                -> Nothing
