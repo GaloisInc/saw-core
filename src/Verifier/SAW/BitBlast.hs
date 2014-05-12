@@ -608,34 +608,34 @@ iteOp tp mb mx my = lift $ do
 
 bvTruncOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvTruncOp be eval [_, mj, mx] =
-    do j <- asBNat mj
+    do j <- asBNat mj "Trunc"
        x <- asLitVector =<< eval mx
        return (lvVector (beTrunc be (fromIntegral j) x))
 bvTruncOp _ _ args = wrongArity "trunc op" args
 
 bvUExtOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvUExtOp be eval [mi, mj, mx] =
-    do i <- asBNat mi
-       j <- asBNat mj
+    do i <- asBNat mi "UExt"
+       j <- asBNat mj "UExt"
        x <- asLitVector =<< eval mx
        return (lvVector (beZext be (fromIntegral (i + j)) x))
 bvUExtOp _ _ args = wrongArity "UExt op" args
 
 bvSExtOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvSExtOp be eval [mi, mj, mx] =
-    do i <- asBNat mi
-       j <- asBNat mj
+    do i <- asBNat mi "SExt"
+       j <- asBNat mj "SExt"
        x <- asLitVector =<< eval mx
        return (lvVector (beSext be (fromIntegral (i + j + 1)) x))
 bvSExtOp _ _ args = wrongArity "SExt op" args
 
 getOp :: LV.Storable l => BValueOp s l
 getOp _be eval [mn, _mty, mx, mf] =
-    do _n <- asBNat mn
+    do _n <- asBNat mn "get"
        x <- asBVector =<< eval mx
        case R.asCtor mf of
          Just ("Prelude.FinVal", [mi, _]) -> do
-           i <- asBNat mi
+           i <- asBNat mi "get"
            return ((V.!) x (fromIntegral i))
          _ -> fail $ "get: invalid index: " ++ show mf
 getOp _ _ args = wrongArity "get op" args
@@ -643,12 +643,12 @@ getOp _ _ args = wrongArity "get op" args
 -- set :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e -> Vec n e;
 setOp :: LV.Storable l => BValueOp s l
 setOp _be eval [mn, _me, mv, mf, mx] =
-    do _n <- asBNat mn
+    do _n <- asBNat mn "set"
        v <- asBVector =<< eval mv
        x <- eval mx
        case R.asCtor mf of
          Just ("Prelude.FinVal", [mi, _]) -> do
-           i <- asBNat mi
+           i <- asBNat mi "set"
            return (BVector ((V.//) v [(fromIntegral i, x)]))
          _ -> fail $ "set: invalid index: " ++ show mf
 setOp _ _ args = wrongArity "set op" args
@@ -656,15 +656,15 @@ setOp _ _ args = wrongArity "set op" args
 -- replicate :: (n :: Nat) -> (e :: sort 0) -> e -> Vec n e;
 replicateOp :: BValueOp s l
 replicateOp _be eval [mn, _me, mx] =
-    do n <- fromIntegral <$> asBNat mn
+    do n <- fromIntegral <$> asBNat mn "replicate"
        x <- eval mx
        return (BVector (V.replicate n x))
 replicateOp _ _ args = wrongArity "replicate op" args
 
 bvSliceOp :: LV.Storable l => BValueOp s l
 bvSliceOp _ eval [_, mi, mn, _, mx] =
-    do i <- fromIntegral <$> asBNat mi
-       n <- fromIntegral <$> asBNat mn
+    do i <- fromIntegral <$> asBNat mi "slice"
+       n <- fromIntegral <$> asBNat mn "slice"
        x <- asLitVector =<< eval mx
        return (lvVector (LV.take n (LV.drop i x)))
 bvSliceOp _ _ args = wrongArity "slice op" args
@@ -672,8 +672,8 @@ bvSliceOp _ _ args = wrongArity "slice op" args
 joinOp :: LV.Storable l => BValueOp s l
 joinOp _ eval [mm, mn, _me, mv] =
     do v <- eval mv
-       m <- fromIntegral <$> asBNat mm
-       n <- fromIntegral <$> asBNat mn
+       m <- fromIntegral <$> asBNat mm "join"
+       n <- fromIntegral <$> asBNat mn "join"
        checkShape (VecShape m (VecShape n BoolShape)) v
        return (lvVector (flattenBValue v))
 joinOp _ _ args = wrongArity "join op" args
@@ -685,8 +685,8 @@ chunk n v | V.length v <= n = V.singleton v
 splitOp :: LV.Storable l => BValueOp s l
 splitOp _ eval [mm, mn, _me, mv] =
     do v <- eval mv
-       m <- fromIntegral <$> asBNat mm
-       n <- fromIntegral <$> asBNat mn
+       m <- fromIntegral <$> asBNat mm "split"
+       n <- fromIntegral <$> asBNat mn "split"
        checkShape (VecShape (m * n) BoolShape) v
        lv <- asBVector v
        let lvParts = chunk (fromIntegral n) lv
@@ -710,8 +710,9 @@ asBBool :: Monad m => BValue l -> m l
 asBBool (BBool l) = return l
 asBBool _ = fail "expected Bool"
 
-asBNat :: SharedTerm s -> BBMonad Nat
-asBNat t =
+asBNat :: SharedTerm s -> String -> BBMonad Nat
+asBNat t desc =
     case R.asNatLit t of
       Just n -> return n
-      Nothing -> fail $ "expected NatLit (got " ++ show t ++ ")"
+      Nothing ->
+        fail $ "expected NatLit (got " ++ show t ++ ") in argument to " ++ desc
