@@ -617,28 +617,65 @@ bvSExtOp be eval [mi, mj, mx] =
 bvSExtOp _ _ args = wrongArity "SExt op" args
 
 getOp :: LV.Storable l => BValueOp s l
-getOp _be eval [mn, _mty, mx, mf] =
-    do _n <- asBNat mn "get"
-       x <- asBVector =<< eval mx
+getOp be eval [mn, _mty, mv, mf] =
+    do n <- asBNat mn "get"
+       let vecOp (BVector v) i = (V.!) v (fromIntegral i)
+           vecOp _ _ = error "vecOp applied to non-vector"
+       v <- eval mv
        case R.asCtor mf of
-         Just ("Prelude.FinVal", [mi, _]) -> do
-           i <- asBNat mi "get"
-           return ((V.!) x (fromIntegral i))
+         Just ("Prelude.FinVal", [R.asNatLit -> Just i, _]) -> do
+           return (vecOp v i)
+         Just ("Prelude.FinVal",
+               [ R.asApplyAll -> (R.isGlobalDef "Prelude.bvToNat" -> Just (),
+                                  [wt, it])
+               , _
+               ]) -> do
+           w <- asBNat wt "get"
+           iv <- eval it
+           let def = lvVector (beVectorFromInt be (fromIntegral w) 0)
+           liftIO $ symIdx be vecOp n v iv  def
          _ -> fail $ "get: invalid index: " ++ show mf
 getOp _ _ args = wrongArity "get op" args
 
 -- set :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e -> Vec n e;
 setOp :: LV.Storable l => BValueOp s l
-setOp _be eval [mn, _me, mv, mf, mx] =
-    do _n <- asBNat mn "set"
-       v <- asBVector =<< eval mv
+setOp be eval [mn, _me, mv, mf, mx] =
+    do n <- asBNat mn "set"
+       v <- eval mv
        x <- eval mx
+       let vecOp (BVector v) i = BVector ((V.//) v [(fromIntegral i, x)])
+           vecOp _ _ = error "vecOp applied to non-vector"
        case R.asCtor mf of
-         Just ("Prelude.FinVal", [mi, _]) -> do
-           i <- asBNat mi "set"
-           return (BVector ((V.//) v [(fromIntegral i, x)]))
+         Just ("Prelude.FinVal", [R.asNatLit -> Just i, _]) -> do
+           return (vecOp v i)
+         Just ("Prelude.FinVal",
+               [ R.asApplyAll -> (R.isGlobalDef "Prelude.bvToNat" -> Just (),
+                                  [wt, it])
+               , _
+               ]) -> do
+           w <- asBNat wt "get"
+           iv <- eval it
+           liftIO $ symIdx be vecOp n v iv v
          _ -> fail $ "set: invalid index: " ++ show mf
 setOp _ _ args = wrongArity "set op" args
+
+symIdx :: (LV.Storable l) =>
+          BitEngine l
+       -> (BValue l -> Nat -> BValue l)
+       -> Nat
+       -> BValue l
+       -> BValue l
+       -> BValue l
+       -> IO (BValue l)
+symIdx be op n v i def = go 0
+  where
+    go j | j < n =
+           do let iv = flattenBValue i
+                  jv = beVectorFromInt be (LV.length iv) (fromIntegral n)
+              eqV <- beEqVector be jv iv
+              fv <- go (j + 1)
+              iteFn be eqV (op v j) fv
+         | otherwise = return def
 
 -- replicate :: (n :: Nat) -> (e :: sort 0) -> e -> Vec n e;
 replicateOp :: BValueOp s l
