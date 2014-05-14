@@ -61,7 +61,7 @@ import Verifier.SAW.Prim
 import qualified Verifier.SAW.Recognizer as R
 import Verifier.SAW.Rewriter ()
 import Verifier.SAW.SharedTerm
-import qualified Verifier.SAW.TermNet as Net 
+import qualified Verifier.SAW.TermNet as Net
 import Verifier.SAW.TypedAST
 import Verinf.Symbolic.Lit
 import Verifier.SAW.Export.SMT.Common
@@ -82,12 +82,12 @@ bRecordSelect (BRecord m) nm | Just v <- Map.lookup nm m = return v
 bRecordSelect _ _ = fail "Invalid record selector."
 
 lvVector :: LV.Storable l => LitVector l -> BValue l
-lvVector lv = BVector v 
-  where v = V.generate (LV.length lv) (\i -> BBool (lv LV.! i)) 
+lvVector lv = BVector v
+  where v = V.generate (LV.length lv) (\i -> BBool (lv LV.! i))
 
 lvFromV :: LV.Storable l => V.Vector l -> LV.Vector l
 lvFromV v = LV.generate (V.length v) (v V.!)
-  
+
 flattenBValue :: LV.Storable l => BValue l -> LitVector l
 flattenBValue (BBool l) = LV.singleton l
 flattenBValue (BVector v) = LV.concat (flattenBValue <$> V.toList v)
@@ -107,7 +107,7 @@ wrongArity s args =
 -- | Describes an expected shape that a bitblasted
 -- term is expected to have.  Used for typechecking during
 -- bitblasting.
-data BShape 
+data BShape
    = BoolShape
    | VecShape Nat BShape
    | TupleShape [BShape]
@@ -215,7 +215,7 @@ bitBlastWith bc t0 = runErrorT (go t0)
               , Just f <- Map.lookup ident opTable ->
                    pushNew =<< f be go xs
               | otherwise ->
-                  fail $ show $ 
+                  fail $ show $
                    text "unsupported expression passed to bitBlast:" <$$>
                    indent 2 (scPrettyTermDoc t)
 
@@ -244,7 +244,7 @@ blastWithShape shape t = do
   bc <- ask
   mr <- liftIO $ bitBlastWith bc t
   case mr of
-    Left msg -> fail msg 
+    Left msg -> fail msg
     Right v -> v <$ checkShape shape v
 
 blastBit :: (Eq l, LV.Storable l) => SharedTerm s -> Bitblaster s l l
@@ -270,7 +270,7 @@ blastBV n t = do
                show (LV.length lv) ++ " vs " ++ show n ++
                "): " ++ show t ++ "."
       return lv
-                                                       
+
 type Rule s l = Matcher (RuleBlaster s l) (SharedTerm s)
 
 -- HACK!
@@ -367,7 +367,7 @@ bvRulesWithEnv ecEnv
   <> termRule prelude_bvSShr_bv_lsb
   <> termRule prelude_bvSShr_nat_lsb
 
-  <> termRule (asGlobalDef "Prelude.ite" `matchArgs` 
+  <> termRule (asGlobalDef "Prelude.ite" `matchArgs`
                (iteOp :: SharedTerm s
                       -> SharedTerm s
                       -> SharedTerm s
