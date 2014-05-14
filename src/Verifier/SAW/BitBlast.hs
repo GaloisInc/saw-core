@@ -592,19 +592,21 @@ iteOp tp mb mx my = lift $ do
       | otherwise -> do
             x <- blastWithShape shape mx
             y <- blastWithShape shape my
-            liftIO $ iteFn x y
-          where iteFn (BBool x) (BBool y) = BBool <$> beMux be b x y
-                iteFn (BVector x) (BVector y)
-                  | V.length x == V.length y
-                  = BVector <$> V.zipWithM iteFn x y
-                iteFn (BTuple x) (BTuple y)
-                  | length x == length y
-                  = BTuple <$> zipWithM iteFn x y
-                iteFn (BRecord x) (BRecord y)
-                  | Map.keys x == Map.keys y
-                  = fmap BRecord $ sequenceOf traverse 
-                                 $ Map.intersectionWith iteFn x y
-                iteFn _ _ = fail "malformed arguments."
+            liftIO $ iteFn be b x y
+
+iteFn :: BitEngine l -> l -> BValue l -> BValue l -> IO (BValue l)
+iteFn be b (BBool x) (BBool y) = BBool <$> beMux be b x y
+iteFn be b (BVector x) (BVector y)
+  | V.length x == V.length y
+  = BVector <$> V.zipWithM (iteFn be b) x y
+iteFn be b (BTuple x) (BTuple y)
+  | length x == length y
+  = BTuple <$> zipWithM (iteFn be b) x y
+iteFn be b (BRecord x) (BRecord y)
+  | Map.keys x == Map.keys y
+  = fmap BRecord $ sequenceOf traverse
+    $ Map.intersectionWith (iteFn be b) x y
+iteFn _ _ _ _ = fail "malformed arguments."
 
 bvTruncOp :: (Eq l, LV.Storable l) => BValueOp s l
 bvTruncOp be eval [_, mj, mx] =
