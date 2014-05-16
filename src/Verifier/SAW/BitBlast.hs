@@ -16,6 +16,7 @@ module Verifier.SAW.BitBlast
   , bitBlast
   , bitBlastWithEnv
   , lvVector
+  , getShape
     -- * Explicitly cached interface
   , LV.Storable
   , BCache
@@ -30,7 +31,7 @@ module Verifier.SAW.BitBlast
   , RuleBlaster
   , Bitblaster
   , blastBV
-    -- * Standard prelude bitvecot rules.
+    -- * Standard prelude bitvector rules.
   , bvRules
      -- * Re-exports
   , (<>)
@@ -38,6 +39,9 @@ module Verifier.SAW.BitBlast
   , Renderable
   , Termlike
   , matchArgs
+    -- Lifting results back to Terms
+  , liftCounterExample
+  , liftConcreteBValue
   ) where
 
 import Control.Applicative
@@ -46,6 +50,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Identity
 import Control.Monad.Reader
+import qualified Control.Monad.State as S
 import Control.Monad.Trans.Error
 import Control.Monad.Trans.Maybe
 import Data.Foldable (Foldable)
@@ -53,6 +58,7 @@ import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Monoid
+import qualified Data.Traversable as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as LV
 import Text.PrettyPrint.Leijen hiding ((<$>), (<>))
@@ -93,6 +99,47 @@ flattenBValue (BBool l) = LV.singleton l
 flattenBValue (BVector v) = LV.concat (flattenBValue <$> V.toList v)
 flattenBValue (BTuple vs) = LV.concat (flattenBValue <$> vs)
 flattenBValue (BRecord vm) = LV.concat (flattenBValue <$> Map.elems vm)
+
+liftCounterExample :: BShape -> [Bool] -> Either BBErr (BValue Bool)
+liftCounterExample shape bs = do
+  (bval, rest) <- S.runStateT (go shape) bs
+  case rest of
+    [] -> return bval
+    _  -> fail "liftCounterExample: leftover bits"
+  where
+    go :: BShape -> S.StateT [Bool] (Either BBErr) (BValue Bool)
+    go BoolShape = do
+      bs' <- S.get
+      case bs' of
+        [] -> fail "liftCounterExample: ran out of bits"
+        b:rest -> S.put rest >> return (BBool b)
+    go (VecShape n s) =
+          (BVector . V.fromList) <$> replicateM (fromIntegral n) (go s)
+    go (TupleShape ss) = BTuple <$> mapM go ss
+    go (RecShape m) = BRecord <$> T.mapM go m
+
+liftConcreteBValue :: BValue Bool -> Term
+liftConcreteBValue = go
+  where
+    go bval =
+      Term . FTermF $
+      case bval of
+        BBool True -> CtorApp "Prelue.True" []
+        BBool False -> CtorApp "Prelude.False" []
+        BVector bvs ->
+          ArrayValue (liftShape (getShape (V.head bvs))) (V.map go bvs)
+        BTuple bvs -> TupleValue (map go bvs)
+        BRecord m -> RecordValue (fmap go m)
+
+liftShape :: BShape -> Term
+liftShape = Term . go
+  where
+    go BoolShape = FTermF $ DataTypeApp "Prelude.Bool" []
+    go (VecShape n es) = FTermF $
+      DataTypeApp "Prelude.Vec" [ Term . FTermF $ NatLit (fromIntegral n)
+                                , liftShape es]
+    go (TupleShape ss) = FTermF $ TupleType (map liftShape ss)
+    go (RecShape m) = FTermF $ RecordType (fmap liftShape m)
 
 type BBErr = String
 type BBMonad = ErrorT BBErr IO
@@ -135,6 +182,14 @@ checkShape (RecShape tpm) (BRecord m) = do
   when (Map.keysSet tpm /= Map.keysSet m) $ fail "Record keys don't match"
   zipWithM_ checkShape (Map.elems tpm) (Map.elems m)
 checkShape _ _ = fail "Bitblast shape doesn't match."
+
+getShape :: BValue l -> BShape
+getShape (BBool _) = BoolShape
+getShape (BVector bvs)
+  | V.null bvs = error "getShape: empty vector"
+  | otherwise = VecShape (fromIntegral (V.length bvs)) (getShape (V.head bvs))
+getShape (BTuple l) = TupleShape (map getShape l)
+getShape (BRecord m) = RecShape (fmap getShape m)
 
 newVars :: BitEngine l -> BShape -> IO (BValue l)
 newVars be BoolShape = BBool <$> beMakeInputLit be
@@ -452,7 +507,7 @@ instance Matchable (RuleBlaster s l) (SharedTerm s) BShape where
 matchExtCns :: Map VarIndex (BValue l) -> ExtCns (SharedTerm s) -> RuleBlaster s l (BValue l)
 matchExtCns ecEnv ec =
   case Map.lookup (ecVarIndex ec) ecEnv of
-    Just bv -> return bv
+    Just bval -> return bval
     Nothing -> lift $ do
       be <- asks bcEngine
       shape <- parseShape (ecType ec)
@@ -508,6 +563,7 @@ opTable =
     , ("split"    , splitOp     )
     ]
 
+{-
 bvRelOp :: (LV.Storable l)
         => (BitEngine l -> LitVector l -> LitVector l -> IO l)
         -> BValueOp s l
@@ -516,6 +572,7 @@ bvRelOp f be eval [_, mx, my] =
        y <- asLitVector =<< eval my
        liftIO $ BBool <$> f be x y
 bvRelOp _ _ _ args = wrongArity "relational op" args
+-}
 
 boolOp :: (BitEngine l -> l -> l -> IO l) -> BValueOp s l
 boolOp f be eval [mx, my] =
@@ -641,19 +698,19 @@ getOp _ _ args = wrongArity "get op" args
 setOp :: LV.Storable l => BValueOp s l
 setOp be eval [mn, _me, mv, mf, mx] =
     do n <- asBNat mn "set"
-       v <- eval mv
        x <- eval mx
        let vecOp (BVector v) i = BVector ((V.//) v [(fromIntegral i, x)])
            vecOp _ _ = error "vecOp applied to non-vector"
+       v <- eval mv
        case R.asCtor mf of
          Just ("Prelude.FinVal", [R.asNatLit -> Just i, _]) -> do
            return (vecOp v i)
          Just ("Prelude.FinVal",
                [ R.asApplyAll -> (R.isGlobalDef "Prelude.bvToNat" -> Just (),
-                                  [wt, it])
+                                  [_wt, it])
                , _
                ]) -> do
-           w <- asBNat wt "get"
+           -- w <- asBNat wt "get"
            iv <- eval it
            liftIO $ symIdx be vecOp n v iv v
          _ -> fail $ "set: invalid index: " ++ show mf
@@ -667,14 +724,14 @@ symIdx :: (LV.Storable l) =>
        -> BValue l
        -> BValue l
        -> IO (BValue l)
-symIdx be op n v i def = go 0
+symIdx be concOp n v i def = go 0
   where
     go j | j < n =
            do let iv = flattenBValue i
                   jv = beVectorFromInt be (LV.length iv) (fromIntegral n)
               eqV <- beEqVector be jv iv
               fv <- go (j + 1)
-              iteFn be eqV (op v j) fv
+              iteFn be eqV (concOp v j) fv
          | otherwise = return def
 
 -- replicate :: (n :: Nat) -> (e :: sort 0) -> e -> Vec n e;
@@ -714,9 +771,9 @@ splitOp _ eval [mm, mn, _me, mv] =
        checkShape (VecShape (m * n) BoolShape) v
        lv <- asBVector v
        let lvParts = chunk (fromIntegral n) lv
-           bv = BVector (V.map BVector lvParts)
-       checkShape (VecShape m (VecShape n BoolShape)) bv
-       return bv
+           bval = BVector (V.map BVector lvParts)
+       checkShape (VecShape m (VecShape n BoolShape)) bval
+       return bval
 splitOp _ _ args = wrongArity "split op" args
 
 ----------------------------------------------------------------------
