@@ -216,7 +216,7 @@ bitBlastWith bc t0 = runErrorT (go t0)
                    pushNew =<< f be go xs
               | otherwise ->
                   fail $ show $ 
-                   text "unsupported expression:" <$$>
+                   text "unsupported expression passed to bitBlast:" <$$>
                    indent 2 (scPrettyTermDoc t)
 
 type BValueOp s l
@@ -266,7 +266,9 @@ blastBV n t = do
     Right v -> do
       lv <- asLitVector v
       when (fromIntegral (LV.length lv) /= n) $ do
-        fail $ "blastBit given bad vector."
+        fail $ "blastBit given bad vector (" ++
+               show (LV.length lv) ++ " vs " ++ show n ++
+               "): " ++ show t ++ "."
       return lv
                                                        
 type Rule s l = Matcher (RuleBlaster s l) (SharedTerm s)
@@ -302,10 +304,26 @@ bvRelRule :: forall s l
           -> (BitEngine l -> LitVector l -> LitVector l -> IO l)
           -> Rule s l (BValue l)
 bvRelRule d litFn = matchArgs (asGlobalDef d) termFn
-  where termFn :: Nat -> SharedTerm s -> SharedTerm s -> RuleBlaster s l (BValue l)
+  where termFn :: Nat -> SharedTerm s -> SharedTerm s
+               -> RuleBlaster s l (BValue l)
         termFn n x y = lift $ do
           x' <- blastBV n x
           y' <- blastBV n y
+          be <- asks bcEngine
+          liftIO $ BBool <$> litFn be x' y'
+
+bvSRelRule :: forall s l
+            . (Eq l, LV.Storable l)
+           => Ident
+           -> (BitEngine l -> LitVector l -> LitVector l -> IO l)
+           -> Rule s l (BValue l)
+bvSRelRule d litFn = matchArgs (asGlobalDef d) termFn
+  where termFn :: Nat -> SharedTerm s -> SharedTerm s
+               -> RuleBlaster s l (BValue l)
+        termFn n x y = lift $ do
+          let n' = n + 1
+          x' <- blastBV n' x
+          y' <- blastBV n' y
           be <- asks bcEngine
           liftIO $ BBool <$> litFn be x' y'
 
@@ -331,16 +349,16 @@ bvRulesWithEnv ecEnv
   <> termRule (binBVRule "Prelude.bvSDiv" beQuot)
   <> termRule (binBVRule "Prelude.bvSRem" beRem)
   -- Relations
-  <> termRule (bvRelRule "Prelude.bvEq"  beEqVector)
-  <> termRule (bvRelRule "Prelude.bvsle" beSignedLeq)
-  <> termRule (bvRelRule "Prelude.bvslt" beSignedLt)
-  <> termRule (bvRelRule "Prelude.bvule" beUnsignedLeq)
-  <> termRule (bvRelRule "Prelude.bvult" beUnsignedLt)
+  <> termRule (bvRelRule  "Prelude.bvEq"  beEqVector)
+  <> termRule (bvSRelRule "Prelude.bvsle" beSignedLeq)
+  <> termRule (bvSRelRule "Prelude.bvslt" beSignedLt)
+  <> termRule (bvRelRule  "Prelude.bvule" beUnsignedLeq)
+  <> termRule (bvRelRule  "Prelude.bvult" beUnsignedLt)
   -- TODO: should we do an ordering normalization pass before bit blasting?
-  <> termRule (bvRelRule "Prelude.bvsge" (beFlip beSignedLeq))
-  <> termRule (bvRelRule "Prelude.bvsgt" (beFlip beSignedLt))
-  <> termRule (bvRelRule "Prelude.bvuge" (beFlip beUnsignedLeq))
-  <> termRule (bvRelRule "Prelude.bvugt" (beFlip beUnsignedLt))
+  <> termRule (bvSRelRule "Prelude.bvsge" (beFlip beSignedLeq))
+  <> termRule (bvSRelRule "Prelude.bvsgt" (beFlip beSignedLt))
+  <> termRule (bvRelRule  "Prelude.bvuge" (beFlip beUnsignedLeq))
+  <> termRule (bvRelRule  "Prelude.bvugt" (beFlip beUnsignedLt))
   -- Shift
   <> termRule prelude_bvShl_bv_lsb
   <> termRule prelude_bvShl_nat_lsb
@@ -619,7 +637,7 @@ getOp _be eval [mn, _mty, mx, mf] =
          Just ("Prelude.FinVal", [mi, _]) -> do
            i <- asBNat mi
            return ((V.!) x (fromIntegral i))
-         _ -> fail "get: invalid index"
+         _ -> fail $ "get: invalid index: " ++ show mf
 getOp _ _ args = wrongArity "get op" args
 
 -- set :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e -> Vec n e;
@@ -696,4 +714,4 @@ asBNat :: SharedTerm s -> BBMonad Nat
 asBNat t =
     case R.asNatLit t of
       Just n -> return n
-      Nothing -> fail "expected NatLit"
+      Nothing -> fail $ "expected NatLit (got " ++ show t ++ ")"
