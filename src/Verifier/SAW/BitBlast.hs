@@ -17,6 +17,7 @@ module Verifier.SAW.BitBlast
   , bitBlastWithEnv
   , lvVector
   , getShape
+  , parseShape
     -- * Explicitly cached interface
   , LV.Storable
   , BCache
@@ -41,6 +42,7 @@ module Verifier.SAW.BitBlast
   , matchArgs
     -- Lifting results back to Terms
   , liftCounterExample
+  , liftCounterExamples
   , liftConcreteBValue
   ) where
 
@@ -48,7 +50,6 @@ import Control.Applicative
 import Control.Exception (assert)
 import Control.Lens
 import Control.Monad
-import Control.Monad.Identity
 import Control.Monad.Reader
 import qualified Control.Monad.State as S
 import Control.Monad.Trans.Error
@@ -100,23 +101,34 @@ flattenBValue (BVector v) = LV.concat (flattenBValue <$> V.toList v)
 flattenBValue (BTuple vs) = LV.concat (flattenBValue <$> vs)
 flattenBValue (BRecord vm) = LV.concat (flattenBValue <$> Map.elems vm)
 
-liftCounterExample :: BShape -> [Bool] -> Either BBErr (BValue Bool)
-liftCounterExample shape bs = do
-  (bval, rest) <- S.runStateT (go shape) bs
-  case rest of
-    [] -> return bval
-    _  -> fail "liftCounterExample: leftover bits"
-  where
-    go :: BShape -> S.StateT [Bool] (Either BBErr) (BValue Bool)
-    go BoolShape = do
+liftCounterExamples' :: BShape -> S.StateT [Bool] (Either BBErr) (BValue Bool)
+liftCounterExamples' shape =
+  case shape of
+    BoolShape -> do
       bs' <- S.get
       case bs' of
-        [] -> fail "liftCounterExample: ran out of bits"
+        [] -> fail "liftCounterExamples': ran out of bits"
         b:rest -> S.put rest >> return (BBool b)
-    go (VecShape n s) =
-          (BVector . V.fromList) <$> replicateM (fromIntegral n) (go s)
-    go (TupleShape ss) = BTuple <$> mapM go ss
-    go (RecShape m) = BRecord <$> T.mapM go m
+    VecShape n s ->
+      (BVector . V.fromList) <$>
+      replicateM (fromIntegral n) (liftCounterExamples' s)
+    TupleShape ss -> BTuple <$> mapM liftCounterExamples' ss
+    RecShape m -> BRecord <$> T.mapM liftCounterExamples' m
+
+liftCounterExamples :: [BShape] -> [Bool]
+                    -> Either BBErr [BValue Bool]
+liftCounterExamples shapes bs = do
+  (bvals, rest) <- S.runStateT (mapM liftCounterExamples' shapes) bs
+  case rest of
+    [] -> return bvals
+    _  -> fail "liftCounterExamples: leftover bits"
+
+liftCounterExample :: BShape -> [Bool] -> Either BBErr (BValue Bool)
+liftCounterExample shape bs = do
+  bvals <- liftCounterExamples [shape] bs
+  case bvals of
+    [bval] -> return bval
+    _ -> fail "liftCounterExample: too many values"
 
 liftConcreteBValue :: BValue Bool -> Term
 liftConcreteBValue = go
@@ -159,6 +171,7 @@ data BShape
    | VecShape Nat BShape
    | TupleShape [BShape]
    | RecShape (Map FieldName BShape)
+     deriving (Show)
 
 parseShape :: (Applicative m, Monad m) => SharedTerm s -> m BShape
 parseShape (R.asBoolType -> Just ()) = return BoolShape
