@@ -64,9 +64,9 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
                 do (size1, arg1) <- parseSBV sc nodes sbv1
                    unless (size == fromInteger (hi + 1 - lo)) (fail $ "parseSBVExpr BVExt: size mismatch " ++ show (size, hi, lo))
                    b <- scBoolType sc
-                   s1 <- scNat sc (fromInteger lo)
+                   s1 <- scNat sc (size1 - 1 - fromInteger hi)
                    s2 <- scNat sc size
-                   s3 <- scNat sc (size1 - 1 - fromInteger hi)
+                   s3 <- scNat sc (fromInteger lo)
                    -- SBV indexes bits starting with 0 = lsb.
                    scSlice sc b s1 s2 s3 arg1
             _ -> fail "parseSBVExpr: wrong number of arguments for extract"
@@ -97,10 +97,8 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
                    unless (size == size1 + size2) (fail $ "parseSBVExpr BVApp: size mismatch " ++ show (size, size1, size2))
                    b <- scBoolType sc
                    -- SBV append takes the most-significant argument
-                   -- first. This is in contrast to SAWCore, which
-                   -- appends bitvectors in lsb-order; thus we have to
-                   -- swap the arguments.
-                   scAppend sc b s2 s1 arg2 arg1
+                   -- first, as SAWCore does.
+                   scAppend sc b s1 s2 arg1 arg2
             _ -> fail "parseSBVExpr: wrong number of arguments for append"
       SBV.BVLkUp indexSize resultSize ->
           do (size1 : inSizes, arg1 : args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
@@ -338,8 +336,8 @@ scMultiMux sc iSize e i args =
                return []
              else
                mapM (scNat sc) [0 .. iSize - 1]
-       fins <- sequence (zipWith (scFinVal sc) ns (reverse ns))
-       bits <- mapM (scGet sc w b i) fins
+       fins <- sequence (zipWith (scFinVal sc) (reverse ns) ns)
+       bits <- mapM (scGet sc w b i) fins -- list of bits, lsb first
        go bits args
     where
       unweave :: [a] -> [(a, a)]
