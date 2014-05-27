@@ -369,10 +369,14 @@ instance IsValue () where
 
 preludePrims :: Map Ident Value
 preludePrims = Map.fromList
-  [ ("Prelude.Succ"    , toValue (succ :: Integer -> Integer))
-  , ("Prelude.addNat"  , toValue ((+) :: Integer -> Integer -> Integer))
-  , ("Prelude.mulNat"  , toValue ((*) :: Integer -> Integer -> Integer))
+  [ ("Prelude.Succ"    , toValue (succ :: Prim.Nat -> Prim.Nat))
+  , ("Prelude.addNat"  , toValue ((+) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.subNat"  , toValue ((-) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.mulNat"  , toValue ((*) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.minNat"  , toValue (min :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.maxNat"  , toValue (max :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.finDivMod", toValue Prim.finDivMod)
+  , ("Prelude.bvToNat" , toValue Prim.bvToNat)
   , ("Prelude.bvNat"   , toValue Prim.bvNat)
   , ("Prelude.bvAdd"   , toValue Prim.bvAdd)
   , ("Prelude.bvSub"   , toValue Prim.bvSub)
@@ -382,8 +386,8 @@ preludePrims = Map.fromList
   , ("Prelude.bvXor"   , toValue Prim.bvXor)
   , ("Prelude.bvNot"   , toValue Prim.bvNot)
   , ("Prelude.bvEq"    , toValue Prim.bvEq )
-  , ("Prelude.bvShl"   , toValue Prim.bvShl )
-  , ("Prelude.bvShr"   , toValue Prim.bvShr )
+  , ("Prelude.bvShl"   , toValue Prim.bvShl)
+  , ("Prelude.bvShr"   , toValue Prim.bvShr)
   , ("Prelude.bvult"   , toValue Prim.bvult)
   , ("Prelude.bvule"   , toValue Prim.bvule)
   , ("Prelude.get"     , toValue get')
