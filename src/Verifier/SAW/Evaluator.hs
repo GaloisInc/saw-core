@@ -324,9 +324,11 @@ instance IsValue Double where
     fromValue (VDouble n) = n
     fromValue _        = error "fromValue Double"
 
+-- | Conversion from list of bits to integer (big-endian)
 bvToInteger :: Vector Bool -> Integer
-bvToInteger = V.foldr' (\b x -> if b then 2*x+1 else 2*x) 0
--- ^ Assuming little-endian order
+bvToInteger = V.foldl' (\x b -> if b then 2*x+1 else 2*x) 0
+-- little-endian version:
+-- bvToInteger = V.foldr' (\b x -> if b then 2*x+1 else 2*x) 0
 
 instance IsValue a => IsValue (Vector a) where
     toValue av =
