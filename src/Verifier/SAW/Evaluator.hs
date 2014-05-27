@@ -88,6 +88,8 @@ instance Eq Value where
     VVector x    == VVector y    = x == y
     VFloat x     == VFloat y     = x == y
     VDouble x    == VDouble y    = x == y
+    VWord m x    == VVector y    = m == V.length y && x == bvToInteger (fmap fromValue y)
+    VVector x    == VWord n y    = V.length x == n && bvToInteger (fmap fromValue x) == y
     _            == _            = error "values not comparable"
 
 ------------------------------------------------------------
@@ -296,12 +298,14 @@ instance IsValue Bool where
 instance IsValue Prim.Nat where
     toValue n = VNat (toInteger n)
     fromValue (VNat n) = (fromInteger n)
-    fromValue _        = error "fromValue Integer"
+    fromValue (VCtorApp ident (V.toList -> [v])) | ident == "Prelude.Succ" = 1 + fromValue v
+    fromValue v        = error $ "fromValue: expected Nat, found " ++ show v
 
 instance IsValue Integer where
     toValue n = VNat n
     fromValue (VNat n) = n
-    fromValue _        = error "fromValue Integer"
+    fromValue (VCtorApp ident (V.toList -> [v])) | ident == "Prelude.Succ" = 1 + fromValue v
+    fromValue v        = error $ "fromValue: expected Integer, found " ++ show v
 
 instance IsValue Int where
     toValue n = VNat (toInteger n)
@@ -331,7 +335,8 @@ bvToInteger = V.foldl' (\x b -> if b then 2*x+1 else 2*x) 0
 -- bvToInteger = V.foldr' (\b x -> if b then 2*x+1 else 2*x) 0
 
 instance IsValue a => IsValue (Vector a) where
-    toValue av =
+    toValue av = VVector (fmap toValue av)
+{-
         case traverse toBool vv of
           Nothing -> VVector vv
           Just bv -> VWord (V.length bv) (bvToInteger bv)
@@ -340,6 +345,7 @@ instance IsValue a => IsValue (Vector a) where
           toBool VTrue  = Just True
           toBool VFalse = Just False
           toBool _      = Nothing
+-}
     fromValue (VVector v) = fmap fromValue v
     fromValue (VWord w x) = V.generate w (fromValue . (toValue :: Bool -> Value) . testBit x)
     fromValue _           = error "fromValue Vector"
@@ -352,7 +358,8 @@ instance (IsValue a, IsValue b) => IsValue (a, b) where
 instance IsValue Prim.BitVector where
     toValue (Prim.BV w x) = VWord w x
     fromValue (VWord w x) = Prim.BV w x
-    fromValue _           = error "fromValue BitVector"
+    fromValue (VVector v) = Prim.BV (V.length v) (bvToInteger (fmap fromValue v))
+    fromValue v           = error $ "fromValue BitVector: " ++ show v
 
 instance IsValue Prim.Fin where
     toValue (Prim.FinVal i j) =
