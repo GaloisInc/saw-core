@@ -392,6 +392,8 @@ preludePrims = Map.fromList
   , ("Prelude.bvule"   , toValue Prim.bvule)
   , ("Prelude.get"     , toValue get')
   , ("Prelude.append"  , toValue append')
+  , ("Prelude.rotateL" , toValue rotateL')
+  , ("Prelude.rotateR" , toValue rotateR')
   , ("Prelude.and"     , toValue (&&))
   , ("Prelude.not"     , toValue not)
   , ("Prelude.eq"      , toValue (const (==) :: () -> Value -> Value -> Bool))
@@ -412,6 +414,22 @@ append' :: Int -> Int -> () -> Value -> Value -> Value
 append' _ _ _ (VVector xs) (VVector ys) = VVector ((V.++) xs ys)
 append' _ _ _ (VWord m x) (VWord n y) = toValue (Prim.append_bv m n () (Prim.BV m x) (Prim.BV n y))
 append' _ _ _ _ _ = error "append'"
+
+--rotateL :: (n :: Nat) -> (a :: sort 0) -> Vec n a -> Nat -> Vec n a;
+
+rotateL' :: () -> () -> Value -> Int -> Value
+rotateL' _ _ (VWord n x) i = VWord n ((shiftL x j .|. shiftR x (n - j)) .&. (bit n - 1))
+  where j = i `mod` n
+rotateL' _ _ (VVector xs) i = VVector ((V.++) (V.drop j xs) (V.take j xs))
+  where j = i `mod` V.length xs
+rotateL' _ _ _ _ = error "rotateL'"
+
+rotateR' :: () -> () -> Value -> Int -> Value
+rotateR' _ _ (VWord n x) i = VWord n ((shiftL x (n - j) .|. shiftR x j) .&. (bit n - 1))
+  where j = i `mod` n
+rotateR' _ _ (VVector xs) i = VVector ((V.++) (V.drop j xs) (V.take j xs))
+  where j = V.length xs - (i `mod` V.length xs)
+rotateR' _ _ _ _ = error "rotateR'"
 
 preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims
