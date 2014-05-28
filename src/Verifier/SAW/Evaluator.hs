@@ -402,6 +402,7 @@ preludePrims = Map.fromList
   , ("Prelude.append"  , toValue append')
   , ("Prelude.rotateL" , toValue rotateL')
   , ("Prelude.rotateR" , toValue rotateR')
+  , ("Prelude.vZip"    , toValue vZip')
   , ("Prelude.and"     , toValue (&&))
   , ("Prelude.not"     , toValue not)
   , ("Prelude.eq"      , toValue (const (==) :: () -> Value -> Value -> Bool))
@@ -438,6 +439,9 @@ rotateR' _ _ (VWord n x) i = VWord n ((shiftL x (n - j) .|. shiftR x j) .&. (bit
 rotateR' _ _ (VVector xs) i = VVector ((V.++) (V.drop j xs) (V.take j xs))
   where j = V.length xs - (i `mod` V.length xs)
 rotateR' _ _ _ _ = error "rotateR'"
+
+vZip' :: () -> () -> Int -> Int -> Vector Value -> Vector Value -> Vector (Value, Value)
+vZip' _ _ _ _ xs ys = V.zip xs ys
 
 preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims
