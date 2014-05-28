@@ -372,6 +372,7 @@ preludePrims = Map.fromList
   [ ("Prelude.Succ"    , toValue (succ :: Integer -> Integer))
   , ("Prelude.addNat"  , toValue ((+) :: Integer -> Integer -> Integer))
   , ("Prelude.mulNat"  , toValue ((*) :: Integer -> Integer -> Integer))
+  , ("Prelude.finDivMod", toValue Prim.finDivMod)
   , ("Prelude.bvNat"   , toValue Prim.bvNat)
   , ("Prelude.bvAdd"   , toValue Prim.bvAdd)
   , ("Prelude.bvSub"   , toValue Prim.bvSub)
