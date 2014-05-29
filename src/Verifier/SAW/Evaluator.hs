@@ -423,6 +423,8 @@ get' _ _ _ _ = error "get'"
 append' :: Int -> Int -> () -> Value -> Value -> Value
 append' _ _ _ (VVector xs) (VVector ys) = VVector ((V.++) xs ys)
 append' _ _ _ (VWord m x) (VWord n y) = toValue (Prim.append_bv m n () (Prim.BV m x) (Prim.BV n y))
+append' _ _ _ (VVector xs) y@(VWord _ _) = VVector ((V.++) xs (fromValue y))
+append' _ _ _ x@(VWord _ _) (VVector ys) = VVector ((V.++) (fromValue x) ys)
 append' _ _ _ _ _ = error "append'"
 
 --rotateL :: (n :: Nat) -> (a :: sort 0) -> Vec n a -> Nat -> Vec n a;
