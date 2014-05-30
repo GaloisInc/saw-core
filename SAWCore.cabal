@@ -54,6 +54,7 @@ library
      Verifier.SAW.Rewriter
      Verifier.SAW.Simulator
      Verifier.SAW.Simulator.BitBlast
+     Verifier.SAW.Simulator.Value
      Verifier.SAW.SBVParser
      Verifier.SAW.SharedTerm
      Verifier.SAW.TermNet
