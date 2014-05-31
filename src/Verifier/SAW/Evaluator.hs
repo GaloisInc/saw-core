@@ -88,6 +88,8 @@ instance Eq Value where
     VVector x    == VVector y    = x == y
     VFloat x     == VFloat y     = x == y
     VDouble x    == VDouble y    = x == y
+    VWord m x    == VVector y    = m == V.length y && x == bvToInteger (fmap fromValue y)
+    VVector x    == VWord n y    = V.length x == n && bvToInteger (fmap fromValue x) == y
     _            == _            = error "values not comparable"
 
 ------------------------------------------------------------
@@ -296,12 +298,14 @@ instance IsValue Bool where
 instance IsValue Prim.Nat where
     toValue n = VNat (toInteger n)
     fromValue (VNat n) = (fromInteger n)
-    fromValue _        = error "fromValue Integer"
+    fromValue (VCtorApp ident (V.toList -> [v])) | ident == "Prelude.Succ" = 1 + fromValue v
+    fromValue v        = error $ "fromValue: expected Nat, found " ++ show v
 
 instance IsValue Integer where
     toValue n = VNat n
     fromValue (VNat n) = n
-    fromValue _        = error "fromValue Integer"
+    fromValue (VCtorApp ident (V.toList -> [v])) | ident == "Prelude.Succ" = 1 + fromValue v
+    fromValue v        = error $ "fromValue: expected Integer, found " ++ show v
 
 instance IsValue Int where
     toValue n = VNat (toInteger n)
@@ -324,12 +328,15 @@ instance IsValue Double where
     fromValue (VDouble n) = n
     fromValue _        = error "fromValue Double"
 
+-- | Conversion from list of bits to integer (big-endian)
 bvToInteger :: Vector Bool -> Integer
-bvToInteger = V.foldr' (\b x -> if b then 2*x+1 else 2*x) 0
--- ^ Assuming little-endian order
+bvToInteger = V.foldl' (\x b -> if b then 2*x+1 else 2*x) 0
+-- little-endian version:
+-- bvToInteger = V.foldr' (\b x -> if b then 2*x+1 else 2*x) 0
 
 instance IsValue a => IsValue (Vector a) where
-    toValue av =
+    toValue av = VVector (fmap toValue av)
+{-
         case traverse toBool vv of
           Nothing -> VVector vv
           Just bv -> VWord (V.length bv) (bvToInteger bv)
@@ -338,6 +345,7 @@ instance IsValue a => IsValue (Vector a) where
           toBool VTrue  = Just True
           toBool VFalse = Just False
           toBool _      = Nothing
+-}
     fromValue (VVector v) = fmap fromValue v
     fromValue (VWord w x) = V.generate w (fromValue . (toValue :: Bool -> Value) . testBit x)
     fromValue _           = error "fromValue Vector"
@@ -350,7 +358,8 @@ instance (IsValue a, IsValue b) => IsValue (a, b) where
 instance IsValue Prim.BitVector where
     toValue (Prim.BV w x) = VWord w x
     fromValue (VWord w x) = Prim.BV w x
-    fromValue _           = error "fromValue BitVector"
+    fromValue (VVector v) = Prim.BV (V.length v) (bvToInteger (fmap fromValue v))
+    fromValue v           = error $ "fromValue BitVector: " ++ show v
 
 instance IsValue Prim.Fin where
     toValue (Prim.FinVal i j) =
@@ -367,9 +376,16 @@ instance IsValue () where
 
 preludePrims :: Map Ident Value
 preludePrims = Map.fromList
-  [ ("Prelude.Succ"    , toValue (succ :: Integer -> Integer))
-  , ("Prelude.addNat"  , toValue ((+) :: Integer -> Integer -> Integer))
-  , ("Prelude.mulNat"  , toValue ((*) :: Integer -> Integer -> Integer))
+  [ ("Prelude.Succ"    , toValue (succ :: Prim.Nat -> Prim.Nat))
+  , ("Prelude.addNat"  , toValue ((+) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.subNat"  , toValue ((-) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.mulNat"  , toValue ((*) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.minNat"  , toValue (min :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.maxNat"  , toValue (max :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.widthNat", toValue Prim.widthNat)
+  , ("Prelude.finDivMod", toValue Prim.finDivMod)
+  , ("Prelude.finOfNat", toValue (flip Prim.finFromBound))
+  , ("Prelude.bvToNat" , toValue Prim.bvToNat)
   , ("Prelude.bvNat"   , toValue Prim.bvNat)
   , ("Prelude.bvAdd"   , toValue Prim.bvAdd)
   , ("Prelude.bvSub"   , toValue Prim.bvSub)
@@ -379,12 +395,15 @@ preludePrims = Map.fromList
   , ("Prelude.bvXor"   , toValue Prim.bvXor)
   , ("Prelude.bvNot"   , toValue Prim.bvNot)
   , ("Prelude.bvEq"    , toValue Prim.bvEq )
-  , ("Prelude.bvShl"   , toValue Prim.bvShl )
-  , ("Prelude.bvShr"   , toValue Prim.bvShr )
+  , ("Prelude.bvShl"   , toValue Prim.bvShl)
+  , ("Prelude.bvShr"   , toValue Prim.bvShr)
   , ("Prelude.bvult"   , toValue Prim.bvult)
   , ("Prelude.bvule"   , toValue Prim.bvule)
   , ("Prelude.get"     , toValue get')
   , ("Prelude.append"  , toValue append')
+  , ("Prelude.rotateL" , toValue rotateL')
+  , ("Prelude.rotateR" , toValue rotateR')
+  , ("Prelude.vZip"    , toValue vZip')
   , ("Prelude.and"     , toValue (&&))
   , ("Prelude.not"     , toValue not)
   , ("Prelude.eq"      , toValue (const (==) :: () -> Value -> Value -> Bool))
@@ -405,6 +424,25 @@ append' :: Int -> Int -> () -> Value -> Value -> Value
 append' _ _ _ (VVector xs) (VVector ys) = VVector ((V.++) xs ys)
 append' _ _ _ (VWord m x) (VWord n y) = toValue (Prim.append_bv m n () (Prim.BV m x) (Prim.BV n y))
 append' _ _ _ _ _ = error "append'"
+
+--rotateL :: (n :: Nat) -> (a :: sort 0) -> Vec n a -> Nat -> Vec n a;
+
+rotateL' :: () -> () -> Value -> Int -> Value
+rotateL' _ _ (VWord n x) i = VWord n ((shiftL x j .|. shiftR x (n - j)) .&. (bit n - 1))
+  where j = i `mod` n
+rotateL' _ _ (VVector xs) i = VVector ((V.++) (V.drop j xs) (V.take j xs))
+  where j = i `mod` V.length xs
+rotateL' _ _ _ _ = error "rotateL'"
+
+rotateR' :: () -> () -> Value -> Int -> Value
+rotateR' _ _ (VWord n x) i = VWord n ((shiftL x (n - j) .|. shiftR x j) .&. (bit n - 1))
+  where j = i `mod` n
+rotateR' _ _ (VVector xs) i = VVector ((V.++) (V.drop j xs) (V.take j xs))
+  where j = V.length xs - (i `mod` V.length xs)
+rotateR' _ _ _ _ = error "rotateR'"
+
+vZip' :: () -> () -> Int -> Int -> Vector Value -> Vector Value -> Vector (Value, Value)
+vZip' _ _ _ _ xs ys = V.zip xs ys
 
 preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims
