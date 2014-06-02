@@ -12,6 +12,7 @@
 {-# LANGUAGE ViewPatterns #-}
 module Verifier.SAW.BitBlast
   ( BValue(..)
+  , BShape(..)
   , flattenBValue
   , bitBlast
   , bitBlastWithEnv
@@ -133,8 +134,7 @@ liftCounterExample shape bs = do
 liftConcreteBValue :: BValue Bool -> Term
 liftConcreteBValue = go
   where
-    go bval =
-      Term . FTermF $
+    go bval = Term . FTermF $
       case bval of
         BBool True -> CtorApp "Prelue.True" []
         BBool False -> CtorApp "Prelude.False" []
@@ -144,14 +144,16 @@ liftConcreteBValue = go
         BRecord m -> RecordValue (fmap go m)
 
 liftShape :: BShape -> Term
-liftShape = Term . go
+liftShape = go
   where
-    go BoolShape = FTermF $ DataTypeApp "Prelude.Bool" []
-    go (VecShape n es) = FTermF $
-      DataTypeApp "Prelude.Vec" [ Term . FTermF $ NatLit (fromIntegral n)
-                                , liftShape es]
-    go (TupleShape ss) = FTermF $ TupleType (map liftShape ss)
-    go (RecShape m) = FTermF $ RecordType (fmap liftShape m)
+    go bval = Term . FTermF $
+      case bval of
+        BoolShape -> DataTypeApp "Prelude.Bool" []
+        (VecShape n es) ->
+          DataTypeApp "Prelude.Vec" [ Term . FTermF $ NatLit (fromIntegral n)
+                                  , go es]
+        (TupleShape ss) -> TupleType (map go ss)
+        (RecShape m) -> RecordType (fmap go m)
 
 type BBErr = String
 type BBMonad = ErrorT BBErr IO
