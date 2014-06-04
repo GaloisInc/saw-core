@@ -6,10 +6,15 @@ Maintainer: jhendrix@galois.com
 Build-type: Simple
 cabal-version: >= 1.8
 
+extra-source-files:
+    prelude/Prelude.sawcore
+
 library
   build-depends:
-    array,
     base >= 4,
+    abcBridge,
+    aig,
+    array,
     binary,
     bytestring,
     containers,
@@ -80,6 +85,7 @@ test-suite test-sawcore
   hs-source-dirs: tests/src
   build-depends:
       base >= 4
+    , abcBridge
     , containers
     , hashable
     , lens
