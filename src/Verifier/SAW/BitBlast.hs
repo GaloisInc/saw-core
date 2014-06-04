@@ -616,6 +616,7 @@ opTable =
     , ("slice"    , bvSliceOp   )
     , ("join"     , joinOp      )
     , ("split"    , splitOp     )
+    , ("reverse"  , reverseOp   )
     ]
 
 boolOp :: (g s -> l s -> l s -> IO (l s)) -> BValueOp t g l s
@@ -825,6 +826,14 @@ splitOp _ eval [mm, mn, _me, mv] =
        checkShape (VecShape m (VecShape n BoolShape)) bvs
        return bvs
 splitOp _ _ args = wrongArity "split op" args
+
+reverseOp :: BValueOp t g l s
+reverseOp _ eval [_mn, _me, mv] =
+    do v <- eval mv
+       case v of
+         (BVector v) -> return . BVector . V.reverse $ v
+         _ -> fail "reverse applied to non-vector"
+reverseOp _ _ args = wrongArity "reverse op" args
 
 ----------------------------------------------------------------------
 -- Destructors for BValues
