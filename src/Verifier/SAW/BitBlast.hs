@@ -426,21 +426,6 @@ bvRelRule d litFn = matchArgs (asGlobalDef d) termFn
           be <- asks bcEngine
           liftIO $ BBool <$> litFn be x' y'
 
-bvSRelRule :: forall t g l s
-            . IsAIG l g
-           => Ident
-           -> (g s -> LitVector (l s) -> LitVector (l s) -> IO (l s))
-           -> Rule t g l s (BValue (l s))
-bvSRelRule d litFn = matchArgs (asGlobalDef d) termFn
-  where termFn :: Nat -> SharedTerm t -> SharedTerm t
-               -> RuleBlaster t g l s (BValue (l s))
-        termFn n x y = lift $ do
-          let n' = n + 1
-          x' <- blastBV n' x
-          y' <- blastBV n' y
-          be <- asks bcEngine
-          liftIO $ BBool <$> litFn be x' y'
-
 bvRules :: IsAIG l g => RuleSet t g l s
 bvRules = bvRulesWithEnv Map.empty
 
@@ -466,15 +451,14 @@ bvRulesWithEnv ecEnv
   <> termRule (binBVRule "Prelude.bvSDiv" AIG.squot)
   <> termRule (binBVRule "Prelude.bvSRem" AIG.srem)
   -- Relations
-  -- TODO: switch the uses of bvSRelRule back to use bvRelRule?
   <> termRule (bvRelRule  "Prelude.bvEq"  AIG.bvEq)
-  <> termRule (bvSRelRule "Prelude.bvsle" AIG.sle)
-  <> termRule (bvSRelRule "Prelude.bvslt" AIG.slt)
+  <> termRule (bvRelRule "Prelude.bvsle" AIG.sle)
+  <> termRule (bvRelRule "Prelude.bvslt" AIG.slt)
   <> termRule (bvRelRule  "Prelude.bvule" AIG.ule)
   <> termRule (bvRelRule  "Prelude.bvult" AIG.ult)
   -- TODO: should we do an ordering normalization pass before bit blasting?
-  <> termRule (bvSRelRule "Prelude.bvsge" (beFlip AIG.sle))
-  <> termRule (bvSRelRule "Prelude.bvsgt" (beFlip AIG.slt))
+  <> termRule (bvRelRule "Prelude.bvsge" (beFlip AIG.sle))
+  <> termRule (bvRelRule "Prelude.bvsgt" (beFlip AIG.slt))
   <> termRule (bvRelRule  "Prelude.bvuge" (beFlip AIG.ule))
   <> termRule (bvRelRule  "Prelude.bvugt" (beFlip AIG.ult))
   -- Shift
