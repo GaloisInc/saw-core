@@ -73,6 +73,7 @@ data WriterState s =
                  , _smtDefs  :: [SMT.Command]
                  , _smtCommands :: [SMT.Command]
                  , _localExprs :: [SMT.Expr]
+                 , _localTys :: [SharedTerm s]
                  , _warnings :: [Warning (SharedTerm s)]
                  }
 
@@ -92,6 +93,7 @@ emptyWriterState ctx theory (RuleSet typeRules exprRules) =
                  , _smtDefs = []
                  , _smtCommands = []
                  , _localExprs = []
+                 , _localTys = []
                  , _warnings = []
                  }
   where addRule rule = Net.insert_term (rule, rule)
@@ -116,6 +118,9 @@ smtCommands = lens _smtCommands (\s v -> s { _smtCommands = v })
 
 localExprs :: Simple Lens (WriterState s) [SMT.Expr]
 localExprs = lens _localExprs (\s v -> s { _localExprs = v})
+
+localTys :: Simple Lens (WriterState s) [SharedTerm s]
+localTys = lens _localTys (\s v -> s { _localTys = v})
 
 warnings :: Simple Lens (WriterState s) [Warning (SharedTerm s)]
 warnings = lens _warnings (\s v -> s { _warnings = v })
@@ -160,14 +165,17 @@ toSMTExpr (STApp _ (Lambda _ ty tm)) = do
   nm <- mkFreshExpr ty'
   let x = smt_constexpr nm ty'
   localExprs %= (x:)
+  localTys %= (ty:)
   r <- toSMTExpr tm
   localExprs %= tail
+  localTys %= tail
   return r
 toSMTExpr t@(STApp i _tf) = do
   cache smtExprCache i $ do
     -- Get type of term
     tp <- do sc <- gets smtContext
-             toSMTType =<< liftIO (scTypeOf sc t)
+             tys <- use localTys
+             toSMTType =<< liftIO (scTypeOf' sc tys t)
     -- Try matching term to get SMT definition.
     mdefExpr <- matchTerm smtExprNet t 
     case mdefExpr of
