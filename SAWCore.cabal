@@ -35,7 +35,8 @@ library
     utf8-string,
     vector,
     Verinf,
-    wl-pprint
+    wl-pprint,
+    sbv == 3.1.2
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
@@ -58,6 +59,7 @@ library
      Verifier.SAW.Rewriter
      Verifier.SAW.Simulator
      Verifier.SAW.Simulator.BitBlast
+     Verifier.SAW.Simulator.SBV
      Verifier.SAW.Simulator.Prims
      Verifier.SAW.Simulator.Value
      Verifier.SAW.SBVParser
