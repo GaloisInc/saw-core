@@ -223,8 +223,10 @@ scTyp sc (TFun a b) =
        scFun sc s t
 scTyp sc (TVec n TBool) =
     do scBitvector sc (fromInteger n)
-scTyp _ (TVec _ _) =
-    error "scTyp: unimplemented"
+scTyp sc (TVec n t) =
+    do ty <- scTyp sc t
+       ntm <- scNat sc (fromInteger n)
+       scVecType sc ntm ty
 scTyp sc (TTuple as) =
     do ts <- mapM (scTyp sc) as
        scTupleType sc ts
@@ -244,7 +246,16 @@ splitInputs sc (TTuple ts) x =
        yss <- sequence (zipWith (splitInputs sc) ts xs)
        return (concat yss)
 splitInputs _ (TVec _ TBool) x = return [x]
-splitInputs _ (TVec _ _) _ = error "splitInputs TVec: unimplemented"
+splitInputs sc (TVec n t) x =
+    do nt <- scNat sc (fromIntegral n)
+       idxs <- mapM (\i -> do
+                       it <- scNat sc (fromIntegral i)
+                       rt <- scNat sc (fromIntegral (n - i))
+                       scFinVal sc it rt) [0 .. (n - 1)]
+       ty <- scTyp sc t
+       xs <- mapM (scGet sc nt ty x) idxs
+       yss <- mapM (splitInputs sc t) xs
+       return (concat yss)
 splitInputs _ (TFun _ _) _ = error "splitInputs TFun: not a first-order type"
 splitInputs sc (TRecord fields) x =
     do let (names, ts) = unzip fields
@@ -276,7 +287,8 @@ combineOutputs sc ty xs0 =
       go (TVec _ TBool) = pop
       go (TVec n t) =
           do xs <- replicateM (fromIntegral n) (go t)
-             error "scArrayValue" xs
+             ety <- lift (scTyp sc t)
+             lift (scVector sc ety xs)
       go (TRecord fields) =
           do let (names, ts) = unzip fields
              xs <- mapM go ts
