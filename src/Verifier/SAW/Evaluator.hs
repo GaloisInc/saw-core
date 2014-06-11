@@ -150,7 +150,8 @@ evalDef rec (Def ident _ eqns) = vFuns arity (tryEqns eqns)
     vFuns n f = VFun (\x -> vFuns (n - 1) (\xs -> f (x : xs)))
     tryEqns :: [DefEqn e] -> [Value] -> Value
     tryEqns (eqn : eqns') xs = fromMaybe (tryEqns eqns' xs) (tryEqn eqn xs)
-    tryEqns [] _ = error $ "Pattern match failure: " ++ show ident
+    tryEqns [] xs = error $ "Pattern match failure: " ++ show ident ++
+                            " applied to " ++ show xs
     tryEqn :: DefEqn e -> [Value] -> Maybe Value
     tryEqn (DefEqn ps e) xs =
         do inst <- matchValues ps xs
