@@ -164,7 +164,7 @@ liftConcreteBValue = go
   where
     go bval = Term . FTermF $
       case bval of
-        BBool True -> CtorApp "Prelue.True" []
+        BBool True -> CtorApp "Prelude.True" []
         BBool False -> CtorApp "Prelude.False" []
         BVector bvs ->
           ArrayValue (liftShape (getShape (V.head bvs))) (V.map go bvs)
