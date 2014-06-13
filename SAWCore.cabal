@@ -11,6 +11,7 @@ extra-source-files:
 
 library
   build-depends:
+    aig,
     array,
     base >= 4,
     binary,
