@@ -32,7 +32,7 @@ yices mbTime script =
      case mbYicesExe of
        Nothing -> fail $ "Unable to find yices executable; please ensure that it is in your path."
        Just yicesExe -> do
-         txt <- readProcess yicesExe (["--model"] ++ timeOpts)
+         txt <- readProcess yicesExe (["--full-model"] ++ timeOpts)
                     (show (pp script))
          case parseOutput txt of
            Right a -> return a

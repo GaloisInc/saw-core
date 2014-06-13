@@ -7,6 +7,7 @@ module Verifier.SAW.Export.SMT.Version1
   ( WriterState
   , emptyWriterState
   , render
+  , smtScript
   , warnings
   , Warning(..)
   , ppWarning
@@ -89,6 +90,7 @@ data WriterState s =
                  , _smtExtraPreds :: [SMT.PredDecl]
                  , _smtCommands :: [SMT.Command]
                  , _localTerms :: [SMT.Term]
+                 , _localTys :: [SharedTerm s]
 
                  , _warnings :: [Warning (SharedTerm s)]
                  }
@@ -116,6 +118,7 @@ emptyWriterState ctx nm logic (RuleSet sr fr tr) =
                 , _smtExtraPreds = []
                 , _smtCommands = []
                 , _localTerms = []
+                , _localTys = []
                 , _warnings = []
                 }
   where addRule rule = Net.insert_term (rule, rule)
@@ -156,8 +159,14 @@ warnings = lens _warnings (\s v -> s { _warnings = v })
 localTerms :: Simple Lens (WriterState s) [SMT.Term]
 localTerms = lens _localTerms (\s v -> s { _localTerms = v})
 
+localTys :: Simple Lens (WriterState s) [SharedTerm s]
+localTys = lens _localTys (\s v -> s { _localTys = v})
+
 render :: WriterState s -> String
-render s = show $ SMT.pp $ SMT.Script
+render = show . SMT.pp . smtScript
+
+smtScript :: WriterState s -> SMT.Script
+smtScript s = SMT.Script
     { SMT.scrName = smtName s
     , SMT.scrCommands = 
        [ SMT.CmdLogic (smtLogic s)
@@ -228,7 +237,8 @@ toTerm t@(STApp i _tf) = do
   cache smtTermCache i $ do
     -- Create name for fresh variable
     nm <- do sc <- gets smtContext
-             mkFreshTerm =<< liftIO (scTypeOf sc t)
+             tys <- use localTys
+             mkFreshTerm =<< liftIO (scTypeOf' sc tys t)
     let app = smt_term0 nm
     -- Try matching term to get SMT definition.
     mdefTerm <- matchTerm smtTermNet t 
@@ -333,8 +343,10 @@ lambdaFormulaRule =
   thenMatcher (asVar asLambda) $ \(_, ty, tm) -> lift $ do
     x <- smt_term0 <$> mkFreshTerm ty
     localTerms %= (x:)
+    localTys %= (ty:)
     r <- toFormula tm
     localTerms %= tail
+    localTys %= tail
     return r
 
 localTermRule :: Rule s SMT.Term
