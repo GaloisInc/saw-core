@@ -11,9 +11,10 @@ extra-source-files:
 
 library
   build-depends:
+    base >= 4,
+    abcBridge,
     aig,
     array,
-    base >= 4,
     binary,
     bytestring,
     containers,
@@ -88,6 +89,7 @@ test-suite test-sawcore
   hs-source-dirs: tests/src
   build-depends:
       base >= 4
+    , abcBridge
     , containers
     , hashable
     , lens
