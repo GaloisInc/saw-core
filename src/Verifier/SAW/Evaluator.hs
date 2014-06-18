@@ -402,6 +402,7 @@ preludePrims = Map.fromList
   , ("Prelude.widthNat", toValue Prim.widthNat)
   , ("Prelude.finDivMod", toValue Prim.finDivMod)
   , ("Prelude.finOfNat", toValue (flip Prim.finFromBound))
+  , ("Prelude.natSplitFin", toValue Prim.natSplitFin)
   , ("Prelude.bvToNat" , toValue Prim.bvToNat)
   , ("Prelude.bvNat"   , toValue Prim.bvNat)
   , ("Prelude.bvAdd"   , toValue Prim.bvAdd)
