@@ -400,6 +400,7 @@ preludePrims = Map.fromList
   , ("Prelude.minNat"  , toValue (min :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.maxNat"  , toValue (max :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.widthNat", toValue Prim.widthNat)
+  , ("Prelude.natCase" , toValue natCase')
   , ("Prelude.finDivMod", toValue Prim.finDivMod)
   , ("Prelude.finOfNat", toValue (flip Prim.finFromBound))
   , ("Prelude.finMax"  , toValue Prim.finMax)
@@ -465,6 +466,9 @@ rotateR' _ _ _ _ = error "rotateR'"
 
 vZip' :: () -> () -> Int -> Int -> Vector Value -> Vector Value -> Vector (Value, Value)
 vZip' _ _ _ _ xs ys = V.zip xs ys
+
+natCase' :: () -> Value -> (Nat -> Value) -> Nat -> Value
+natCase' _ z s n = if n == 0 then z else s (n - 1)
 
 preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims
