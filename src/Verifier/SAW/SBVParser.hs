@@ -350,7 +350,7 @@ scMultiMux sc iSize e i args =
                mapM (scNat sc) [0 .. iSize - 1]
        fins <- sequence (zipWith (scFinVal sc) (reverse ns) ns)
        bits <- mapM (scGet sc w b i) fins -- list of bits, lsb first
-       go bits args
+       go bits (reverse args)
     where
       unweave :: [a] -> [(a, a)]
       unweave (x : y : zs) = (x, y) : unweave zs
