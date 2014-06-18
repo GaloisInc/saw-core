@@ -294,7 +294,9 @@ instance IsValue Bool where
     toValue False = VFalse
     fromValue VTrue  = True
     fromValue VFalse = False
-    fromValue _      = error "fromValue Bool"
+    fromValue (VCtorApp "Prelude.True" (V.toList -> [])) = True
+    fromValue (VCtorApp "Prelude.False" (V.toList -> [])) = False
+    fromValue v = error $ "fromValue Bool: " ++ show v
 
 instance IsValue Prim.Nat where
     toValue n = VNat (toInteger n)
@@ -372,6 +374,20 @@ instance IsValue Prim.Fin where
 instance IsValue () where
     toValue _ = VTuple V.empty
     fromValue _ = ()
+
+instance (IsValue a, IsValue b) => IsValue (Either a b) where
+    toValue (Left x) = VCtorApp "Prelude.Left" (V.fromList [VType, VType, toValue x])
+    toValue (Right y) = VCtorApp "Prelude.Right" (V.fromList [VType, VType, toValue y])
+    fromValue (VCtorApp "Prelude.Left" (V.toList -> [_, _, x])) = Left (fromValue x)
+    fromValue (VCtorApp "Prelude.Right" (V.toList -> [_, _, y])) = Left (fromValue y)
+    fromValue v = error $ "fromValue Either: " ++ show v
+
+instance IsValue a => IsValue (Maybe a) where
+    toValue (Just x) = VCtorApp "Prelude.Just" (V.fromList [VType, toValue x])
+    toValue Nothing = VCtorApp "Prelude.Nothing" (V.fromList [VType])
+    fromValue (VCtorApp "Prelude.Just" (V.toList -> [_, x])) = Just (fromValue x)
+    fromValue (VCtorApp "Prelude.Nothing" (V.toList -> [_])) = Nothing
+    fromValue v = error $ "fromValue Maybe: " ++ show v
 
 ------------------------------------------------------------
 
