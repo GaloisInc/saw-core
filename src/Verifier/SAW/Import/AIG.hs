@@ -1,9 +1,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
-module Verifier.SAW.Import.AIG 
+module Verifier.SAW.Import.AIG
   ( readAIG
-  , parseVerinfViaAIG
   , translateNetwork
   , withReadAiger
   ) where
@@ -22,63 +21,6 @@ import Text.PrettyPrint.Leijen hiding ((<$>))
 import Verifier.SAW.Prelude
 import Verifier.SAW.Recognizer
 import Verifier.SAW.SharedTerm
-
-import Verinf.Symbolic.Common (lMkLitResultForType)
-import Verinf.Symbolic ( BitWidth(..)
-                       , WidthExpr, widthConstant
-                       , DagType(..)
-                       , DagEngine
-                       , deInputTerms
-                       , DagTerm
-                       , mkBitBlastTermSemantics
-                       , flattenLitResult
-                       , evalDagTermFn
-                       , termType
-                       )
-
-
-sharedTermFromWidthExpr :: SharedContext s
-                        -> WidthExpr
-                        -> ErrorT String IO (SharedTerm s)
-sharedTermFromWidthExpr sc (widthConstant -> Just (Wx w)) = do
-  lift $ scNat sc (fromIntegral w)
-sharedTermFromWidthExpr _ _ = fail "Cannot bitblast non-ground width expressions."
-
-sharedTermFromDagType :: SharedContext s
-                    -> DagType
-                    -> ErrorT String IO (SharedTerm s)
-sharedTermFromDagType sc tp =
-  case tp of
-    SymBool -> lift $ scPreludeBool sc
-    SymInt w -> do
-      wt <- sharedTermFromWidthExpr sc w
-      lift $ ($ wt) =<< scApplyPreludeBitvector sc
-    SymArray w etp -> do
-      wt <- sharedTermFromWidthExpr sc w
-      tpt <- sharedTermFromDagType sc etp
-      lift $ do
-        vecFn <- scPreludeVec sc
-        vecFn wt tpt
-    SymRec{} -> fail "Verinf records not yet supported."
-    SymShapeVar{}  -> fail "Cannot bitblast polymorphic functions"
-
-parseVerinfViaAIG :: SharedContext s
-                  -> DagEngine
-                  -> DagTerm
-                  -> IO (Either String (SharedTerm s))
-parseVerinfViaAIG sc de t = do
-  inputTypes <- fmap termType <$> deInputTerms de
-  bracket createEmptyNetwork freeNetwork $ \ntk -> do
-  inputs <- V.mapM (lMkLitResultForType (appendNetworkInput ntk)) inputTypes
-  -- Get output bits for term.
-  let inputFn i _ = return (inputs V.! i)
-  let ts = mkBitBlastTermSemantics (bitEngineForNetwork ntk)
-  evalFn <- evalDagTermFn inputFn ts
-  lv <- flattenLitResult <$> evalFn t
-  runErrorT $ do
-    argTypes <- mapM (sharedTermFromDagType sc) (V.toList inputTypes)
-    resType <- sharedTermFromDagType sc (termType t)
-    translateNetwork sc ntk lv (("_",) <$> argTypes) resType
 
 type TypeParser s = StateT (V.Vector (SharedTerm s)) (ErrorT String IO)
 
@@ -114,7 +56,7 @@ parseAIGResultType _ (asBoolType -> Just ()) = do
     fail "Not enough output bits for Bool result."
   put (V.drop 1 outputs)
   -- Return remaining as a vector.
-  return (outputs V.! 0)  
+  return (outputs V.! 0)
 parseAIGResultType sc (asBitvectorType -> Just w) = do
   outputs <- get
   when (fromIntegral (V.length outputs) < w) $ do
@@ -124,16 +66,16 @@ parseAIGResultType sc (asBitvectorType -> Just w) = do
   -- Return remaining as a vector.
   liftIO $ do
     boolType <- scPreludeBool sc
-    scVector sc boolType (V.toList base)  
+    scVector sc boolType (V.toList base)
 parseAIGResultType _ _ = fail "Could not parse AIG output type."
 
 
--- | 
+-- |
 networkAsSharedTerms
     :: Network
     -> SharedContext s
     -> V.Vector (SharedTerm s) -- ^ Input terms for AIG
-    -> V.Vector Lit -- ^ Outputs 
+    -> V.Vector Lit -- ^ Outputs
     -> IO (V.Vector (SharedTerm s))
 networkAsSharedTerms ntk sc inputTerms outputLits = do
   -- Get evaluator
@@ -204,10 +146,10 @@ translateNetwork sc ntk outputLits args resultType = do
    -- Join output lits into result type.
   (res,rargs) <- runTypeParser outputVars $ parseAIGResultType sc resultType
   unless (V.null rargs) $
-    fail "AIG contains more outputs than expected."      
+    fail "AIG contains more outputs than expected."
   lift $ scLambdaList sc args res
 
-readAIG :: forall s 
+readAIG :: forall s
          . SharedContext s -- ^ Context to build in term.
         -> FilePath        -- ^ Path to AIG
         -> SharedTerm s    -- ^ Expected type of term.
