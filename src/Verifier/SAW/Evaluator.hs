@@ -18,7 +18,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IMap
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromJust, fromMaybe)
 import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -411,6 +411,8 @@ preludePrims = Map.fromList
   , ("Prelude.bvAdd"   , toValue Prim.bvAdd)
   , ("Prelude.bvSub"   , toValue Prim.bvSub)
   , ("Prelude.bvMul"   , toValue Prim.bvMul)
+  , ("Prelude.bvUDiv"  , toValue (\w x y -> fromJust (Prim.bvUDiv w x y)))
+  , ("Prelude.bvURem"  , toValue (\w x y -> fromJust (Prim.bvURem w x y)))
   , ("Prelude.bvAnd"   , toValue Prim.bvAnd)
   , ("Prelude.bvOr"    , toValue Prim.bvOr )
   , ("Prelude.bvXor"   , toValue Prim.bvXor)
@@ -420,11 +422,15 @@ preludePrims = Map.fromList
   , ("Prelude.bvShr"   , toValue Prim.bvShr)
   , ("Prelude.bvult"   , toValue Prim.bvult)
   , ("Prelude.bvule"   , toValue Prim.bvule)
+  , ("Prelude.bvPMul"  , toValue Prim.bvPMul)
+  , ("Prelude.bvPDiv"  , toValue Prim.bvPDiv)
+  , ("Prelude.bvPMod"  , toValue Prim.bvPMod)
   , ("Prelude.get"     , toValue get')
   , ("Prelude.append"  , toValue append')
   , ("Prelude.rotateL" , toValue rotateL')
   , ("Prelude.rotateR" , toValue rotateR')
   , ("Prelude.vZip"    , toValue vZip')
+  , ("Prelude.foldr"   , toValue foldrOp)
   , ("Prelude.and"     , toValue (&&))
   , ("Prelude.not"     , toValue not)
   , ("Prelude.eq"      , toValue (const (==) :: () -> Value -> Value -> Bool))
@@ -466,6 +472,9 @@ rotateR' _ _ _ _ = error "rotateR'"
 
 vZip' :: () -> () -> Int -> Int -> Vector Value -> Vector Value -> Vector (Value, Value)
 vZip' _ _ _ _ xs ys = V.zip xs ys
+
+foldrOp :: () -> () -> () -> (Value -> Value -> Value) -> Value -> Vector Value -> Value
+foldrOp _ _ _ f z xs = V.foldr f z xs
 
 natCase' :: () -> Value -> (Nat -> Value) -> Nat -> Value
 natCase' _ z s n = if n == 0 then z else s (n - 1)
