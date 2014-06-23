@@ -183,7 +183,7 @@ evalTermF global lam rec env tf =
         RecordValue tm      -> VRecord <$> traverse rec tm
         RecordSelector t k  -> valRecordSelect k <$> rec t
         RecordType {}       -> pure VType
-        CtorApp ident ts    -> VCtorApp ident <$> traverse rec (V.fromList ts)
+        CtorApp ident ts    -> applyAll (global ident) <$> traverse rec ts
         DataTypeApp {}      -> pure VType
         Sort {}             -> pure VType
         NatLit n            -> pure $ VNat n
@@ -208,9 +208,17 @@ evalGlobal m prims ident =
   case Map.lookup ident prims of
     Just v -> v
     Nothing ->
-      case findDef m ident of
-        Just td | not (null (defEqs td)) -> evalTypedDef (evalGlobal m prims) td
-        _ -> error $ "Unimplemented global: " ++ show ident
+      case findCtor m ident of
+        Just ct -> vCtor [] (ctorType ct)
+        Nothing ->
+          case findDef m ident of
+            Just td | not (null (defEqs td)) -> evalTypedDef (evalGlobal m prims) td
+            _ -> error $ "Unimplemented global: " ++ show ident
+
+  where
+    vCtor :: [Value] -> Term -> Value
+    vCtor xs (Term (Pi _ _ t)) = VFun (\x -> vCtor (x : xs) t)
+    vCtor xs _ = VCtorApp ident (V.fromList (reverse xs))
 
 ------------------------------------------------------------
 -- The evaluation strategy for SharedTerms involves two memo tables:
