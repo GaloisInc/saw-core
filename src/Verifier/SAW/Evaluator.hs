@@ -350,7 +350,7 @@ instance IsValue a => IsValue (Vector a) where
           toBool _      = Nothing
 -}
     fromValue (VVector v) = fmap fromValue v
-    fromValue (VWord w x) = V.generate w (fromValue . (toValue :: Bool -> Value) . testBit x)
+    fromValue (VWord w x) = V.generate w (\i -> fromValue (toValue (testBit x (w - 1 - i))))
     fromValue _           = error "fromValue Vector"
 
 instance (IsValue a, IsValue b) => IsValue (a, b) where
