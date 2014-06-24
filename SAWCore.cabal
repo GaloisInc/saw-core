@@ -18,6 +18,7 @@ library
     binary,
     bytestring,
     containers,
+    data-inttrie,
     directory,
     fgl >= 5.3,
     filepath,

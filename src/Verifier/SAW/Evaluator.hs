@@ -13,6 +13,8 @@ import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State.Strict as State
 import Data.Bits
+import Data.IntTrie (IntTrie)
+import qualified Data.IntTrie as IntTrie
 import Data.List ( intersperse )
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -41,6 +43,7 @@ data Value
     | VCtorApp !Ident !(Vector Value)
     -- TODO: Use strict, packed string datatype
     | VVector !(Vector Value)
+    | VStream (IntTrie Value)
     | VFloat !Float
     | VDouble !Double
     | VType
@@ -69,6 +72,7 @@ instance Show Value where
             | V.null vv -> shows s
             | otherwise -> shows s . showList (V.toList vv)
         VVector vv -> showList (V.toList vv)
+        VStream _ -> showString "<<stream>>"
         VFloat float -> shows float
         VDouble double -> shows double
         VString s -> shows s
@@ -397,6 +401,11 @@ instance IsValue a => IsValue (Maybe a) where
     fromValue (VCtorApp "Prelude.Nothing" (V.toList -> [_])) = Nothing
     fromValue v = error $ "fromValue Maybe: " ++ show v
 
+instance IsValue a => IsValue (IntTrie a) where
+    toValue trie = VStream (fmap toValue trie)
+    fromValue (VStream trie) = fmap fromValue trie
+    fromValue v = error $ "fromValue IntTrie: " ++ show v
+
 ------------------------------------------------------------
 
 preludePrims :: Map Ident Value
@@ -448,6 +457,8 @@ preludePrims = Map.fromList
      toValue (Prim.generate :: Prim.Nat -> () -> (Prim.Fin -> Value) -> Vector Value))
   , ("Prelude.coerce"  ,
      toValue (Prim.coerce :: () -> () -> () -> Value -> Value))
+  , ("Prelude.MkStream", toValue mkStreamOp)
+  , ("Prelude.streamGet", toValue streamGetOp)
   ]
 
 get' :: Int -> () -> Value -> Prim.Fin -> Value
@@ -486,6 +497,12 @@ foldrOp _ _ _ f z xs = V.foldr f z xs
 
 natCase' :: () -> Value -> (Nat -> Value) -> Nat -> Value
 natCase' _ z s n = if n == 0 then z else s (n - 1)
+
+mkStreamOp :: () -> (Nat -> Value) -> IntTrie Value
+mkStreamOp _ f = fmap f IntTrie.identity
+
+streamGetOp :: () -> IntTrie Value -> Nat -> Value
+streamGetOp _ trie n = IntTrie.apply trie n
 
 preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims
