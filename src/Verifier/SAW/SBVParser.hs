@@ -10,7 +10,7 @@ module Verifier.SAW.SBVParser
   ) where
 
 import Control.Monad.State
-import Data.List (intercalate)
+import Data.List (intercalate, genericIndex)
 import Data.Map (Map)
 import qualified Data.Map as Map
 
@@ -102,10 +102,9 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
             _ -> fail "parseSBVExpr: wrong number of arguments for append"
       SBV.BVLkUp indexSize resultSize ->
           do (size1 : inSizes, arg1 : args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
+             -- unless (2 ^ indexSize == length args) $ putStrLn "parseSBVExpr BVLkUp: list size not a power of 2"
              unless (size1 == fromInteger indexSize && all (== (fromInteger resultSize)) inSizes)
                         (fail $ "parseSBVExpr BVLkUp: size mismatch")
-             unless (2 ^ indexSize == length args)
-                        (fail $ "parseSBVExpr BVLkUp: list size not a power of 2")
              e <- scBitvector sc (fromInteger resultSize)
              scMultiMux sc (fromInteger indexSize) e arg1 args
       SBV.BVUnint _loc _codegen (name, irtyp) ->
@@ -339,29 +338,31 @@ scBoolToBv1 sc x =
     do b <- scBoolType sc
        scSingle sc b x
 
+-- to debug this do a simple cryptol indexing op
+-- see if it's the same error
 scMultiMux :: SharedContext s -> Nat -> SharedTerm s
            -> SharedTerm s -> [SharedTerm s] -> IO (SharedTerm s)
-scMultiMux sc iSize e i args =
-    do w <- scNat sc iSize
-       b <- scBoolType sc
-       ns <- if iSize == 0 then
-               return []
-             else
-               mapM (scNat sc) [0 .. iSize - 1]
-       fins <- sequence (zipWith (scFinVal sc) (reverse ns) ns)
-       bits <- mapM (scGet sc w b i) fins -- list of bits, lsb first
-       go bits (reverse args)
-    where
-      unweave :: [a] -> [(a, a)]
-      unweave (x : y : zs) = (x, y) : unweave zs
-      unweave _ = []
-      go (b : bits) xs = do
-        let (ys, zs) = unzip (unweave xs)
-        y <- go bits ys
-        z <- go bits zs
-        scIte sc e b y z
-      go [] [x] = return x
-      go [] _ = error "scMultiMux"
+scMultiMux sc iSize e i args = do
+    w <- scNat sc iSize
+    b <- scBoolType sc
+    ns <- if iSize == 0 then
+            return []
+          else
+            mapM (scNat sc) [0 .. iSize - 1]
+    fins <- sequence (zipWith (scFinVal sc) ns (reverse ns))
+    bits <- mapM (scGet sc w b i) fins -- list of bits, msb first
+    let m = fromIntegral (length args)
+    let sel offset [] = return (args `genericIndex` offset)
+        sel offset (b : bs) = do
+          let (bitOnValue :: Integer) = offset + (2 ^ fromIntegral (length bs))
+          y <- if bitOnValue >= m
+                then do
+                  zero <- scNat sc 0
+                  scBvNat sc w zero
+                else sel bitOnValue bs
+          z <- sel offset bs
+          scIte sc e b y z
+    sel 0 bits
 
 scAppendAll :: SharedContext s -> [(SharedTerm s, Integer)] -> IO (SharedTerm s)
 scAppendAll _ [] = error "scAppendAll: unimplemented"
