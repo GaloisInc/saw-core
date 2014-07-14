@@ -10,7 +10,7 @@ module Verifier.SAW.SBVParser
   ) where
 
 import Control.Monad.State
-import Data.List (intercalate)
+import Data.List (intercalate, genericIndex)
 import Data.Map (Map)
 import qualified Data.Map as Map
 
@@ -102,10 +102,9 @@ parseSBVExpr sc unint nodes size (SBV.SBVApp operator sbvs) =
             _ -> fail "parseSBVExpr: wrong number of arguments for append"
       SBV.BVLkUp indexSize resultSize ->
           do (size1 : inSizes, arg1 : args) <- liftM unzip $ mapM (parseSBV sc nodes) sbvs
+             -- unless (2 ^ indexSize == length args) $ putStrLn "parseSBVExpr BVLkUp: list size not a power of 2"
              unless (size1 == fromInteger indexSize && all (== (fromInteger resultSize)) inSizes)
                         (fail $ "parseSBVExpr BVLkUp: size mismatch")
-             unless (2 ^ indexSize == length args)
-                        (fail $ "parseSBVExpr BVLkUp: list size not a power of 2")
              e <- scBitvector sc (fromInteger resultSize)
              scMultiMux sc (fromInteger indexSize) e arg1 args
       SBV.BVUnint _loc _codegen (name, irtyp) ->
@@ -223,8 +222,10 @@ scTyp sc (TFun a b) =
        scFun sc s t
 scTyp sc (TVec n TBool) =
     do scBitvector sc (fromInteger n)
-scTyp _ (TVec _ _) =
-    error "scTyp: unimplemented"
+scTyp sc (TVec n t) =
+    do ty <- scTyp sc t
+       ntm <- scNat sc (fromInteger n)
+       scVecType sc ntm ty
 scTyp sc (TTuple as) =
     do ts <- mapM (scTyp sc) as
        scTupleType sc ts
@@ -244,7 +245,16 @@ splitInputs sc (TTuple ts) x =
        yss <- sequence (zipWith (splitInputs sc) ts xs)
        return (concat yss)
 splitInputs _ (TVec _ TBool) x = return [x]
-splitInputs _ (TVec _ _) _ = error "splitInputs TVec: unimplemented"
+splitInputs sc (TVec n t) x =
+    do nt <- scNat sc (fromIntegral n)
+       idxs <- mapM (\i -> do
+                       it <- scNat sc (fromIntegral i)
+                       rt <- scNat sc (fromIntegral (n - i))
+                       scFinVal sc it rt) [0 .. (n - 1)]
+       ty <- scTyp sc t
+       xs <- mapM (scGet sc nt ty x) idxs
+       yss <- mapM (splitInputs sc t) xs
+       return (concat yss)
 splitInputs _ (TFun _ _) _ = error "splitInputs TFun: not a first-order type"
 splitInputs sc (TRecord fields) x =
     do let (names, ts) = unzip fields
@@ -276,7 +286,8 @@ combineOutputs sc ty xs0 =
       go (TVec _ TBool) = pop
       go (TVec n t) =
           do xs <- replicateM (fromIntegral n) (go t)
-             error "scArrayValue" xs
+             ety <- lift (scTyp sc t)
+             lift (scVector sc ety xs)
       go (TRecord fields) =
           do let (names, ts) = unzip fields
              xs <- mapM go ts
@@ -327,29 +338,31 @@ scBoolToBv1 sc x =
     do b <- scBoolType sc
        scSingle sc b x
 
+-- to debug this do a simple cryptol indexing op
+-- see if it's the same error
 scMultiMux :: SharedContext s -> Nat -> SharedTerm s
            -> SharedTerm s -> [SharedTerm s] -> IO (SharedTerm s)
-scMultiMux sc iSize e i args =
-    do w <- scNat sc iSize
-       b <- scBoolType sc
-       ns <- if iSize == 0 then
-               return []
-             else
-               mapM (scNat sc) [0 .. iSize - 1]
-       fins <- sequence (zipWith (scFinVal sc) (reverse ns) ns)
-       bits <- mapM (scGet sc w b i) fins -- list of bits, lsb first
-       go bits args
-    where
-      unweave :: [a] -> [(a, a)]
-      unweave (x : y : zs) = (x, y) : unweave zs
-      unweave _ = []
-      go (b : bits) xs = do
-        let (ys, zs) = unzip (unweave xs)
-        y <- go bits ys
-        z <- go bits zs
-        scIte sc e b y z
-      go [] [x] = return x
-      go [] _ = error "scMultiMux"
+scMultiMux sc iSize e i args = do
+    w <- scNat sc iSize
+    b <- scBoolType sc
+    ns <- if iSize == 0 then
+            return []
+          else
+            mapM (scNat sc) [0 .. iSize - 1]
+    fins <- sequence (zipWith (scFinVal sc) ns (reverse ns))
+    bits <- mapM (scGet sc w b i) fins -- list of bits, msb first
+    let m = fromIntegral (length args)
+    let sel offset [] = return (args `genericIndex` offset)
+        sel offset (b : bs) = do
+          let (bitOnValue :: Integer) = offset + (2 ^ fromIntegral (length bs))
+          y <- if bitOnValue >= m
+                then do
+                  zero <- scNat sc 0
+                  scBvNat sc w zero
+                else sel bitOnValue bs
+          z <- sel offset bs
+          scIte sc e b y z
+    sel 0 bits
 
 scAppendAll :: SharedContext s -> [(SharedTerm s, Integer)] -> IO (SharedTerm s)
 scAppendAll _ [] = error "scAppendAll: unimplemented"

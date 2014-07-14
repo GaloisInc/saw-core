@@ -7,9 +7,11 @@ import Control.Exception
 import Control.Monad
 import qualified Data.Vector.Storable as SV
 
+import qualified Data.ABC as ABC
+{-
 import Verinf.Symbolic
 import qualified Verinf.Symbolic.Lit.ABC as ABC
-
+-}
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Prelude
 import Verifier.SAW.SharedTerm
@@ -33,16 +35,15 @@ instance Eq (Matcher IO t b) where
 
 bitblastTestCase :: String
                  -> (SharedContext s -> IO (SharedTerm s))
-                 -> (SV.Vector Bool -> Bool)
+                 -> ([Bool] -> Bool)
                  -> TestCase
 bitblastTestCase nm mk_term is_valid =
   mkTestCase nm $ monadicIO $ run $ do
-    bracket ABC.createBitEngine beFree $ \be -> do
+    ABC.withNewGraph ABC.giaNetwork $ \be -> do
       sc <- mkSharedContext preludeModule
       t <- mk_term sc
       Right (BBool l) <- bitBlast be t
-      let Just satChecker = beCheckSat be
-      Sat v <- satChecker l
+      ABC.Sat v <- ABC.checkSat be l
       when (not (is_valid v)) $ fail "Unexpected SAT value."
 
 bitblast_extcns :: TestCase
@@ -50,7 +51,7 @@ bitblast_extcns = bitblastTestCase "bitblast_extcns" mk_term is_valid
   where mk_term sc = do
           tp <- scPreludeBool sc
           scFreshGlobal sc "v" tp
-        is_valid v = v == SV.singleton True
+        is_valid v = v == [True]
 
 bitblast_bveq :: TestCase
 bitblast_bveq = bitblastTestCase "bitblast_bveq" mk_term is_valid
@@ -62,7 +63,7 @@ bitblast_bveq = bitblastTestCase "bitblast_bveq" mk_term is_valid
           y <- scFreshGlobal sc "y" i32
           bvEq <- scApplyPreludeBvEq sc
           bvEq w x y
-        is_valid v = SV.take 32 v == SV.drop 32 v
+        is_valid v = take 32 v == drop 32 v
           
 
 bitblastTests :: [TestCase]

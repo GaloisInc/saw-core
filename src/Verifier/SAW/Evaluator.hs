@@ -13,12 +13,14 @@ import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State.Strict as State
 import Data.Bits
+import Data.IntTrie (IntTrie)
+import qualified Data.IntTrie as IntTrie
 import Data.List ( intersperse )
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IMap
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromJust, fromMaybe)
 import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -41,6 +43,7 @@ data Value
     | VCtorApp !Ident !(Vector Value)
     -- TODO: Use strict, packed string datatype
     | VVector !(Vector Value)
+    | VStream (IntTrie Value)
     | VFloat !Float
     | VDouble !Double
     | VType
@@ -69,6 +72,7 @@ instance Show Value where
             | V.null vv -> shows s
             | otherwise -> shows s . showList (V.toList vv)
         VVector vv -> showList (V.toList vv)
+        VStream _ -> showString "<<stream>>"
         VFloat float -> shows float
         VDouble double -> shows double
         VString s -> shows s
@@ -150,7 +154,8 @@ evalDef rec (Def ident _ eqns) = vFuns arity (tryEqns eqns)
     vFuns n f = VFun (\x -> vFuns (n - 1) (\xs -> f (x : xs)))
     tryEqns :: [DefEqn e] -> [Value] -> Value
     tryEqns (eqn : eqns') xs = fromMaybe (tryEqns eqns' xs) (tryEqn eqn xs)
-    tryEqns [] _ = error $ "Pattern match failure: " ++ show ident
+    tryEqns [] xs = error $ "Pattern match failure: " ++ show ident ++
+                            " applied to " ++ show xs
     tryEqn :: DefEqn e -> [Value] -> Maybe Value
     tryEqn (DefEqn ps e) xs =
         do inst <- matchValues ps xs
@@ -182,7 +187,7 @@ evalTermF global lam rec env tf =
         RecordValue tm      -> VRecord <$> traverse rec tm
         RecordSelector t k  -> valRecordSelect k <$> rec t
         RecordType {}       -> pure VType
-        CtorApp ident ts    -> VCtorApp ident <$> traverse rec (V.fromList ts)
+        CtorApp ident ts    -> applyAll (global ident) <$> traverse rec ts
         DataTypeApp {}      -> pure VType
         Sort {}             -> pure VType
         NatLit n            -> pure $ VNat n
@@ -207,9 +212,17 @@ evalGlobal m prims ident =
   case Map.lookup ident prims of
     Just v -> v
     Nothing ->
-      case findDef m ident of
-        Just td | not (null (defEqs td)) -> evalTypedDef (evalGlobal m prims) td
-        _ -> error $ "Unimplemented global: " ++ show ident
+      case findCtor m ident of
+        Just ct -> vCtor [] (ctorType ct)
+        Nothing ->
+          case findDef m ident of
+            Just td | not (null (defEqs td)) -> evalTypedDef (evalGlobal m prims) td
+            _ -> error $ "Unimplemented global: " ++ show ident
+
+  where
+    vCtor :: [Value] -> Term -> Value
+    vCtor xs (Term (Pi _ _ t)) = VFun (\x -> vCtor (x : xs) t)
+    vCtor xs _ = VCtorApp ident (V.fromList (reverse xs))
 
 ------------------------------------------------------------
 -- The evaluation strategy for SharedTerms involves two memo tables:
@@ -293,7 +306,9 @@ instance IsValue Bool where
     toValue False = VFalse
     fromValue VTrue  = True
     fromValue VFalse = False
-    fromValue _      = error "fromValue Bool"
+    fromValue (VCtorApp "Prelude.True" (V.toList -> [])) = True
+    fromValue (VCtorApp "Prelude.False" (V.toList -> [])) = False
+    fromValue v = error $ "fromValue Bool: " ++ show v
 
 instance IsValue Prim.Nat where
     toValue n = VNat (toInteger n)
@@ -347,7 +362,7 @@ instance IsValue a => IsValue (Vector a) where
           toBool _      = Nothing
 -}
     fromValue (VVector v) = fmap fromValue v
-    fromValue (VWord w x) = V.generate w (fromValue . (toValue :: Bool -> Value) . testBit x)
+    fromValue (VWord w x) = V.generate w (\i -> fromValue (toValue (testBit x (w - 1 - i))))
     fromValue _           = error "fromValue Vector"
 
 instance (IsValue a, IsValue b) => IsValue (a, b) where
@@ -372,6 +387,25 @@ instance IsValue () where
     toValue _ = VTuple V.empty
     fromValue _ = ()
 
+instance (IsValue a, IsValue b) => IsValue (Either a b) where
+    toValue (Left x) = VCtorApp "Prelude.Left" (V.fromList [VType, VType, toValue x])
+    toValue (Right y) = VCtorApp "Prelude.Right" (V.fromList [VType, VType, toValue y])
+    fromValue (VCtorApp "Prelude.Left" (V.toList -> [_, _, x])) = Left (fromValue x)
+    fromValue (VCtorApp "Prelude.Right" (V.toList -> [_, _, y])) = Left (fromValue y)
+    fromValue v = error $ "fromValue Either: " ++ show v
+
+instance IsValue a => IsValue (Maybe a) where
+    toValue (Just x) = VCtorApp "Prelude.Just" (V.fromList [VType, toValue x])
+    toValue Nothing = VCtorApp "Prelude.Nothing" (V.fromList [VType])
+    fromValue (VCtorApp "Prelude.Just" (V.toList -> [_, x])) = Just (fromValue x)
+    fromValue (VCtorApp "Prelude.Nothing" (V.toList -> [_])) = Nothing
+    fromValue v = error $ "fromValue Maybe: " ++ show v
+
+instance IsValue a => IsValue (IntTrie a) where
+    toValue trie = VStream (fmap toValue trie)
+    fromValue (VStream trie) = fmap fromValue trie
+    fromValue v = error $ "fromValue IntTrie: " ++ show v
+
 ------------------------------------------------------------
 
 preludePrims :: Map Ident Value
@@ -383,13 +417,19 @@ preludePrims = Map.fromList
   , ("Prelude.minNat"  , toValue (min :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.maxNat"  , toValue (max :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.widthNat", toValue Prim.widthNat)
+  , ("Prelude.natCase" , toValue natCase')
   , ("Prelude.finDivMod", toValue Prim.finDivMod)
   , ("Prelude.finOfNat", toValue (flip Prim.finFromBound))
+  , ("Prelude.finMax"  , toValue Prim.finMax)
+  , ("Prelude.finPred" , toValue Prim.finPred)
+  , ("Prelude.natSplitFin", toValue Prim.natSplitFin)
   , ("Prelude.bvToNat" , toValue Prim.bvToNat)
   , ("Prelude.bvNat"   , toValue Prim.bvNat)
   , ("Prelude.bvAdd"   , toValue Prim.bvAdd)
   , ("Prelude.bvSub"   , toValue Prim.bvSub)
   , ("Prelude.bvMul"   , toValue Prim.bvMul)
+  , ("Prelude.bvUDiv"  , toValue (\w x y -> fromJust (Prim.bvUDiv w x y)))
+  , ("Prelude.bvURem"  , toValue (\w x y -> fromJust (Prim.bvURem w x y)))
   , ("Prelude.bvAnd"   , toValue Prim.bvAnd)
   , ("Prelude.bvOr"    , toValue Prim.bvOr )
   , ("Prelude.bvXor"   , toValue Prim.bvXor)
@@ -399,11 +439,15 @@ preludePrims = Map.fromList
   , ("Prelude.bvShr"   , toValue Prim.bvShr)
   , ("Prelude.bvult"   , toValue Prim.bvult)
   , ("Prelude.bvule"   , toValue Prim.bvule)
+  , ("Prelude.bvPMul"  , toValue Prim.bvPMul)
+  , ("Prelude.bvPDiv"  , toValue Prim.bvPDiv)
+  , ("Prelude.bvPMod"  , toValue Prim.bvPMod)
   , ("Prelude.get"     , toValue get')
   , ("Prelude.append"  , toValue append')
   , ("Prelude.rotateL" , toValue rotateL')
   , ("Prelude.rotateR" , toValue rotateR')
   , ("Prelude.vZip"    , toValue vZip')
+  , ("Prelude.foldr"   , toValue foldrOp)
   , ("Prelude.and"     , toValue (&&))
   , ("Prelude.not"     , toValue not)
   , ("Prelude.eq"      , toValue (const (==) :: () -> Value -> Value -> Bool))
@@ -413,6 +457,8 @@ preludePrims = Map.fromList
      toValue (Prim.generate :: Prim.Nat -> () -> (Prim.Fin -> Value) -> Vector Value))
   , ("Prelude.coerce"  ,
      toValue (Prim.coerce :: () -> () -> () -> Value -> Value))
+  , ("Prelude.MkStream", toValue mkStreamOp)
+  , ("Prelude.streamGet", toValue streamGetOp)
   ]
 
 get' :: Int -> () -> Value -> Prim.Fin -> Value
@@ -423,6 +469,8 @@ get' _ _ _ _ = error "get'"
 append' :: Int -> Int -> () -> Value -> Value -> Value
 append' _ _ _ (VVector xs) (VVector ys) = VVector ((V.++) xs ys)
 append' _ _ _ (VWord m x) (VWord n y) = toValue (Prim.append_bv m n () (Prim.BV m x) (Prim.BV n y))
+append' _ _ _ (VVector xs) y@(VWord _ _) = VVector ((V.++) xs (fromValue y))
+append' _ _ _ x@(VWord _ _) (VVector ys) = VVector ((V.++) (fromValue x) ys)
 append' _ _ _ _ _ = error "append'"
 
 --rotateL :: (n :: Nat) -> (a :: sort 0) -> Vec n a -> Nat -> Vec n a;
@@ -443,6 +491,18 @@ rotateR' _ _ _ _ = error "rotateR'"
 
 vZip' :: () -> () -> Int -> Int -> Vector Value -> Vector Value -> Vector (Value, Value)
 vZip' _ _ _ _ xs ys = V.zip xs ys
+
+foldrOp :: () -> () -> () -> (Value -> Value -> Value) -> Value -> Vector Value -> Value
+foldrOp _ _ _ f z xs = V.foldr f z xs
+
+natCase' :: () -> Value -> (Nat -> Value) -> Nat -> Value
+natCase' _ z s n = if n == 0 then z else s (n - 1)
+
+mkStreamOp :: () -> (Nat -> Value) -> IntTrie Value
+mkStreamOp _ f = fmap f IntTrie.identity
+
+streamGetOp :: () -> IntTrie Value -> Nat -> Value
+streamGetOp _ trie n = IntTrie.apply trie n
 
 preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims
