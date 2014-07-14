@@ -443,6 +443,7 @@ preludePrims = Map.fromList
   , ("Prelude.bvPDiv"  , toValue Prim.bvPDiv)
   , ("Prelude.bvPMod"  , toValue Prim.bvPMod)
   , ("Prelude.get"     , toValue get')
+  , ("Prelude.at"      , toValue atOp)
   , ("Prelude.append"  , toValue append')
   , ("Prelude.rotateL" , toValue rotateL')
   , ("Prelude.rotateR" , toValue rotateR')
@@ -459,6 +460,11 @@ preludePrims = Map.fromList
      toValue (Prim.coerce :: () -> () -> () -> Value -> Value))
   , ("Prelude.MkStream", toValue mkStreamOp)
   , ("Prelude.streamGet", toValue streamGetOp)
+  , ("Prelude.bvStreamGet", toValue bvStreamGetOp)
+  , ("Prelude.bvAt", toValue bvAtOp)
+  , ("Prelude.bvRotateL", toValue bvRotateLOp)
+  , ("Prelude.bvRotateR", toValue bvRotateROp)
+  , ("Prelude.bvShiftR", toValue bvShiftROp)
   ]
 
 get' :: Int -> () -> Value -> Prim.Fin -> Value
@@ -503,6 +509,32 @@ mkStreamOp _ f = fmap f IntTrie.identity
 
 streamGetOp :: () -> IntTrie Value -> Nat -> Value
 streamGetOp _ trie n = IntTrie.apply trie n
+
+bvStreamGetOp :: () -> () -> IntTrie Value -> Prim.BitVector -> Value
+bvStreamGetOp _ _ trie n = IntTrie.apply trie (Prim.unsigned n)
+
+atOp :: () -> () -> Value -> Int -> Value
+atOp _ _ (VVector xs) i = (V.!) xs i
+atOp _ _ (VWord n x) i = toValue (testBit x (n - 1 - i))
+atOp _ _ _ _ = error "atOp"
+
+bvAtOp :: () -> () -> () -> Value -> Prim.BitVector -> Value
+bvAtOp _ _ _ v i = atOp () () v (fromIntegral (Prim.unsigned i))
+
+bvRotateLOp :: () -> () -> () -> Value -> Prim.BitVector -> Value
+bvRotateLOp _ _ _ v i = rotateL' () () v (fromInteger (Prim.unsigned i))
+
+bvRotateROp :: () -> () -> () -> Value -> Prim.BitVector -> Value
+bvRotateROp _ _ _ v i = rotateR' () () v (fromInteger (Prim.unsigned i))
+
+bvShiftROp :: () -> () -> () -> Value -> Value -> Prim.BitVector -> Value
+bvShiftROp _ _ _ x (VVector xs) i = VVector ((V.++) (V.replicate j x) (V.take (V.length xs - j) xs))
+  where j = min (V.length xs) (fromInteger (Prim.unsigned i))
+bvShiftROp _ _ _ b (VWord n x) i
+  | fromValue b = VWord n (bit n - bit (n - j) + (x `shiftR` j))
+  | otherwise   = VWord n (x `shiftR` j)
+  where j = min n (fromInteger (Prim.unsigned i))
+bvShiftROp _ _ _ _ _ _ = error "bvShiftROp"
 
 preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims

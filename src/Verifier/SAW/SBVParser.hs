@@ -329,8 +329,8 @@ scBv1ToBool sc x =
     do n0 <- scNat sc 0
        n1 <- scNat sc 1
        b <- scBoolType sc
-       f0 <- scFinVal sc n0 n0
-       scGet sc n1 b x f0
+       bv <- scBvNat sc n1 n0
+       scBvAt sc n1 b n1 x bv
 
 -- | boolToBv1 :: Bool -> bitvector 1
 scBoolToBv1 :: SharedContext s -> SharedTerm s -> IO (SharedTerm s)
@@ -338,31 +338,14 @@ scBoolToBv1 sc x =
     do b <- scBoolType sc
        scSingle sc b x
 
--- to debug this do a simple cryptol indexing op
 -- see if it's the same error
 scMultiMux :: SharedContext s -> Nat -> SharedTerm s
            -> SharedTerm s -> [SharedTerm s] -> IO (SharedTerm s)
 scMultiMux sc iSize e i args = do
-    w <- scNat sc iSize
-    b <- scBoolType sc
-    ns <- if iSize == 0 then
-            return []
-          else
-            mapM (scNat sc) [0 .. iSize - 1]
-    fins <- sequence (zipWith (scFinVal sc) ns (reverse ns))
-    bits <- mapM (scGet sc w b i) fins -- list of bits, msb first
-    let m = fromIntegral (length args)
-    let sel offset [] = return (args `genericIndex` offset)
-        sel offset (b : bs) = do
-          let (bitOnValue :: Integer) = offset + (2 ^ fromIntegral (length bs))
-          y <- if bitOnValue >= m
-                then do
-                  zero <- scNat sc 0
-                  scBvNat sc w zero
-                else sel bitOnValue bs
-          z <- sel offset bs
-          scIte sc e b y z
-    sel 0 bits
+    vec <- scVector sc e args 
+    w <- scNat sc iSize    
+    m <- scNat sc (fromIntegral (length args))
+    scBvAt sc m e w vec i
 
 scAppendAll :: SharedContext s -> [(SharedTerm s, Integer)] -> IO (SharedTerm s)
 scAppendAll _ [] = error "scAppendAll: unimplemented"
