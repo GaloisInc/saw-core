@@ -144,4 +144,5 @@ instance (Functor m, Monad m, Termlike t) => Matchable m t BoolType where
 data BitvectorType = BitvectorType Nat
 
 instance (Applicative m, Monad m, Termlike t) => Matchable m t BitvectorType where
-  defaultMatcher = asGlobalDef "Prelude.bitvector" `matchArgs` BitvectorType
+  defaultMatcher =
+    matchDataType "Prelude.Vec" (\n BoolType -> BitvectorType n)

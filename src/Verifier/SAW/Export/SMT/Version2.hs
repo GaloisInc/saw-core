@@ -279,6 +279,7 @@ bitvectorRules
   = coreRules
   <> arrayRules
   <> typeRule (matchDef "Prelude.bitvector" smt_bitvecType)
+  <> typeRule (matchDataType "Prelude.Vec" (\n BoolType -> smt_bitvecType n))
   <> typeRule (matchDataType "Prelude.Vec" 
                  (smt_vectype :: Nat -> SharedTerm s -> RuleWriter s SMT.Type))
 
