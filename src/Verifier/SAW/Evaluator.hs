@@ -195,7 +195,8 @@ evalTermF global lam rec env tf =
         FloatLit x          -> pure $ VFloat x
         DoubleLit x         -> pure $ VDouble x
         StringLit s         -> pure $ VString s
-        ExtCns _            -> error "evalTermF ExtCns unimplemented"
+        ExtCns ec           ->
+          error $ "evalTermF ExtCns unimplemented (" ++ ecName ec ++ ")"
 
 -- | Evaluator for unshared terms.
 evalTerm :: (Ident -> Value) -> [Value] -> Term -> Value
