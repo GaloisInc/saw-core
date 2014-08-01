@@ -8,10 +8,7 @@ import Control.Monad
 import qualified Data.Vector.Storable as SV
 
 import qualified Data.ABC as ABC
-{-
-import Verinf.Symbolic
-import qualified Verinf.Symbolic.Lit.ABC as ABC
--}
+
 import Verifier.SAW.BitBlast
 import Verifier.SAW.Prelude
 import Verifier.SAW.SharedTerm

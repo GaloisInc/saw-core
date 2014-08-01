@@ -12,7 +12,6 @@ extra-source-files:
 library
   build-depends:
     base >= 4,
-    abcBridge,
     aig,
     array,
     binary,
@@ -36,7 +35,6 @@ library
     unordered-containers,
     utf8-string,
     vector,
-    Verinf,
     wl-pprint
   hs-source-dirs: src
   exposed-modules:
@@ -48,7 +46,6 @@ library
      Verifier.SAW.Export.SMT.Version1
      Verifier.SAW.Export.SMT.Version2
      Verifier.SAW.Export.Yices
-     Verifier.SAW.Import.AIG
      Verifier.SAW.Cache
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
@@ -62,7 +59,6 @@ library
      Verifier.SAW.Simulator.BitBlast
      Verifier.SAW.Simulator.Prims
      Verifier.SAW.Simulator.Value
-     Verifier.SAW.SBVParser
      Verifier.SAW.SharedTerm
      Verifier.SAW.TermNet
      Verifier.SAW.Typechecker
