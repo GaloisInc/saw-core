@@ -1,10 +1,16 @@
-Name: saw-export
-Description: SAW API callable from C
-Version: 0.1
-Author: Galois, Inc.
-Maintainer: atomb@galois.com
-Build-type: Simple
-cabal-version: >= 1.8
+Name:               saw-export
+Version:            0.1
+License:            BSD3
+License-file:       LICENSE
+Author:             Galois, Inc.
+Maintainer:         atomb@galois.com
+Copyright:          (c) 2012-2014 Galois Inc.
+Category:           Data
+Build-type:         Simple
+cabal-version:      >= 1.8
+Synopsis:           SAW API callable from C
+Description:
+  SAW API callable from C
 
 extra-source-files:
   cbits/saw.c
@@ -12,7 +18,7 @@ extra-source-files:
 
 library
   build-depends:
-    base >= 4,
+    base == 4.*,
     saw-core
   hs-source-dirs:
     src

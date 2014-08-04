@@ -2,6 +2,16 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Rank2Types #-}
+
+{- |
+Module      : Verifier.SAW.Export.SMT.Common
+Copyright   : Galois, Inc. 2012-2014
+License     : BSD3
+Maintainer  : jhendrix@galois.com
+Stability   : experimental
+Portability : non-portable (language extensions)
+-}
+
 module Verifier.SAW.Export.SMT.Common
   ( module Verifier.SAW.Conversion
   , needBits

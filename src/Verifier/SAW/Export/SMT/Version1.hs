@@ -3,6 +3,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
+{- |
+Module      : Verifier.SAW.Export.SMT.Version1
+Copyright   : Galois, Inc. 2012-2014
+License     : BSD3
+Maintainer  : jhendrix@galois.com
+Stability   : experimental
+Portability : non-portable (language extensions)
+-}
+
 module Verifier.SAW.Export.SMT.Version1
   ( WriterState
   , emptyWriterState

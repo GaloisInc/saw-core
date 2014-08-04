@@ -4,6 +4,16 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+
+{- |
+Module      : Verifier.SAW.Export.SMT.Version2
+Copyright   : Galois, Inc. 2012-2014
+License     : BSD3
+Maintainer  : jhendrix@galois.com
+Stability   : experimental
+Portability : non-portable (language extensions)
+-}
+
 module Verifier.SAW.Export.SMT.Version2 
   ( WriterState
   , emptyWriterState

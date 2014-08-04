@@ -2,6 +2,15 @@
 -- Allow type signatures to be left out, because they must be
 -- duplicated in the foreign export lines.
 
+{- |
+Module      : Verifier.SAW.ForeignExport
+Copyright   : Galois, Inc. 2012-2014
+License     : BSD3
+Maintainer  : atomb@galois.com
+Stability   : experimental
+Portability : non-portable (language extensions)
+-}
+
 module Verifier.SAW.ForeignExport() where
 
 import Foreign.C
