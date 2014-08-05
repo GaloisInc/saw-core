@@ -19,6 +19,7 @@ library
     bytestring,
     containers,
     data-inttrie,
+    cryptol,
     directory,
     fgl >= 5.3,
     filepath,
@@ -37,8 +38,7 @@ library
     utf8-string,
     vector,
     Verinf,
-    wl-pprint,
-    sbv == 3.1.2
+    wl-pprint
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
