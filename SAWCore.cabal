@@ -42,6 +42,7 @@ library
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
+     Verifier.SAW.Constant
      Verifier.SAW.BitBlast
      Verifier.SAW.Conversion
      Verifier.SAW.Evaluator
