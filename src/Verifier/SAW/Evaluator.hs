@@ -186,7 +186,7 @@ evalTermF global lam rec env tf =
                                    env' = reverse vs ++ env
                                    vs = map (evalDef (\xs -> lam (xs ++ env'))) ds
     LocalVar i              -> pure $ (env !! i)
-    Constant _ t            -> rec t
+    Constant _ t _          -> rec t
     FTermF ftf              ->
       case ftf of
         GlobalDef ident     -> pure $ global ident
