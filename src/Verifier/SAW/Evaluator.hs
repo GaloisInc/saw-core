@@ -473,6 +473,7 @@ preludePrims = Map.fromList
   , ("Prelude.bvAt", toValue bvAtOp)
   , ("Prelude.bvRotateL", toValue bvRotateLOp)
   , ("Prelude.bvRotateR", toValue bvRotateROp)
+  , ("Prelude.bvShiftL", toValue bvShiftLOp)
   , ("Prelude.bvShiftR", toValue bvShiftROp)
   ]
 
@@ -535,6 +536,15 @@ bvRotateLOp _ _ _ v i = rotateL' () () v (fromInteger (Prim.unsigned i))
 
 bvRotateROp :: () -> () -> () -> Value -> Prim.BitVector -> Value
 bvRotateROp _ _ _ v i = rotateR' () () v (fromInteger (Prim.unsigned i))
+
+bvShiftLOp :: () -> () -> () -> Value -> Value -> Prim.BitVector -> Value
+bvShiftLOp _ _ _ x (VVector xs) i = VVector ((V.++) (V.drop j xs) (V.replicate j x))
+  where j = min (V.length xs) (fromInteger (Prim.unsigned i))
+bvShiftLOp _ _ _ b (VWord n x) i
+  | fromValue b = toValue $ Prim.bv n (bit j - 1 + (x `shiftL` j))
+  | otherwise   = toValue $ Prim.bv n (x `shiftL` j)
+  where j = min n (fromInteger (Prim.unsigned i))
+bvShiftLOp _ _ _ _ _ _ = error "bvShiftLOp"
 
 bvShiftROp :: () -> () -> () -> Value -> Value -> Prim.BitVector -> Value
 bvShiftROp _ _ _ x (VVector xs) i = VVector ((V.++) (V.replicate j x) (V.take (V.length xs - j) xs))
