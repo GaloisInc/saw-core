@@ -426,6 +426,8 @@ preludePrims = Map.fromList
   , ("Prelude.mulNat"  , toValue ((*) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.minNat"  , toValue (min :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.maxNat"  , toValue (max :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.natDivMod", toValue (divMod :: Prim.Nat -> Prim.Nat -> (Prim.Nat, Prim.Nat)))
+  , ("Prelude.natExp"  , toValue ((^) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.widthNat", toValue Prim.widthNat)
   , ("Prelude.natCase" , toValue natCase')
   , ("Prelude.finDivMod", toValue Prim.finDivMod)
