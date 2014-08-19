@@ -557,3 +557,29 @@ bvShiftROp _ _ _ _ _ _ = error "bvShiftROp"
 
 preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims
+
+------------------------------------------------------------
+-- Converting a (finite) value back to a SharedTerm
+
+scValue :: SharedContext s -> Value -> IO (SharedTerm s)
+scValue sc val =
+  case val of
+    VFun _        -> fail "scValue: unsupported function value"
+    VTrue         -> scBool sc True
+    VFalse        -> scBool sc False
+    VNat n        -> scNat sc (fromIntegral n)
+    VWord w x     -> do w' <- scNat sc (fromIntegral w)
+                        x' <- scNat sc (fromIntegral x)
+                        scBvNat sc w' x'
+    VString s     -> scString sc s
+    VTuple vv     -> scTuple sc =<< traverse (scValue sc) (V.toList vv)
+    VRecord vm    -> scRecord sc =<< traverse (scValue sc) vm
+    VCtorApp i vv -> scCtorApp sc i =<< traverse (scValue sc) (V.toList vv)
+    VVector vv    -> do vs' <- traverse (scValue sc) (V.toList vv)
+                        when (null vs') (fail "scValue: empty array")
+                        ty <- scTypeOf sc (head vs')
+                        scVector sc ty vs'
+    VStream _     -> fail "scValue: unsupported infinite stream value"
+    VFloat _      -> fail "scValue: unsupported float value"
+    VDouble _     -> fail "scValue: unsupported double value"
+    VType         -> fail "scValue: unsupported type value"
