@@ -48,6 +48,7 @@ library
   exposed-modules:
      Verifier.SAW
      Verifier.SAW.Constant
+     Verifier.SAW.ExternalFormat
      Verifier.SAW.BitBlast
      Verifier.SAW.Conversion
      Verifier.SAW.Evaluator
