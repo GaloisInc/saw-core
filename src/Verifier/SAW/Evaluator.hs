@@ -186,7 +186,7 @@ evalTermF global lam rec env tf =
                                    env' = reverse vs ++ env
                                    vs = map (evalDef (\xs -> lam (xs ++ env'))) ds
     LocalVar i              -> pure $ (env !! i)
-    Constant _ t            -> rec t
+    Constant _ t _          -> rec t
     FTermF ftf              ->
       case ftf of
         GlobalDef ident     -> pure $ global ident
@@ -204,7 +204,8 @@ evalTermF global lam rec env tf =
         FloatLit x          -> pure $ VFloat x
         DoubleLit x         -> pure $ VDouble x
         StringLit s         -> pure $ VString s
-        ExtCns _            -> error "evalTermF ExtCns unimplemented"
+        ExtCns ec           ->
+          error $ "evalTermF ExtCns unimplemented (" ++ ecName ec ++ ")"
 
 -- | Evaluator for unshared terms.
 evalTerm :: (Ident -> Value) -> [Value] -> Term -> Value
@@ -425,6 +426,8 @@ preludePrims = Map.fromList
   , ("Prelude.mulNat"  , toValue ((*) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.minNat"  , toValue (min :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.maxNat"  , toValue (max :: Prim.Nat -> Prim.Nat -> Prim.Nat))
+  , ("Prelude.divModNat", toValue (divMod :: Prim.Nat -> Prim.Nat -> (Prim.Nat, Prim.Nat)))
+  , ("Prelude.expNat"  , toValue ((^) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.widthNat", toValue Prim.widthNat)
   , ("Prelude.natCase" , toValue natCase')
   , ("Prelude.finDivMod", toValue Prim.finDivMod)

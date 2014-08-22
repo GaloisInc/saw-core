@@ -25,6 +25,7 @@ library
     bytestring,
     containers,
     data-inttrie,
+    cryptol,
     directory,
     fgl >= 5.3,
     filepath,
@@ -46,6 +47,8 @@ library
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
+     Verifier.SAW.Constant
+     Verifier.SAW.ExternalFormat
      Verifier.SAW.BitBlast
      Verifier.SAW.Conversion
      Verifier.SAW.Evaluator
@@ -64,6 +67,7 @@ library
      Verifier.SAW.Rewriter
      Verifier.SAW.Simulator
      Verifier.SAW.Simulator.BitBlast
+     Verifier.SAW.Simulator.SBV
      Verifier.SAW.Simulator.Prims
      Verifier.SAW.Simulator.Value
      Verifier.SAW.SharedTerm
