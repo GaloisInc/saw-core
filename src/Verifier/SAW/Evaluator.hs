@@ -476,6 +476,7 @@ preludePrims = Map.fromList
   , ("Prelude.bvAt", toValue bvAtOp)
   , ("Prelude.bvRotateL", toValue bvRotateLOp)
   , ("Prelude.bvRotateR", toValue bvRotateROp)
+  , ("Prelude.bvShiftL", toValue bvShiftLOp)
   , ("Prelude.bvShiftR", toValue bvShiftROp)
   ]
 
@@ -539,6 +540,15 @@ bvRotateLOp _ _ _ v i = rotateL' () () v (fromInteger (Prim.unsigned i))
 bvRotateROp :: () -> () -> () -> Value -> Prim.BitVector -> Value
 bvRotateROp _ _ _ v i = rotateR' () () v (fromInteger (Prim.unsigned i))
 
+bvShiftLOp :: () -> () -> () -> Value -> Value -> Prim.BitVector -> Value
+bvShiftLOp _ _ _ x (VVector xs) i = VVector ((V.++) (V.drop j xs) (V.replicate j x))
+  where j = min (V.length xs) (fromInteger (Prim.unsigned i))
+bvShiftLOp _ _ _ b (VWord n x) i
+  | fromValue b = toValue $ Prim.bv n (bit j - 1 + (x `shiftL` j))
+  | otherwise   = toValue $ Prim.bv n (x `shiftL` j)
+  where j = min n (fromInteger (Prim.unsigned i))
+bvShiftLOp _ _ _ _ _ _ = error "bvShiftLOp"
+
 bvShiftROp :: () -> () -> () -> Value -> Value -> Prim.BitVector -> Value
 bvShiftROp _ _ _ x (VVector xs) i = VVector ((V.++) (V.replicate j x) (V.take (V.length xs - j) xs))
   where j = min (V.length xs) (fromInteger (Prim.unsigned i))
@@ -550,3 +560,29 @@ bvShiftROp _ _ _ _ _ _ = error "bvShiftROp"
 
 preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims
+
+------------------------------------------------------------
+-- Converting a (finite) value back to a SharedTerm
+
+scValue :: SharedContext s -> Value -> IO (SharedTerm s)
+scValue sc val =
+  case val of
+    VFun _        -> fail "scValue: unsupported function value"
+    VTrue         -> scBool sc True
+    VFalse        -> scBool sc False
+    VNat n        -> scNat sc (fromIntegral n)
+    VWord w x     -> do w' <- scNat sc (fromIntegral w)
+                        x' <- scNat sc (fromIntegral x)
+                        scBvNat sc w' x'
+    VString s     -> scString sc s
+    VTuple vv     -> scTuple sc =<< traverse (scValue sc) (V.toList vv)
+    VRecord vm    -> scRecord sc =<< traverse (scValue sc) vm
+    VCtorApp i vv -> scCtorApp sc i =<< traverse (scValue sc) (V.toList vv)
+    VVector vv    -> do vs' <- traverse (scValue sc) (V.toList vv)
+                        when (null vs') (fail "scValue: empty array")
+                        ty <- scTypeOf sc (head vs')
+                        scVector sc ty vs'
+    VStream _     -> fail "scValue: unsupported infinite stream value"
+    VFloat _      -> fail "scValue: unsupported float value"
+    VDouble _     -> fail "scValue: unsupported double value"
+    VType         -> fail "scValue: unsupported type value"
