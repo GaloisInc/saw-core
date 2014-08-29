@@ -57,6 +57,7 @@ library
      Verifier.SAW.Export.SMT.Version2
      Verifier.SAW.Export.Yices
      Verifier.SAW.Cache
+     Verifier.SAW.FiniteValue
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
      Verifier.SAW.ParserUtils

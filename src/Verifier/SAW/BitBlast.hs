@@ -23,7 +23,7 @@ Portability : non-portable (language extensions)
 
 module Verifier.SAW.BitBlast
   ( BValue(..)
-  , BShape(..)
+  , FiniteType(..)
   , flattenBValue
   , bitBlast
   , bitBlastWithEnv
@@ -80,7 +80,7 @@ import Data.AIG (IsAIG, IsLit)
 import qualified Data.AIG as AIG
 
 
-
+import Verifier.SAW.FiniteValue
 import Verifier.SAW.Export.SMT.Common
 import Verifier.SAW.Prim
 import qualified Verifier.SAW.Recognizer as R
@@ -140,21 +140,21 @@ flattenBValue (BVector v)  = AIG.concat (flattenBValue <$> V.toList v)
 flattenBValue (BTuple vs)  = AIG.concat (flattenBValue <$> vs)
 flattenBValue (BRecord vm) = AIG.concat (flattenBValue <$> Map.elems vm)
 
-liftCounterExamples' :: BShape -> S.StateT [Bool] (Either BBErr) (BValue Bool)
+liftCounterExamples' :: FiniteType -> S.StateT [Bool] (Either BBErr) (BValue Bool)
 liftCounterExamples' shape =
   case shape of
-    BoolShape -> do
+    FTBit -> do
       bs' <- S.get
       case bs' of
         [] -> fail "liftCounterExamples': ran out of bits"
         b:rest -> S.put rest >> return (BBool b)
-    VecShape n s ->
+    FTVec n s ->
       (BVector . V.fromList) <$>
       replicateM (fromIntegral n) (liftCounterExamples' s)
-    TupleShape ss -> BTuple <$> mapM liftCounterExamples' ss
-    RecShape m -> BRecord <$> T.mapM liftCounterExamples' m
+    FTTuple ss -> BTuple <$> mapM liftCounterExamples' ss
+    FTRec m -> BRecord <$> T.mapM liftCounterExamples' m
 
-liftCounterExamples :: [BShape] -> [Bool]
+liftCounterExamples :: [FiniteType] -> [Bool]
                     -> Either BBErr [BValue Bool]
 liftCounterExamples shapes bs = do
   (bvals, rest) <- S.runStateT (mapM liftCounterExamples' shapes) bs
@@ -162,7 +162,7 @@ liftCounterExamples shapes bs = do
     [] -> return bvals
     _  -> fail "liftCounterExamples: leftover bits"
 
-liftCounterExample :: BShape -> [Bool] -> Either BBErr (BValue Bool)
+liftCounterExample :: FiniteType -> [Bool] -> Either BBErr (BValue Bool)
 liftCounterExample shape bs = do
   bvals <- liftCounterExamples [shape] bs
   case bvals of
@@ -181,17 +181,17 @@ liftConcreteBValue = go
         BTuple bvs -> TupleValue (map go bvs)
         BRecord m -> RecordValue (fmap go m)
 
-liftShape :: BShape -> Term
+liftShape :: FiniteType -> Term
 liftShape = go
   where
     go bval = Term . FTermF $
       case bval of
-        BoolShape -> DataTypeApp "Prelude.Bool" []
-        (VecShape n es) ->
+        FTBit -> DataTypeApp "Prelude.Bool" []
+        FTVec n es ->
           DataTypeApp "Prelude.Vec" [ Term . FTermF $ NatLit (fromIntegral n)
                                   , go es]
-        (TupleShape ss) -> TupleType (map go ss)
-        (RecShape m) -> RecordType (fmap go m)
+        FTTuple ss -> TupleType (map go ss)
+        FTRec m -> RecordType (fmap go m)
 
 type BBErr = String
 type BBMonad = ErrorT BBErr IO
@@ -203,53 +203,43 @@ wrongArity s args =
 
 ----------------------------------------------------------------------
 
--- | Describes an expected shape that a bitblasted
--- term is expected to have.  Used for typechecking during
--- bitblasting.
-data BShape
-   = BoolShape
-   | VecShape Nat BShape
-   | TupleShape [BShape]
-   | RecShape (Map FieldName BShape)
-     deriving (Show)
-
-parseShape :: (Applicative m, Monad m) => SharedTerm t -> m BShape
-parseShape (R.asBoolType -> Just ()) = return BoolShape
+parseShape :: (Applicative m, Monad m) => SharedTerm t -> m FiniteType
+parseShape (R.asBoolType -> Just ()) = return FTBit
 parseShape (R.isVecType return -> Just (n R.:*: tp)) =
-  VecShape n <$> parseShape tp
-parseShape (R.asBitvectorType -> Just n) = pure (VecShape n BoolShape)
-parseShape (R.asTupleType -> Just ts) = TupleShape <$> traverse parseShape ts
-parseShape (R.asRecordType -> Just tm) = RecShape <$> traverse parseShape tm
+  FTVec n <$> parseShape tp
+parseShape (R.asBitvectorType -> Just n) = pure (FTVec n FTBit)
+parseShape (R.asTupleType -> Just ts) = FTTuple <$> traverse parseShape ts
+parseShape (R.asRecordType -> Just tm) = FTRec <$> traverse parseShape tm
 parseShape t = do
   fail $ "bitBlast: unsupported argument type: " ++ show t
 
 -- | @checkShape s v@ verifies that @v@ has shape @s@.
-checkShape :: Monad m => BShape -> BValue l -> m ()
-checkShape BoolShape BBool{} = return ()
-checkShape (VecShape n tp) (BVector v) = do
+checkShape :: Monad m => FiniteType -> BValue l -> m ()
+checkShape FTBit BBool{} = return ()
+checkShape (FTVec n tp) (BVector v) = do
   when (fromIntegral (V.length v) /= n) $ fail "Unexpected length"
   V.mapM_ (checkShape tp) v
-checkShape (TupleShape tpl) (BTuple l) =
+checkShape (FTTuple tpl) (BTuple l) =
   zipWithM_ checkShape tpl l
-checkShape (RecShape tpm) (BRecord m) = do
+checkShape (FTRec tpm) (BRecord m) = do
   when (Map.keysSet tpm /= Map.keysSet m) $ fail "Record keys don't match"
   zipWithM_ checkShape (Map.elems tpm) (Map.elems m)
 checkShape _ _ = fail "Bitblast shape doesn't match."
 
-getShape :: BValue l -> BShape
-getShape (BBool _) = BoolShape
+getShape :: BValue l -> FiniteType
+getShape (BBool _) = FTBit
 getShape (BVector bvs)
   | V.null bvs = error "getShape: empty vector"
-  | otherwise = VecShape (fromIntegral (V.length bvs)) (getShape (V.head bvs))
-getShape (BTuple l) = TupleShape (map getShape l)
-getShape (BRecord m) = RecShape (fmap getShape m)
+  | otherwise = FTVec (fromIntegral (V.length bvs)) (getShape (V.head bvs))
+getShape (BTuple l) = FTTuple (map getShape l)
+getShape (BRecord m) = FTRec (fmap getShape m)
 
-newVars :: IsAIG l g => g s -> BShape -> IO (BValue (l s))
-newVars be BoolShape = BBool <$> AIG.newInput be
-newVars be (VecShape n tp) = do
+newVars :: IsAIG l g => g s -> FiniteType -> IO (BValue (l s))
+newVars be FTBit = BBool <$> AIG.newInput be
+newVars be (FTVec n tp) = do
   BVector <$> V.replicateM (fromIntegral n) (newVars be tp)
-newVars be (TupleShape ts) = BTuple <$> traverse (newVars be) ts
-newVars be (RecShape tm ) = BRecord <$> traverse (newVars be) tm
+newVars be (FTTuple ts) = BTuple <$> traverse (newVars be) ts
+newVars be (FTRec tm ) = BRecord <$> traverse (newVars be) tm
 
 bitBlast :: IsAIG l g => g s -> SharedTerm t -> IO (Either BBErr (BValue (l s)))
 bitBlast be = bitBlastWithEnv be Map.empty
@@ -357,7 +347,7 @@ blastAny t = do
     Right v -> return v
 
 blastWithShape :: IsAIG l g
-               => BShape
+               => FiniteType
                -> SharedTerm t
                -> Bitblaster t g l s (BValue (l s))
 blastWithShape shape t = do
@@ -563,7 +553,7 @@ prelude_bvSShr_nat = pat `thenMatcher` litFn
 blastMatcher :: IsAIG l g => Matcher (RuleBlaster t g l s) (SharedTerm t) (BValue (l s))
 blastMatcher = asVar $ \t -> lift (blastAny t)
 
-instance Matchable (RuleBlaster t g l s) (SharedTerm t) BShape where
+instance Matchable (RuleBlaster t g l s) (SharedTerm t) FiniteType where
   defaultMatcher = asVar parseShape
 
 matchExtCns :: IsAIG l g
@@ -816,7 +806,7 @@ joinOp _ eval [mm, mn, _me, mv] =
     do v <- eval mv
        m <- fromIntegral <$> asBNat mm "join"
        n <- fromIntegral <$> asBNat mn "join"
-       checkShape (VecShape m (VecShape n BoolShape)) v
+       checkShape (FTVec m (FTVec n FTBit)) v
        return (lvVector (flattenBValue v))
 joinOp _ _ args = wrongArity "join op" args
 
@@ -829,11 +819,11 @@ splitOp _ eval [mm, mn, _me, mv] =
     do v <- eval mv
        m <- fromIntegral <$> asBNat mm "split"
        n <- fromIntegral <$> asBNat mn "split"
-       checkShape (VecShape (m * n) BoolShape) v
+       checkShape (FTVec (m * n) FTBit) v
        lv <- asBVector v
        let lvParts = chunk (fromIntegral n) lv
            bvs = BVector (V.map BVector lvParts)
-       checkShape (VecShape m (VecShape n BoolShape)) bvs
+       checkShape (FTVec m (FTVec n FTBit)) bvs
        return bvs
 splitOp _ _ args = wrongArity "split op" args
 
