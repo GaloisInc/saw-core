@@ -716,12 +716,12 @@ bvUExtOp be eval [mi, mj, mx] =
        return $ lvVector $ AIG.zext be x (fromIntegral (i + j))
 bvUExtOp _ _ args = wrongArity "UExt op" args
 
-bvSExtOp :: BValueOp t g l s
-bvSExtOp _ eval [mi, mj, mx] =
+bvSExtOp :: IsAIG l g => BValueOp t g l s
+bvSExtOp be eval [mi, mj, mx] =
     do i <- asBNat mi "SExt"
        j <- asBNat mj "SExt"
        x <- asLitVector =<< eval mx
-       return $ lvVector $ AIG.sext x (fromIntegral (i + j + 1))
+       return $ lvVector $ AIG.sext be x (fromIntegral (i + j + 1))
 bvSExtOp _ _ args = wrongArity "SExt op" args
 
 getOp :: IsAIG l g => BValueOp t g l s
