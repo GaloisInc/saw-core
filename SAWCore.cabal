@@ -110,8 +110,8 @@ test-suite test-sawcore
     , wl-pprint
 
     , QuickCheck >= 2.7
-    , tasty >= 0.10
-    , tasty-ant-xml >= 1.0.0.10
+    , tasty
+    , tasty-ant-xml
     , tasty-hunit
     , tasty-quickcheck
     , tagged
