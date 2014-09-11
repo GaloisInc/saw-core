@@ -103,16 +103,28 @@ test-suite test-sawcore
     , hashable
     , lens
     , mtl
-    , QuickCheck
     , saw-core
     , time
     , unordered-containers
     , vector
     , Verinf
     , wl-pprint
+
+    , QuickCheck >= 2.7
+
+    -- , tasty >= 0.10
+    -- , tasty-ant-xml >= 1.0.0.10
+
+    -- note: temporary, until tasty-ant-xml is updated to use tasty >= 0.10
+    , tasty == 0.9.*
+    , tasty-ant-xml == 1.0.0.9
+
+    , tasty-hunit
+    , tasty-quickcheck
+    , tagged
+
   other-modules:
     Tests.BitBlast
-    Tests.Common
     Tests.Parser
     Tests.Rewriter
     Tests.SharedTerm
