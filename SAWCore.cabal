@@ -39,7 +39,7 @@ library
     ref-fd,
     smtLib,
     template-haskell,
-    transformers,
+    transformers >= 0.4,
     unordered-containers,
     utf8-string,
     vector,

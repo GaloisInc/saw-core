@@ -64,7 +64,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Reader
 import qualified Control.Monad.State as S
-import Control.Monad.Trans.Error
+import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Data.Foldable (Foldable)
 import Data.IORef
@@ -194,7 +194,7 @@ liftShape = go
         FTRec m -> RecordType (fmap go m)
 
 type BBErr = String
-type BBMonad = ErrorT BBErr IO
+type BBMonad = ExceptT BBErr IO
 
 wrongArity :: (Show t) => String -> [t] -> BBMonad a
 wrongArity s args =
@@ -251,7 +251,7 @@ bitBlastWithEnv :: IsAIG l g
                 -> IO (Either BBErr (BValue (l s)))
 bitBlastWithEnv be ecEnv (R.asLambdaList -> (args, rhs)) = do
   bc <- newBCache be (bvRulesWithEnv ecEnv)
-  case runIdentity $ runErrorT $ traverse (parseShape . snd) args of
+  case runIdentity $ runExceptT $ traverse (parseShape . snd) args of
     Left msg -> return (Left msg)
     Right shapes -> do
       vars <- traverse (newVars be) shapes
@@ -299,7 +299,7 @@ bitBlastWith :: forall t g l s
              => BCache t g l s
              -> SharedTerm t
              -> IO (Either BBErr (BValue (l s)))
-bitBlastWith bc t0 = runErrorT (go t0)
+bitBlastWith bc t0 = runExceptT (go t0)
   where be = bcEngine bc
         -- Bitblast term.
         go :: SharedTerm t -> BBMonad (BValue (l s))
@@ -767,7 +767,7 @@ setOp be eval [mn, _me, mv, mf, mx] =
          _ -> fail $ "set: invalid index: " ++ show mf
 setOp _ _ args = wrongArity "set op" args
 
-symIdx :: (Integral a, IsAIG l g) =>
+symIdx :: (IsAIG l g) =>
           g s
        -> (BValue (l s) -> Nat -> BValue (l s))
        -> Nat
@@ -831,7 +831,7 @@ reverseOp :: BValueOp t g l s
 reverseOp _ eval [_mn, _me, mv] =
     do v <- eval mv
        case v of
-         (BVector v) -> return . BVector . V.reverse $ v
+         (BVector v') -> return . BVector . V.reverse $ v'
          _ -> fail "reverse applied to non-vector"
 reverseOp _ _ args = wrongArity "reverse op" args
 
