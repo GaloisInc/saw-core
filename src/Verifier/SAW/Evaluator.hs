@@ -254,6 +254,7 @@ mkMemoClosed global t = memoClosed
   where
     memoClosed = fst (State.execState (go t) (IMap.empty, IMap.empty))
     go :: SharedTerm s -> State.State (IntMap Value, IntMap BitSet) BitSet
+    go (Unshared tf) = freesTermF <$> traverse go tf
     go (STApp i tf) = do
       (_, bmemo) <- State.get
       case IMap.lookup i bmemo of
@@ -270,6 +271,7 @@ evalClosedTermF :: (Ident -> Value) -> IntMap Value -> TermF (SharedTerm s) -> V
 evalClosedTermF global memoClosed tf = runIdentity (evalTermF global lam rec [] tf)
   where
     lam = evalOpen global memoClosed
+    rec (Unshared tf) = evalTermF global lam rec [] tf
     rec (STApp i _) =
       case IMap.lookup i memoClosed of
         Just v -> pure v
@@ -281,6 +283,7 @@ evalOpen :: forall s. (Ident -> Value) -> IntMap Value
 evalOpen global memoClosed env t = State.evalState (go t) IMap.empty
   where
     go :: SharedTerm s -> State.State (IntMap Value) Value
+    go (Unshared tf) = evalF tf
     go (STApp i tf) =
       case IMap.lookup i memoClosed of
         Just v -> return v

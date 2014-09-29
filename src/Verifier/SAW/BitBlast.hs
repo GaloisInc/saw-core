@@ -277,6 +277,7 @@ newBCache be (RuleSet tr) = do
                 }
 
 addCut :: BCache t g l s -> SharedTerm t -> BValue (l s) -> IO ()
+addCut _ (Unshared _) _ = error "FIXME: unimplemented addCut Unshared"
 addCut bc (STApp t _) bits = do
   m <- readIORef (bcTermCache bc)
   when (Map.member t m) $
@@ -306,6 +307,17 @@ bitBlastWith bc t0 = runErrorT (go t0)
         go (R.asCtor -> Just (ident, []))
           | ident == "Prelude.False" = return (BBool (AIG.falseLit be))
           | ident == "Prelude.True"  = return (BBool (AIG.trueLit be))
+        go t@(Unshared _) = do
+          mdef <- tryMatch bc t
+          case mdef of
+            Just r -> return r
+            Nothing
+              | (unwrapTermF -> FTermF (GlobalDef ident), xs) <- R.asApplyAll t
+              , Just f <- Map.lookup ident opTable -> f be go xs
+              | otherwise ->
+                  fail $ show $
+                   text "unsupported expression passed to bitBlast:" <$$>
+                   indent 2 (scPrettyTermDoc t)
         go t@(STApp termidx _) = do
           let pushNew r = r <$ lift (addCut bc t r)
           m <- lift $ readIORef (bcTermCache bc)
@@ -316,7 +328,7 @@ bitBlastWith bc t0 = runErrorT (go t0)
             case mdef of
              Just r -> pushNew r
              Nothing
-              | (STApp _ (FTermF (GlobalDef ident)), xs) <- R.asApplyAll t
+              | (unwrapTermF -> FTermF (GlobalDef ident), xs) <- R.asApplyAll t
               , Just f <- Map.lookup ident opTable ->
                    pushNew =<< f be go xs
               | otherwise ->
