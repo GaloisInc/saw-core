@@ -90,6 +90,7 @@ library
      Verifier.SAW.UntypedAST
      Verifier.SAW.Utils
   GHC-options: -Wall
+  GHC-prof-options: -auto-all -caf-all
   extensions:
     DeriveFunctor
     GeneralizedNewtypeDeriving
