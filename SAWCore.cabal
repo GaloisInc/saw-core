@@ -70,6 +70,7 @@ library
      Verifier.SAW.Prim
      Verifier.SAW.Recognizer
      Verifier.SAW.Rewriter
+     Verifier.SAW.SCTypeCheck
      Verifier.SAW.Simulator
      Verifier.SAW.Simulator.BitBlast
      Verifier.SAW.Simulator.SBV
