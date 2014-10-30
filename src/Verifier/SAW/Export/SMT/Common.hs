@@ -13,6 +13,7 @@ Portability : non-portable (language extensions)
 -}
 
 module Verifier.SAW.Export.SMT.Common
+  {-# DEPRECATED "Use Verifier.SAW.Simulator.SBV instead" #-}
   ( module Verifier.SAW.Conversion
   , needBits
   , cache

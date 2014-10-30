@@ -14,6 +14,7 @@ Portability : non-portable (language extensions)
 -}
 
 module Verifier.SAW.Export.SMT.Version1
+  {-# DEPRECATED "Use Verifier.SAW.Simulator.SBV instead" #-}
   ( WriterState
   , emptyWriterState
   , render

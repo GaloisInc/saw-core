@@ -7,7 +7,9 @@ Stability   : experimental
 Portability : non-portable (language extensions)
 -}
 
-module Verifier.SAW.Export.Yices ( yices, BV(..), YVal(..), YResult(..), ppVal
+module Verifier.SAW.Export.Yices
+  {-# DEPRECATED "Use Verifier.SAW.Simulator.SBV instead" #-}
+  ( yices, BV(..), YVal(..), YResult(..), ppVal
   , getIdent
   ) where
 

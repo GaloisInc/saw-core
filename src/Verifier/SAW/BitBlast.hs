@@ -22,6 +22,7 @@ Portability : non-portable (language extensions)
 -}
 
 module Verifier.SAW.BitBlast
+  {-# DEPRECATED "Use Verifier.SAW.Simulator.BitBlast instead" #-}
   ( BValue(..)
   , FiniteType(..)
   , flattenBValue
