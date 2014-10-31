@@ -65,7 +65,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Reader
 import qualified Control.Monad.State as S
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Monad.Trans.Maybe
 import Data.Foldable (Foldable)
 import Data.IORef
@@ -195,7 +195,7 @@ liftShape = go
         FTRec m -> RecordType (fmap go m)
 
 type BBErr = String
-type BBMonad = ErrorT BBErr IO
+type BBMonad = ExceptT BBErr IO
 
 wrongArity :: (Show t) => String -> [t] -> BBMonad a
 wrongArity s args =
@@ -252,7 +252,7 @@ bitBlastWithEnv :: IsAIG l g
                 -> IO (Either BBErr (BValue (l s)))
 bitBlastWithEnv be ecEnv (R.asLambdaList -> (args, rhs)) = do
   bc <- newBCache be (bvRulesWithEnv ecEnv)
-  case runIdentity $ runErrorT $ traverse (parseShape . snd) args of
+  case runIdentity $ runExceptT $ traverse (parseShape . snd) args of
     Left msg -> return (Left msg)
     Right shapes -> do
       vars <- traverse (newVars be) shapes
@@ -301,7 +301,7 @@ bitBlastWith :: forall t g l s
              => BCache t g l s
              -> SharedTerm t
              -> IO (Either BBErr (BValue (l s)))
-bitBlastWith bc t0 = runErrorT (go t0)
+bitBlastWith bc t0 = runExceptT (go t0)
   where be = bcEngine bc
         -- Bitblast term.
         go :: SharedTerm t -> BBMonad (BValue (l s))
