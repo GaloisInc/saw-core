@@ -455,6 +455,8 @@ preludePrims = Map.fromList
   , ("Prelude.bvSShr"  , toValue Prim.bvSShr)
   , ("Prelude.bvult"   , toValue Prim.bvult)
   , ("Prelude.bvule"   , toValue Prim.bvule)
+  , ("Prelude.bvslt"   , toValue Prim.bvslt)
+  , ("Prelude.bvsle"   , toValue Prim.bvsle)
   , ("Prelude.bvPMul"  , toValue Prim.bvPMul)
   , ("Prelude.bvPDiv"  , toValue Prim.bvPDiv)
   , ("Prelude.bvPMod"  , toValue Prim.bvPMod)
