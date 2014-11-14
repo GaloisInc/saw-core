@@ -461,7 +461,9 @@ preludePrims = Map.fromList
   , ("Prelude.bvPDiv"  , toValue Prim.bvPDiv)
   , ("Prelude.bvPMod"  , toValue Prim.bvPMod)
   , ("Prelude.get"     , toValue get')
+  , ("Prelude.set"     , toValue set')
   , ("Prelude.at"      , toValue atOp)
+  , ("Prelude.upd"     , toValue updOp)
   , ("Prelude.append"  , toValue append')
   , ("Prelude.rotateL" , toValue rotateL')
   , ("Prelude.rotateR" , toValue rotateR')
@@ -490,6 +492,12 @@ get' :: Int -> () -> Value -> Prim.Fin -> Value
 get' _ _ (VVector xs) i = (V.!) xs (fromEnum i)
 get' _ _ (VWord n x) i = toValue (Prim.get_bv n () (Prim.BV n x) i)
 get' _ _ _ _ = error "get'"
+
+set' :: Int -> () -> Value -> Prim.Fin -> Value -> Value
+set' _ _ (VVector xs) i y = VVector $ (V.//) xs [(fromEnum i, y)]
+set' _ _ (VWord n x) i y =
+  toValue (Prim.set_bv n () (Prim.BV n x) i (fromValue y))
+set' _ _ _ _ _ = error "set'"
 
 append' :: Int -> Int -> () -> Value -> Value -> Value
 append' _ _ _ (VVector xs) (VVector ys) = VVector ((V.++) xs ys)
@@ -536,6 +544,12 @@ atOp :: () -> () -> Value -> Int -> Value
 atOp _ _ (VVector xs) i = (V.!) xs i
 atOp _ _ (VWord n x) i = toValue (testBit x (n - 1 - i))
 atOp _ _ _ _ = error "atOp"
+
+updOp :: () -> () -> Value -> Int -> Value -> Value
+updOp _ _ (VVector xs) i y = VVector $ (V.//) xs [(i, y)]
+updOp _ _ (VWord n x) i y = toValue (f x (n - 1 - i))
+  where f = if fromValue y then setBit else clearBit
+updOp _ _ _ _ _ = error "updOp"
 
 bvAtOp :: () -> () -> () -> Value -> Prim.BitVector -> Value
 bvAtOp _ _ _ v i = atOp () () v (fromIntegral (Prim.unsigned i))
