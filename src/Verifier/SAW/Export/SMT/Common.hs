@@ -13,10 +13,10 @@ Portability : non-portable (language extensions)
 -}
 
 module Verifier.SAW.Export.SMT.Common
-  {-# DEPRECATED "Use Verifier.SAW.Simulator.SBV instead" #-}
   ( module Verifier.SAW.Conversion
   , needBits
   , cache
+  , cache'
   , freshName
   , matchTerm
     -- Renderable and it's use cases.
@@ -42,6 +42,7 @@ import Data.String
 import Verifier.SAW.Prim
 import Verifier.SAW.Conversion
 import Verifier.SAW.TypedAST
+import Verifier.SAW.SharedTerm (SharedTerm(..))
 import qualified Verifier.SAW.TermNet as Net
 
 -- | How many bits do we need to represent the given number.
@@ -65,6 +66,14 @@ cache l k a = do
       r <- a
       l %= Map.insert k r
       return r
+
+cache' :: MonadState s m
+       => Simple Lens s (Map.Map Int v)
+       -> SharedTerm t
+       -> m v
+       -> m v
+cache' l (STApp i _) a = cache l i a
+cache' _ (Unshared _) a = a
 
 freshName :: (MonadState s m, Num n, Show n, IsString nm)
           => Simple Lens s n

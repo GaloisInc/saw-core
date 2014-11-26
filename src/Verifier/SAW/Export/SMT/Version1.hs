@@ -194,8 +194,8 @@ smtScript s = SMT.Script
 type Writer s = StateT (WriterState s) IO
 
 toSort :: SharedTerm s -> Writer s SMT.Sort
-toSort t@(STApp i _tf) = do
-  cache smtSortCache i $ do
+toSort t = do
+  cache' smtSortCache t $ do
     mres <- matchTerm smtSortNet t
     case mres of
       Just r -> return r
@@ -227,9 +227,8 @@ smt_term0 :: SMT.Ident -> SMT.Term
 smt_term0 nm = SMT.App nm []
 
 toFormula :: SharedTerm s -> Writer s SMT.Formula
--- toFormula t@(STApp i (Lambda (Pat x _ _) tm) = do
-toFormula t@(STApp i _tf) = do
-  cache smtFormulaCache i $ do
+toFormula t = do
+  cache' smtFormulaCache t $ do
     -- Create name for fresh variable
     nm <- mkFreshFormula
     let p = smt_pred0 nm
@@ -244,8 +243,8 @@ toFormula t@(STApp i _tf) = do
     return p
 
 toTerm :: SharedTerm s -> Writer s SMT.Term
-toTerm t@(STApp i _tf) = do
-  cache smtTermCache i $ do
+toTerm t = do
+  cache' smtTermCache t $ do
     -- Create name for fresh variable
     nm <- do sc <- gets smtContext
              tys <- use localTys

@@ -90,7 +90,7 @@ library
      Verifier.SAW.UnionFind
      Verifier.SAW.UntypedAST
      Verifier.SAW.Utils
-  GHC-options: -Wall
+  GHC-options: -Wall -Werror
   GHC-prof-options: -auto-all -caf-all
   extensions:
     DeriveFunctor

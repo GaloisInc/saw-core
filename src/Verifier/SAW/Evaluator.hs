@@ -271,7 +271,7 @@ evalClosedTermF :: (Ident -> Value) -> IntMap Value -> TermF (SharedTerm s) -> V
 evalClosedTermF global memoClosed tf = runIdentity (evalTermF global lam rec [] tf)
   where
     lam = evalOpen global memoClosed
-    rec (Unshared tf) = evalTermF global lam rec [] tf
+    rec (Unshared tf') = evalTermF global lam rec [] tf'
     rec (STApp i _) =
       case IMap.lookup i memoClosed of
         Just v -> pure v

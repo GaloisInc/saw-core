@@ -56,6 +56,7 @@ import Verifier.SAW.Prim
 import Verifier.SAW.Rewriter ()
 import Verifier.SAW.SharedTerm
 import qualified Verifier.SAW.TermNet as Net
+import Verifier.SAW.TypedAST (unwrapTermF)
 
 data Warning t
   = UnmatchedType SMT.Name t
@@ -145,8 +146,8 @@ render s = show $ SMT.pp $ SMT.Script $
 type Writer s = StateT (WriterState s) IO
 
 toSMTType :: SharedTerm s -> Writer s SMT.Type
-toSMTType t@(STApp i _tf) = do
-  cache smtTypeCache i $ do
+toSMTType t = do
+  cache' smtTypeCache t $ do
     mres <- matchTerm smtTypeNet t
     case mres of
       Just r -> return r
@@ -171,7 +172,7 @@ smt_constexpr nm tp = SMT.App (SMT.I nm []) (Just tp) []
 
 
 toSMTExpr :: SharedTerm s -> Writer s SMT.Expr
-toSMTExpr (STApp _ (Lambda _ ty tm)) = do
+toSMTExpr (unwrapTermF -> Lambda _ ty tm) = do
   ty' <- toSMTType ty
   nm <- mkFreshExpr ty'
   let x = smt_constexpr nm ty'
@@ -181,8 +182,8 @@ toSMTExpr (STApp _ (Lambda _ ty tm)) = do
   localExprs %= tail
   localTys %= tail
   return r
-toSMTExpr t@(STApp i _tf) = do
-  cache smtExprCache i $ do
+toSMTExpr t = do
+  cache' smtExprCache t $ do
     -- Get type of term
     tp <- do sc <- gets smtContext
              tys <- use localTys
