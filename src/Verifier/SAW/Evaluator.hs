@@ -29,7 +29,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IMap
-import Data.Maybe (fromJust, fromMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -443,8 +443,8 @@ preludePrims = Map.fromList
   , ("Prelude.bvAdd"   , toValue Prim.bvAdd)
   , ("Prelude.bvSub"   , toValue Prim.bvSub)
   , ("Prelude.bvMul"   , toValue Prim.bvMul)
-  , ("Prelude.bvUDiv"  , toValue (\w x y -> fromJust (Prim.bvUDiv w x y)))
-  , ("Prelude.bvURem"  , toValue (\w x y -> fromJust (Prim.bvURem w x y)))
+  , ("Prelude.bvUDiv"  , toValue (\w x y -> maybeDiv0 (Prim.bvUDiv w x y)))
+  , ("Prelude.bvURem"  , toValue (\w x y -> maybeDiv0 (Prim.bvURem w x y)))
   , ("Prelude.bvAnd"   , toValue Prim.bvAnd)
   , ("Prelude.bvOr"    , toValue Prim.bvOr )
   , ("Prelude.bvXor"   , toValue Prim.bvXor)
@@ -488,8 +488,12 @@ preludePrims = Map.fromList
   , ("Prelude.bvShiftR", toValue bvShiftROp)
   ]
 
+maybeDiv0 :: Maybe a -> a
+maybeDiv0 (Just x) = x
+maybeDiv0 Nothing = Prim.divideByZero
+
 get' :: Int -> () -> Value -> Prim.Fin -> Value
-get' _ _ (VVector xs) i = (V.!) xs (fromEnum i)
+get' _ _ (VVector xs) i = (Prim.!) xs (fromEnum i)
 get' _ _ (VWord n x) i = toValue (Prim.get_bv n () (Prim.BV n x) i)
 get' _ _ _ _ = error "get'"
 
@@ -541,7 +545,7 @@ bvStreamGetOp :: () -> () -> IntTrie Value -> Prim.BitVector -> Value
 bvStreamGetOp _ _ trie n = IntTrie.apply trie (Prim.unsigned n)
 
 atOp :: () -> () -> Value -> Int -> Value
-atOp _ _ (VVector xs) i = (V.!) xs i
+atOp _ _ (VVector xs) i = (Prim.!) xs i
 atOp _ _ (VWord n x) i = toValue (testBit x (n - 1 - i))
 atOp _ _ _ _ = error "atOp"
 
