@@ -53,13 +53,13 @@ library
      Verifier.SAW
      Verifier.SAW.Constant
      Verifier.SAW.ExternalFormat
-     Verifier.SAW.BitBlast
+     --Verifier.SAW.BitBlast
      Verifier.SAW.Conversion
      Verifier.SAW.Evaluator
-     Verifier.SAW.Export.SMT.Common
-     Verifier.SAW.Export.SMT.Version1
-     Verifier.SAW.Export.SMT.Version2
-     Verifier.SAW.Export.Yices
+     --Verifier.SAW.Export.SMT.Common
+     --Verifier.SAW.Export.SMT.Version1
+     --Verifier.SAW.Export.SMT.Version2
+     --Verifier.SAW.Export.Yices
      Verifier.SAW.Cache
      Verifier.SAW.FiniteValue
      Verifier.SAW.Grammar
