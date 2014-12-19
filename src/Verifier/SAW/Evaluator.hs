@@ -173,10 +173,13 @@ evalDef rec (Def ident _ eqns) = vFuns arity (tryEqns eqns)
 
 ------------------------------------------------------------
 
+type ExtCnsEnv = VarIndex -> String -> Value
+
 -- | Generic applicative evaluator for TermFs.
-evalTermF :: (Show t, Applicative f) => (Ident -> Value) -> ([Value] -> t -> Value)
+evalTermF :: (Show t, Applicative f) =>
+             (Ident -> Value) -> ExtCnsEnv -> ([Value] -> t -> Value)
               -> (t -> f Value) -> [Value] -> TermF t -> f Value
-evalTermF global lam rec env tf =
+evalTermF global ext lam rec env tf =
   case tf of
     App t1 t2               -> apply <$> rec t1 <*> rec t2
     Lambda _ _ t            -> pure $ VFun (\x -> lam (x : env) t)
@@ -204,18 +207,17 @@ evalTermF global lam rec env tf =
         FloatLit x          -> pure $ VFloat x
         DoubleLit x         -> pure $ VDouble x
         StringLit s         -> pure $ VString s
-        ExtCns ec           ->
-          error $ "evalTermF ExtCns unimplemented (" ++ ecName ec ++ ")"
+        ExtCns ec           -> pure $ ext (ecVarIndex ec) (ecName ec)
 
 -- | Evaluator for unshared terms.
-evalTerm :: (Ident -> Value) -> [Value] -> Term -> Value
-evalTerm global env (Term tf) = runIdentity (evalTermF global lam rec env tf)
+evalTerm :: (Ident -> Value) -> ExtCnsEnv -> [Value] -> Term -> Value
+evalTerm global ext env (Term tf) = runIdentity (evalTermF global ext lam rec env tf)
   where
-    lam = evalTerm global
-    rec t = pure (evalTerm global env t)
+    lam = evalTerm global ext
+    rec t = pure (evalTerm global ext env t)
 
-evalTypedDef :: (Ident -> Value) -> TypedDef -> Value
-evalTypedDef global = evalDef (evalTerm global)
+evalTypedDef :: (Ident -> Value) -> ExtCnsEnv -> TypedDef -> Value
+evalTypedDef global ext = evalDef (evalTerm global ext)
 
 evalGlobal :: Module -> Map Ident Value -> Ident -> Value
 evalGlobal m prims ident =
@@ -226,13 +228,16 @@ evalGlobal m prims ident =
         Just ct -> vCtor [] (ctorType ct)
         Nothing ->
           case findDef m ident of
-            Just td | not (null (defEqs td)) -> evalTypedDef (evalGlobal m prims) td
+            Just td | not (null (defEqs td)) -> evalTypedDef (evalGlobal m prims) noExtCns td
             _ -> error $ "Unimplemented global: " ++ show ident
 
   where
     vCtor :: [Value] -> Term -> Value
     vCtor xs (Term (Pi _ _ t)) = VFun (\x -> vCtor (x : xs) t)
     vCtor xs _ = VCtorApp ident (V.fromList (reverse xs))
+
+noExtCns :: ExtCnsEnv
+noExtCns _ name = error $ "evalTermF ExtCns unimplemented (" ++ name ++ ")"
 
 ------------------------------------------------------------
 -- The evaluation strategy for SharedTerms involves two memo tables:
@@ -245,12 +250,12 @@ evalGlobal m prims ident =
 -- we descend under a lambda binder.
 
 -- | Evaluator for shared terms.
-evalSharedTerm :: (Ident -> Value) -> SharedTerm s -> Value
-evalSharedTerm global t = evalOpen global (mkMemoClosed global t) [] t
+evalSharedTerm :: (Ident -> Value) -> ExtCnsEnv -> SharedTerm s -> Value
+evalSharedTerm global ext t = evalOpen global ext (mkMemoClosed global ext t) [] t
 
 -- | Precomputing the memo table for closed subterms.
-mkMemoClosed :: forall s. (Ident -> Value) -> SharedTerm s -> IntMap Value
-mkMemoClosed global t = memoClosed
+mkMemoClosed :: forall s. (Ident -> Value) -> ExtCnsEnv -> SharedTerm s -> IntMap Value
+mkMemoClosed global ext t = memoClosed
   where
     memoClosed = fst (State.execState (go t) (IMap.empty, IMap.empty))
     go :: SharedTerm s -> State.State (IntMap Value, IntMap BitSet) BitSet
@@ -261,26 +266,26 @@ mkMemoClosed global t = memoClosed
         Just b -> return b
         Nothing -> do
           b <- freesTermF <$> traverse go tf
-          let v = evalClosedTermF global memoClosed tf
+          let v = evalClosedTermF global ext memoClosed tf
           State.modify (\(vm, bm) ->
             (if b == 0 then IMap.insert i v vm else vm, IMap.insert i b bm))
           return b
 
 -- | Evaluator for closed terms, used to populate @memoClosed@.
-evalClosedTermF :: (Ident -> Value) -> IntMap Value -> TermF (SharedTerm s) -> Value
-evalClosedTermF global memoClosed tf = runIdentity (evalTermF global lam rec [] tf)
+evalClosedTermF :: (Ident -> Value) -> ExtCnsEnv -> IntMap Value -> TermF (SharedTerm s) -> Value
+evalClosedTermF global ext memoClosed tf = runIdentity (evalTermF global ext lam rec [] tf)
   where
-    lam = evalOpen global memoClosed
-    rec (Unshared tf') = evalTermF global lam rec [] tf'
+    lam = evalOpen global ext memoClosed
+    rec (Unshared tf') = evalTermF global ext lam rec [] tf'
     rec (STApp i _) =
       case IMap.lookup i memoClosed of
         Just v -> pure v
         Nothing -> error "evalClosedTermF: internal error"
 
 -- | Evaluator for open terms; parameterized by a precomputed table @memoClosed@.
-evalOpen :: forall s. (Ident -> Value) -> IntMap Value
+evalOpen :: forall s. (Ident -> Value) -> ExtCnsEnv -> IntMap Value
          -> [Value] -> SharedTerm s -> Value
-evalOpen global memoClosed env t = State.evalState (go t) IMap.empty
+evalOpen global ext memoClosed env t = State.evalState (go t) IMap.empty
   where
     go :: SharedTerm s -> State.State (IntMap Value) Value
     go (Unshared tf) = evalF tf
@@ -296,7 +301,7 @@ evalOpen global memoClosed env t = State.evalState (go t) IMap.empty
               State.modify (IMap.insert i v)
               return v
     evalF :: TermF (SharedTerm s) -> State.State (IntMap Value) Value
-    evalF tf = evalTermF global (evalOpen global memoClosed) go env tf
+    evalF tf = evalTermF global ext (evalOpen global ext memoClosed) go env tf
 
 ------------------------------------------------------------
 -- Representing primitives as Values
