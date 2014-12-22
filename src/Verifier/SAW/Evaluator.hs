@@ -55,7 +55,11 @@ data Value
     | VStream (IntTrie Value)
     | VFloat !Float
     | VDouble !Double
-    | VType
+    | VPiType !Value !(Value -> Value)
+    | VTupleType [Value]
+    | VRecordType !(Map FieldName Value)
+    | VDataType !Ident [Value]
+    | VType -- ^ Other unknown type
 
 newtype SC s a = SC (ReaderT (SharedContext s) IO a)
     deriving ( Functor, Applicative, Monad )
@@ -85,6 +89,15 @@ instance Show Value where
         VFloat float -> shows float
         VDouble double -> shows double
         VString s -> shows s
+        VPiType v1 _ -> showParen (p > 5) $
+                        showsPrec 6 v1 . showString " -> ..." -- . showsPrec 5 v2
+        VTupleType vs -> showString "#" .
+                         showParen True
+                         (foldr (.) id (intersperse (showString ",") (map shows vs)))
+        VRecordType _ -> error "unimplemented: show VRecordType"
+        VDataType s vs
+            | null vs -> shows s
+            | otherwise -> shows s . showList vs
         VType -> showString "_"
 
 instance Eq Value where
@@ -183,7 +196,7 @@ evalTermF global ext lam rec env tf =
   case tf of
     App t1 t2               -> apply <$> rec t1 <*> rec t2
     Lambda _ _ t            -> pure $ VFun (\x -> lam (x : env) t)
-    Pi {}                   -> pure $ VType
+    Pi _ t1 t2              -> VPiType <$> rec t1 <*> pure (\x -> lam (x : env) t2)
     Let ds t                -> pure $ lam env' t
                                  where
                                    env' = reverse vs ++ env
@@ -194,13 +207,13 @@ evalTermF global ext lam rec env tf =
       case ftf of
         GlobalDef ident     -> pure $ global ident
         TupleValue ts       -> VTuple <$> traverse rec (V.fromList ts)
-        TupleType {}        -> pure VType
+        TupleType ts        -> VTupleType <$> traverse rec ts
         TupleSelector t j   -> valTupleSelect j <$> rec t
         RecordValue tm      -> VRecord <$> traverse rec tm
         RecordSelector t k  -> valRecordSelect k <$> rec t
-        RecordType {}       -> pure VType
+        RecordType tm       -> VRecordType <$> traverse rec tm
         CtorApp ident ts    -> applyAll (global ident) <$> traverse rec ts
-        DataTypeApp {}      -> pure VType
+        DataTypeApp i ts    -> VDataType i <$> traverse rec ts
         Sort {}             -> pure VType
         NatLit n            -> pure $ VNat n
         ArrayValue _ tv     -> VVector <$> traverse rec tv
@@ -614,4 +627,8 @@ scValue sc val =
     VStream _     -> fail "scValue: unsupported infinite stream value"
     VFloat _      -> fail "scValue: unsupported float value"
     VDouble _     -> fail "scValue: unsupported double value"
+    VPiType _ _   -> fail "scValue: unsupported pi type value"
+    VTupleType _  -> fail "scValue: unsupported tuple type value"
+    VRecordType _ -> fail "scValue: unsupported record type value"
+    VDataType _ _ -> fail "scValue: unsupported data type value"
     VType         -> fail "scValue: unsupported type value"
