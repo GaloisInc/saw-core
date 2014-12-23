@@ -504,6 +504,7 @@ preludePrims = Map.fromList
   , ("Prelude.bvRotateR", toValue bvRotateROp)
   , ("Prelude.bvShiftL", toValue bvShiftLOp)
   , ("Prelude.bvShiftR", toValue bvShiftROp)
+  , ("Prelude.zero", toValue zeroOp)
   ]
 
 maybeDiv0 :: Maybe a -> a
@@ -599,6 +600,22 @@ bvShiftROp _ _ _ b (VWord n x) i
   | otherwise   = VWord n (x `shiftR` j)
   where j = min n (fromInteger (Prim.unsigned i))
 bvShiftROp _ _ _ _ _ _ = error "bvShiftROp"
+
+vIsBool :: Value -> Bool
+vIsBool (VDataType "Prelude.Bool" []) = True
+vIsBool _ = False
+
+zeroOp :: Value -> Value
+zeroOp v =
+  case v of
+    VDataType "Prelude.Bool" [] -> toValue False
+    VDataType "Prelude.Vec" [VNat n, t]
+      | vIsBool t -> VWord (fromInteger n) 0
+      | otherwise -> VVector (V.replicate (fromInteger n) (zeroOp t))
+    VPiType _ f -> VFun (\x -> zeroOp (f x))
+    VTupleType ts -> VTuple (V.fromList (map zeroOp ts))
+    VRecordType tm -> VRecord (fmap zeroOp tm)
+    _ -> Prim.userError $ "zero: illegal argument: " ++ show v
 
 preludeGlobal :: Ident -> Value
 preludeGlobal = evalGlobal preludeModule preludePrims
