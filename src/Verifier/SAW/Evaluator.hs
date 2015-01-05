@@ -22,6 +22,8 @@ import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State.Strict as State
 import Data.Bits
+import Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import Data.IntTrie (IntTrie)
 import qualified Data.IntTrie as IntTrie
 import Data.List ( intersperse )
@@ -232,9 +234,9 @@ evalTerm global ext env (Term tf) = runIdentity (evalTermF global ext lam rec en
 evalTypedDef :: (Ident -> Value) -> ExtCnsEnv -> TypedDef -> Value
 evalTypedDef global ext = evalDef (evalTerm global ext)
 
-evalGlobal :: Module -> Map Ident Value -> Ident -> Value
+evalGlobal :: Module -> HashMap Ident Value -> Ident -> Value
 evalGlobal m prims ident =
-  case Map.lookup ident prims of
+  case HashMap.lookup ident prims of
     Just v -> v
     Nothing ->
       case findCtor m ident of
@@ -439,8 +441,8 @@ instance IsValue a => IsValue (IntTrie a) where
 
 ------------------------------------------------------------
 
-preludePrims :: Map Ident Value
-preludePrims = Map.fromList
+preludePrims :: HashMap Ident Value
+preludePrims = HashMap.fromList
   [ ("Prelude.Succ"    , toValue (succ :: Prim.Nat -> Prim.Nat))
   , ("Prelude.addNat"  , toValue ((+) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
   , ("Prelude.subNat"  , toValue ((-) :: Prim.Nat -> Prim.Nat -> Prim.Nat))
