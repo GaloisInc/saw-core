@@ -73,6 +73,7 @@ library
      Verifier.SAW.SCTypeCheck
      Verifier.SAW.Simulator
      Verifier.SAW.Simulator.BitBlast
+     Verifier.SAW.Simulator.Concrete
      Verifier.SAW.Simulator.MonadLazy
      Verifier.SAW.Simulator.Prims
      Verifier.SAW.Simulator.SBV
