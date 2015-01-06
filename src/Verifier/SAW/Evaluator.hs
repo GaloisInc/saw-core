@@ -18,12 +18,13 @@ Portability : non-portable (language extensions)
 module Verifier.SAW.Evaluator where
 
 import Control.Applicative
+import Control.Lens ((^.))
 import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State.Strict as State
 import Data.Bits
-import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Lazy (HashMap)
+import qualified Data.HashMap.Lazy as HashMap
 import Data.IntTrie (IntTrie)
 import qualified Data.IntTrie as IntTrie
 import Data.List ( intersperse )
@@ -235,21 +236,30 @@ evalTypedDef :: (Ident -> Value) -> ExtCnsEnv -> TypedDef -> Value
 evalTypedDef global ext = evalDef (evalTerm global ext)
 
 evalGlobal :: Module -> HashMap Ident Value -> Ident -> Value
-evalGlobal m prims ident =
-  case HashMap.lookup ident prims of
-    Just v -> v
-    Nothing ->
-      case findCtor m ident of
-        Just ct -> vCtor [] (ctorType ct)
-        Nothing ->
-          case findDef m ident of
-            Just td | not (null (defEqs td)) -> evalTypedDef (evalGlobal m prims) noExtCns td
-            _ -> error $ "Unimplemented global: " ++ show ident
-
+evalGlobal m0 prims = eval
   where
-    vCtor :: [Value] -> Term -> Value
-    vCtor xs (Term (Pi _ _ t)) = VFun (\x -> vCtor (x : xs) t)
-    vCtor xs _ = VCtorApp ident (V.fromList (reverse xs))
+    ms :: [Module]
+    ms = m0 : Map.elems (m0^.moduleImports)
+
+    globals :: HashMap Ident Value
+    globals =
+      HashMap.union prims $
+      HashMap.fromList $
+      [ (ctorName ct, vCtor (ctorName ct) [] (ctorType ct)) | m <- ms, ct <- moduleCtors m ]
+      ++ [ (defIdent td, vDef td) | m <- ms, td <- moduleDefs m, not (null (defEqs td)) ]
+
+    vCtor :: Ident -> [Value] -> Term -> Value
+    vCtor ident xs (Term (Pi _ _ t)) = VFun (\x -> vCtor ident (x : xs) t)
+    vCtor ident xs _ = VCtorApp ident (V.fromList (reverse xs))
+
+    vDef :: TypedDef -> Value
+    vDef = evalTypedDef eval noExtCns
+
+    eval :: Ident -> Value
+    eval ident =
+      case HashMap.lookup ident globals of
+        Just v -> v
+        Nothing -> error $ "Unimplemented global: " ++ show ident
 
 noExtCns :: ExtCnsEnv
 noExtCns _ name = error $ "evalTermF ExtCns unimplemented (" ++ name ++ ")"
