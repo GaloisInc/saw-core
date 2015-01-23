@@ -41,6 +41,7 @@ library
     pretty,
     process,
     ref-fd,
+    sbv >= 4.0,
     smtLib,
     template-haskell,
     transformers,
