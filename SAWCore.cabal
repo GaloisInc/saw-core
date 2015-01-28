@@ -31,18 +31,14 @@ library
     data-inttrie,
     cryptol,
     directory,
-    fgl >= 5.3,
     filepath,
     ghc-prim,
     hashable >= 1.2,
     lens >= 3.8,
     mtl,
-    parsec,
     pretty,
-    process,
     ref-fd,
     sbv >= 4.0,
-    smtLib,
     template-haskell,
     transformers,
     unordered-containers,
@@ -54,12 +50,7 @@ library
      Verifier.SAW
      Verifier.SAW.Constant
      Verifier.SAW.ExternalFormat
-     --Verifier.SAW.BitBlast
      Verifier.SAW.Conversion
-     --Verifier.SAW.Export.SMT.Common
-     --Verifier.SAW.Export.SMT.Version1
-     --Verifier.SAW.Export.SMT.Version2
-     --Verifier.SAW.Export.Yices
      Verifier.SAW.Cache
      Verifier.SAW.FiniteValue
      Verifier.SAW.Grammar
