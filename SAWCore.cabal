@@ -29,7 +29,6 @@ library
     bytestring,
     containers,
     data-inttrie,
-    cryptol,
     directory,
     filepath,
     ghc-prim,
@@ -37,6 +36,7 @@ library
     lens >= 3.8,
     mtl,
     pretty,
+    random,
     ref-fd,
     sbv >= 4.0,
     template-haskell,
@@ -68,6 +68,7 @@ library
      Verifier.SAW.Simulator.MonadLazy
      Verifier.SAW.Simulator.Prims
      Verifier.SAW.Simulator.SBV
+     Verifier.SAW.Simulator.SBV.SWord
      Verifier.SAW.Simulator.Value
      Verifier.SAW.SharedTerm
      Verifier.SAW.TermNet
