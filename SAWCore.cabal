@@ -41,6 +41,7 @@ library
     sbv >= 4.0,
     template-haskell,
     transformers,
+    transformers-compat,
     unordered-containers,
     utf8-string,
     vector,
