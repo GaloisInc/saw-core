@@ -1,5 +1,5 @@
 Name:               saw-core
-Version:            0.1
+Version:            0.1.1
 License:            BSD3
 License-file:       LICENSE
 Author:             Galois, Inc.
@@ -74,6 +74,7 @@ library
      Verifier.SAW.Simulator.Value
      Verifier.SAW.SharedTerm
      Verifier.SAW.TermNet
+     Verifier.SAW.Testing.Random
      Verifier.SAW.Typechecker
      Verifier.SAW.TypedAST
      Verifier.SAW.Change
