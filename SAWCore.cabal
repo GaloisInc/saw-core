@@ -1,5 +1,5 @@
 Name:               saw-core
-Version:            0.1.1
+Version:            0.1
 License:            BSD3
 License-file:       LICENSE
 Author:             Galois, Inc.
@@ -34,12 +34,14 @@ library
     ghc-prim,
     hashable >= 1.2,
     lens >= 3.8,
+    MonadRandom,
     mtl,
     pretty,
     random,
     ref-fd,
     sbv >= 4.0,
     template-haskell,
+    tf-random,
     transformers,
     transformers-compat,
     unordered-containers,
