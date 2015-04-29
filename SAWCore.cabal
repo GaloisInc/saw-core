@@ -24,6 +24,7 @@ library
   build-depends:
     base == 4.*,
     aig,
+    ansi-wl-pprint,
     array,
     binary,
     bytestring,
@@ -46,8 +47,7 @@ library
     transformers-compat,
     unordered-containers,
     utf8-string,
-    vector,
-    wl-pprint
+    vector
   hs-source-dirs: src
   exposed-modules:
      Verifier.SAW
