@@ -112,8 +112,7 @@ test-suite test-sawcore
     , time
     , unordered-containers
     , vector
-    , wl-pprint
-
+    , ansi-wl-pprint
     , QuickCheck >= 2.7
     , tasty
     , tasty-ant-xml
