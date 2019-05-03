@@ -1548,3 +1548,14 @@ axiom map_map : (a b c : sort 0) -> (f : a -> b) -> (g : b -> c) ->
                  (n : Nat) -> (xs : Vec n a) ->
                  Eq (Vec n c) (map b c g n (map a b f n xs))
                               (map a c (\ (x:a) -> g (f x)) n xs);
+
+-------------------------------------------------------------------------------
+-- Dependent sums
+
+data Sigma (a : sort 0) (b : a -> sort 0) : sort 0 where {
+    exists : (pa : a) -> b pa -> Sigma a b;
+}
+
+Sigma__rec (a : sort 0) (b : a -> sort 0) (p : Sigma a b -> sort 0)
+           (f1 : (pa : a) -> (pb : b pa) -> p (exists a b pa pb)) (u : Sigma a b) : p u
+  = Sigma#rec a b p f1 u;
