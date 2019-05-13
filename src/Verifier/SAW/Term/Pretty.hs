@@ -20,6 +20,7 @@ module Verifier.SAW.Term.Pretty
   , depthPPOpts
   , ppNat
   , ppTerm
+  , ppTermInCtx
   , showTerm
   , scPrettyTerm
   , scPrettyTermInCtx
@@ -577,6 +578,14 @@ ppTerm opts trm = runPPM opts $ ppTermWithMemoTable PrecNone True trm
 ppTermDepth :: Int -> Term -> Doc
 ppTermDepth depth t = ppTerm (depthPPOpts depth) t
 
+-- | Like 'ppTerm', but also supply a context of bound names, where the most
+-- recently-bound variable is listed first in the context
+ppTermInCtx :: PPOpts -> [String] -> Term -> Doc
+ppTermInCtx opts ctx trm =
+  runPPM opts $
+  flip (Fold.foldl' (\m x -> snd <$> withBoundVarM x m)) ctx $
+  ppTermWithMemoTable PrecNone True trm
+
 -- | Pretty-print a term and render it to a string, using the given options
 scPrettyTerm :: PPOpts -> Term -> String
 scPrettyTerm opts t =
@@ -586,9 +595,8 @@ scPrettyTerm opts t =
 -- most recently-bound variable is listed first in the context
 scPrettyTermInCtx :: PPOpts -> [String] -> Term -> String
 scPrettyTermInCtx opts ctx trm =
-  flip displayS "" $ renderPretty 0.8 80 $ runPPM opts $
-  flip (Fold.foldl' (\m x -> snd <$> withBoundVarM x m)) ctx $
-  ppTermWithMemoTable PrecNone False trm
+  flip displayS "" $ renderPretty 0.8 80 $
+  ppTermInCtx opts ctx trm
 
 
 -- | Pretty-print a term and render it to a string
