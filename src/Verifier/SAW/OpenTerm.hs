@@ -150,6 +150,12 @@ piOpenTerm x (OpenTerm tpM) body_f = OpenTerm $
      body <- bindOpenTerm x tp body_f
      typeInferComplete $ Pi x tp body
 
+-- | Build a let expression as an 'OpenTerm'. This is equivalent to
+-- > 'applyOpenTerm' ('lambdaOpenTerm' x tp body) rhs
+letOpenTerm :: String -> OpenTerm -> OpenTerm -> (OpenTerm -> OpenTerm) ->
+               OpenTerm
+letOpenTerm x tp rhs body_f = applyOpenTerm (lambdaOpenTerm x tp body) rhs
+
 -- | The monad for building 'OpenTerm's if you want to add in 'IO' actions. This
 -- is just the type-checking monad, but we give it a new name to keep this
 -- module self-contained.
