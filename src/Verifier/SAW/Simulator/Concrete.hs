@@ -224,6 +224,11 @@ prims =
   , Prims.bpIntLt  = pure2 (<)
   , Prims.bpIntMin = pure2 min
   , Prims.bpIntMax = pure2 max
+
+    -- Array operations
+  , Prims.bpArrayConstant = error "bpArrayConstant unimplemented for backend"
+  , Prims.bpArrayLookup = error "bpArrayLookup unimplemented for backend"
+  , Prims.bpArrayUpdate = error "bpArrayUpdate unimplemented for backend"
   }
 
 constMap :: Map Ident CValue

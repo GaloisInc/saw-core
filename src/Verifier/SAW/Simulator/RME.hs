@@ -212,6 +212,10 @@ prims =
   , Prims.bpIntLt  = pure2 (\x y -> RME.constant (x < y))
   , Prims.bpIntMin = undefined--pure2 min
   , Prims.bpIntMax = undefined--pure2 max
+    -- Array operations
+  , Prims.bpArrayConstant = error "bpArrayConstant unimplemented for backend"
+  , Prims.bpArrayLookup = error "bpArrayLookup unimplemented for backend"
+  , Prims.bpArrayUpdate = error "bpArrayUpdate unimplemented for backend"
   }
 
 constMap :: Map Ident RValue
