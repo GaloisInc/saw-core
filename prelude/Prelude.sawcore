@@ -1401,47 +1401,68 @@ primitive errorM : (a:sort 0) -> CompM a;
 -- run the second computation
 primitive catchM : (a:sort 0) -> CompM a -> CompM a -> CompM a;
 
--- Lists of input and output types for letRecM
-data InputOutputTypes : sort 1 where {
-  TypesNil : InputOutputTypes;
-  TypesCons : sort 0 -> sort 0 -> InputOutputTypes -> InputOutputTypes;
+-- A representation of the type (x1:A1) -> ... -> (xn:An) -> CompM (B x1 ... xn)
+data LetRecType : sort 1 where {
+  LRT_Ret : sort 0 -> LetRecType;
+  LRT_Fun : (a:sort 0) -> (a -> LetRecType) -> LetRecType;
 }
 
--- Compute the type of a nested tuple of monadic functions, by converting list
--- [(a1,b1),(a2,b2),...] into ((a1 -> CompM b1), ((a2 -> CompM b2), ...))
-letRecFuns : InputOutputTypes -> sort 0;
-letRecFuns tps =
-  InputOutputTypes#rec
-    (\ (tps:InputOutputTypes) -> sort 0)
-    #()
-    (\ (a b:sort 0) (_:InputOutputTypes) (fun_tp:sort 0) ->
-       #((a -> CompM b), fun_tp))
-    tps;
+-- Convert a LetRecType to the type it represents
+lrtToType : LetRecType -> sort 0;
+lrtToType lrt =
+  LetRecType#rec
+  (\ (lrt:LetRecType) -> sort 0)
+  (\ (b:sort 0) -> CompM b)
+  (\ (a:sort 0) (_: a -> LetRecType) (b: a -> sort 0) -> (x:a) -> b x)
+  lrt;
+
+-- A list of 0 or more LetRecTypes
+data LetRecTypes : sort 1 where {
+  LRT_Nil : LetRecTypes;
+  LRT_Cons : LetRecType -> LetRecTypes -> LetRecTypes;
+}
+
+-- Build the function type lrtToType lrt1 -> ... -> lrtToType lrtn -> b from the
+-- LetRecTypes list [lrt1, ..., lrtn]
+lrtPi : LetRecTypes -> sort 0 -> sort 0;
+lrtPi lrts b =
+  LetRecTypes#rec
+  (\ (lrts:LetRecTypes) -> sort 0)
+  b
+  (\ (lrt:LetRecType) (_:LetRecTypes) (rest:sort 0) -> lrtToType lrt -> rest)
+  lrts;
+
+-- Build the product type (lrtToType lrt1, ..., lrtToType lrtn) from the
+-- LetRecTypes list [lrt1, ..., lrtn]
+lrtTupleType : LetRecTypes -> sort 0;
+lrtTupleType lrts =
+  LetRecTypes#rec
+  (\ (lrts:LetRecTypes) -> sort 0)
+  #()
+  (\ (lrt:LetRecType) (_:LetRecTypes) (rest:sort 0) -> #(lrtToType lrt, rest))
+  lrts;
 
 -- This is like let rec in ML: letRecM defs body defines N recursive functions
 -- in terms of themselves using defs, and then passes them to body. We use this
 -- instead of the more standard fixM because it offers a more compact
 -- representation, and because fixM messes with functional extensionality by
 -- introducing an irreducible term at function type.
-primitive letRecM : (tps : InputOutputTypes) -> (b : sort 0) ->
-                    (letRecFuns tps -> letRecFuns tps) ->
-                    (letRecFuns tps -> CompM b) -> CompM b;
+primitive letRecM : (lrts : LetRecTypes) -> (b : sort 0) ->
+                    (lrtPi lrts (lrtTupleType lrts)) ->
+                    (lrtPi lrts (CompM b)) -> CompM b;
 
 -- This is let rec with exactly one binding
 letRecM1 : (a b c : sort 0) -> ((a -> CompM b) -> (a -> CompM b)) ->
            ((a -> CompM b) -> CompM c) -> CompM c;
 letRecM1 a b c fn body =
   letRecM
-    (TypesCons a b TypesNil) c
-    (\ (funs:#((a -> CompM b), #())) -> (fn funs.1, ()))
-    (\ (funs:#((a -> CompM b), #())) -> body funs.1);
+    (LRT_Cons (LRT_Fun a (\ (_:a) -> LRT_Ret b)) LRT_Nil) c
+    (\ (f:a -> CompM b) -> (fn f, ()))
+    (\ (f:a -> CompM b) -> body f);
 
 -- We can define fixM as let rec f x = ... in f
 fixM : (a b:sort 0) -> ((a -> CompM b) -> (a -> CompM b)) -> a -> CompM b;
-fixM a b f x =
-  letRecM (TypesCons a b TypesNil) b
-          (\ (funs:#((a -> CompM b), #())) -> (f funs.1, ()))
-          (\ (funs:#((a -> CompM b), #())) -> funs.1 x);
+fixM a b fn x = letRecM1 a b b fn (\ (f:a -> CompM b) -> f x);
 
 
 -- Test computations
@@ -1475,11 +1496,12 @@ test_fun4 x =
 test_fun4 : bitvector 64 -> CompM (bitvector 64);
 test_fun4 x =
   letRecM
-    (TypesCons (bitvector 64) (bitvector 64) TypesNil) (bitvector 64)
-    (\ (funs:#((bitvector 64 -> CompM (bitvector 64)), #())) ->
+    (LRT_Cons (bitvector 64) (\ (_:bitvector 64) -> LRT_Ret (bitvector 64))
+     LRT_Nil)
+    (bitvector 64)
+    (\ (f:(bitvector 64 -> CompM (bitvector 64))) ->
       ((\ (y:bitvector 64) -> returnM (bitvector 64) (bvNat 64 0)), ()))
-    (\ (funs:#((bitvector 64 -> CompM (bitvector 64)), #())) ->
-      funs.1 x);
+    (\ (f:(bitvector 64 -> CompM (bitvector 64))) -> f x);
 -}
 
 -- let rec f = f in f x
@@ -1494,15 +1516,18 @@ test_fun5 x =
 test_fun6 : bitvector 64 -> CompM (bitvector 64);
 test_fun6 x =
   letRecM
-    (TypesCons (bitvector 64) (bitvector 64)
-      (TypesCons (bitvector 64) (bitvector 64) TypesNil))
+    (LRT_Cons
+      (LRT_Fun (bitvector 64) (\ (_:bitvector 64) -> LRT_Ret (bitvector 64)))
+      (LRT_Cons
+        (LRT_Fun (bitvector 64) (\ (_:bitvector 64) -> LRT_Ret (bitvector 64)))
+        LRT_Nil))
     (bitvector 64)
-    (\ (funs:#((bitvector 64 -> CompM (bitvector 64)),
-                 #((bitvector 64 -> CompM (bitvector 64)), #()))) ->
-      (funs.2, (funs.1, ())))
-    (\ (funs:#((bitvector 64 -> CompM (bitvector 64)),
-                 #((bitvector 64 -> CompM (bitvector 64)), #()))) ->
-      funs.1 x);
+    (\ (f1:(bitvector 64 -> CompM (bitvector 64)))
+       (f2:(bitvector 64 -> CompM (bitvector 64))) ->
+      (f2, (f1, ())))
+    (\ (f1:(bitvector 64 -> CompM (bitvector 64)))
+       (f2:(bitvector 64 -> CompM (bitvector 64))) ->
+      f1 x);
 
 
 --------------------------------------------------------------------------------
