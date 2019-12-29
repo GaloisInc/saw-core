@@ -117,6 +117,14 @@ data Eq (t : sort 1) (x : t) : t -> sort 1 where {
     Refl : Eq t x x;
   }
 
+-- The version of Eq in Prop
+-- FIXME: this should replace the predicative Eq when we are sure everything
+-- works ok with it
+data EqP (t : sort 1) (x : t) : t -> Prop where {
+    ReflP : EqP t x x;
+  }
+
+
 -- The eliminator for the Eq type at sort 1, assuming the usual parameter-index
 -- structure of the Eq type
 Eq__rec : (t : sort 1) -> (x : t) -> (p : (y : t) -> Eq t x y -> sort 1) ->
@@ -759,6 +767,32 @@ eqNatPrec : (x y : Nat) -> eqNat (Succ x) (Succ y) -> eqNat x y;
 eqNatPrec x y eq' =
   eq_cong Nat (Succ x) (Succ y) eq' Nat pred;
 
+-- | Propositional less than or equal to; defined the same way as in Coq
+data IsLeNat (n:Nat) : Nat -> Prop where {
+  IsLeNat_base : IsLeNat n n;
+  IsLeNat_succ : (m:Nat) -> IsLeNat n m -> IsLeNat n (Succ m);
+}
+
+-- | m < n is defined as m+1 <= n (as in Coq)
+IsLtNat : Nat -> Nat -> Prop;
+IsLtNat m n = IsLeNat (Succ m) n;
+
+-- | Test if m < n or n <= m
+-- FIXME: implement this!
+primitive natCompareLe : (m n : Nat) -> Either (IsLtNat m n) (IsLeNat n m);
+
+-- | Test if m = n
+-- FIXME: implement this!
+primitive proveEqNat : (m n : Nat) -> Maybe (EqP Nat m n);
+
+-- | Try to prove x <= y (FIXME: implement this from natCompareLe!)
+primitive proveLeNat : (x y : Nat) -> Maybe (IsLeNat x y);
+
+-- | Try to prove x < y
+proveLtNat : (x y : Nat) -> Maybe (IsLtNat x y);
+proveLtNat x y = proveLeNat (Succ x) y;
+
+
 -- | Addition
 addNat : Nat -> Nat -> Nat;
 addNat x y =
@@ -1384,36 +1418,58 @@ primitive mkDouble : Integer -> Integer -> Float;
 
 
 --------------------------------------------------------------------------------
+-- Vector operations with built-in casts of their resulting lengths
+
+-- | Index a vector using a proof that the index is in the range of the vector
+-- FIXME: atWithDefault should maybe use this...?
+primitive atWithProof : (n : Nat) -> (a : sort 0) -> a -> Vec n a ->
+                        (i : Nat) -> IsLtNat i n -> a;
+
+-- Set the value at index i in a vector using a proof that i is in range
+primitive updWithProof : (n : Nat) -> (a : sort 0) -> Vec n a ->
+                         (i : Nat) -> a -> IsLtNat i n -> Vec n a;
+
+-- Take a slice of a vector using a proof that the slice is in range
+primitive sliceWithProof : (a : sort 0) -> (n off len : Nat) ->
+                           IsLeNat (addNat off len) n -> Vec n a -> Vec len a;
+
+-- Update a slice of a vector using a proof that the slice is in range
+primitive updSliceWithProof : (a : sort 0) -> (n off len : Nat) ->
+                              IsLeNat (addNat off len) n ->
+                              Vec n a -> Vec len a -> Vec n a;
+
+
+--------------------------------------------------------------------------------
 -- Computation monad
 
-primitive CompM : sort 0 -> sort 0;
+primitive CompM : sort 1 -> sort 1;
 
-primitive returnM : (a:sort 0) -> a -> CompM a;
-primitive bindM : (a b:sort 0) -> CompM a -> (a -> CompM b) -> CompM b;
+primitive returnM : (a:sort 1) -> a -> CompM a;
+primitive bindM : (a b:sort 1) -> CompM a -> (a -> CompM b) -> CompM b;
 
-composeM : (a b c: sort 0) -> (a -> CompM b) -> (b -> CompM c) -> a -> CompM c;
+composeM : (a b c: sort 1) -> (a -> CompM b) -> (b -> CompM c) -> a -> CompM c;
 composeM a b c f g x = bindM b c (f x) g;
 
 -- Raise an error in the computation monad
-primitive errorM : (a:sort 0) -> CompM a;
+primitive errorM : (a:sort 1) -> CompM a;
 
 -- Run the first computation, and, if it raises an error, catch the error and
 -- run the second computation
-primitive catchM : (a:sort 0) -> CompM a -> CompM a -> CompM a;
+primitive catchM : (a:sort 1) -> CompM a -> CompM a -> CompM a;
 
 -- A representation of the type (x1:A1) -> ... -> (xn:An) -> CompM (B x1 ... xn)
-data LetRecType : sort 1 where {
-  LRT_Ret : sort 0 -> LetRecType;
-  LRT_Fun : (a:sort 0) -> (a -> LetRecType) -> LetRecType;
+data LetRecType : sort 2 where {
+  LRT_Ret : sort 1 -> LetRecType;
+  LRT_Fun : (a:sort 1) -> (a -> LetRecType) -> LetRecType;
 }
 
 -- Convert a LetRecType to the type it represents
-lrtToType : LetRecType -> sort 0;
+lrtToType : LetRecType -> sort 1;
 lrtToType lrt =
   LetRecType#rec
-  (\ (lrt:LetRecType) -> sort 0)
-  (\ (b:sort 0) -> CompM b)
-  (\ (a:sort 0) (_: a -> LetRecType) (b: a -> sort 0) -> (x:a) -> b x)
+  (\ (lrt:LetRecType) -> sort 1)
+  (\ (b:sort 1) -> CompM b)
+  (\ (a:sort 1) (_: a -> LetRecType) (b: a -> sort 1) -> (x:a) -> b x)
   lrt;
 
 -- A list of 0 or more LetRecTypes
@@ -1424,22 +1480,22 @@ data LetRecTypes : sort 1 where {
 
 -- Build the function type lrtToType lrt1 -> ... -> lrtToType lrtn -> b from the
 -- LetRecTypes list [lrt1, ..., lrtn]
-lrtPi : LetRecTypes -> sort 0 -> sort 0;
+lrtPi : LetRecTypes -> sort 1 -> sort 1;
 lrtPi lrts b =
   LetRecTypes#rec
-  (\ (lrts:LetRecTypes) -> sort 0)
+  (\ (lrts:LetRecTypes) -> sort 1)
   b
-  (\ (lrt:LetRecType) (_:LetRecTypes) (rest:sort 0) -> lrtToType lrt -> rest)
+  (\ (lrt:LetRecType) (_:LetRecTypes) (rest:sort 1) -> lrtToType lrt -> rest)
   lrts;
 
 -- Build the product type (lrtToType lrt1, ..., lrtToType lrtn) from the
 -- LetRecTypes list [lrt1, ..., lrtn]
-lrtTupleType : LetRecTypes -> sort 0;
+lrtTupleType : LetRecTypes -> sort 1;
 lrtTupleType lrts =
   LetRecTypes#rec
-  (\ (lrts:LetRecTypes) -> sort 0)
+  (\ (lrts:LetRecTypes) -> sort 1)
   #()
-  (\ (lrt:LetRecType) (_:LetRecTypes) (rest:sort 0) -> #(lrtToType lrt, rest))
+  (\ (lrt:LetRecType) (_:LetRecTypes) (rest:sort 1) -> #(lrtToType lrt, rest))
   lrts;
 
 -- This is like let rec in ML: letRecM defs body defines N recursive functions
@@ -1447,12 +1503,12 @@ lrtTupleType lrts =
 -- instead of the more standard fixM because it offers a more compact
 -- representation, and because fixM messes with functional extensionality by
 -- introducing an irreducible term at function type.
-primitive letRecM : (lrts : LetRecTypes) -> (b : sort 0) ->
+primitive letRecM : (lrts : LetRecTypes) -> (b : sort 1) ->
                     (lrtPi lrts (lrtTupleType lrts)) ->
                     (lrtPi lrts (CompM b)) -> CompM b;
 
 -- This is let rec with exactly one binding
-letRecM1 : (a b c : sort 0) -> ((a -> CompM b) -> (a -> CompM b)) ->
+letRecM1 : (a b c : sort 1) -> ((a -> CompM b) -> (a -> CompM b)) ->
            ((a -> CompM b) -> CompM c) -> CompM c;
 letRecM1 a b c fn body =
   letRecM
@@ -1461,7 +1517,7 @@ letRecM1 a b c fn body =
     (\ (f:a -> CompM b) -> body f);
 
 -- We can define fixM as let rec f x = ... in f
-fixM : (a b:sort 0) -> ((a -> CompM b) -> (a -> CompM b)) -> a -> CompM b;
+fixM : (a b:sort 1) -> ((a -> CompM b) -> (a -> CompM b)) -> a -> CompM b;
 fixM a b fn x = letRecM1 a b b fn (\ (f:a -> CompM b) -> f x);
 
 
