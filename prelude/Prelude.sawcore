@@ -1418,7 +1418,7 @@ primitive mkDouble : Integer -> Integer -> Float;
 
 
 --------------------------------------------------------------------------------
--- Vector operations with built-in casts of their resulting lengths
+-- Vector operations that use proof objects
 
 -- Decide equality on two bitvectors, returning a proof if they are equal
 primitive bvEqWithProof : (n : Nat) -> (v1 v2 : bitvector n) ->
@@ -1455,6 +1455,36 @@ primitive sliceWithProof : (a : sort 0) -> (n off len : Nat) ->
 primitive updSliceWithProof : (a : sort 0) -> (n off len : Nat) ->
                               IsLeNat (addNat off len) n ->
                               Vec n a -> Vec len a -> Vec n a;
+
+
+--------------------------------------------------------------------------------
+-- Vectors indexed by bitvectors
+
+-- The type of a bitvector-indexed array of length len : bitvector n
+primitive BVVec : (n:Nat) -> bitvector n -> sort 0 -> sort 0;
+
+-- Generate a BVVec of length len whose elements are given by a function
+primitive genBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
+                     (bitvector n -> a) -> BVVec n len a;
+
+-- Read the ixth element of a BVVec, assuming that ix < len
+primitive atBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
+                    BVVec n len a -> (ix : bitvector n) ->
+                    EqP Bool (bvult n ix len) True -> a;
+
+-- Indexing a generated BVVec just returns the generating function
+axiom at_gen_BVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
+                     (f : bitvector n -> a) -> (ix : bitvector n) ->
+                     (pf : EqP Bool (bvult n ix len) True) ->
+                     EqP a (atBVVec n len a (genBVVec n len a f) ix pf) (f ix);
+
+-- Update the value at a specific index in a BVVec
+updBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
+           BVVec n len a -> (ix : bitvector n) ->
+           EqP Bool (bvult n ix len) True -> a -> BVVec n len a;
+updBVVec n len a v ix pf elem =
+  genBVVec n len a (\(i:bitvector n) ->
+                     ite a (bvEq n i ix) elem (atBVVec n len a v ix pf));
 
 
 --------------------------------------------------------------------------------
