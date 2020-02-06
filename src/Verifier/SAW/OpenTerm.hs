@@ -164,7 +164,7 @@ lambdaOpenTermMulti :: [(String, OpenTerm)] -> ([OpenTerm] -> OpenTerm) ->
                        OpenTerm
 lambdaOpenTermMulti xs_tps body_f =
   foldr (\(x,tp) rest_f xs ->
-          lambdaOpenTerm x tp (rest_f . (:xs))) body_f xs_tps []
+          lambdaOpenTerm x tp (rest_f . (:xs))) (body_f . reverse) xs_tps []
 
 -- | Build a Pi abstraction as an 'OpenTerm'
 piOpenTerm :: String -> OpenTerm -> (OpenTerm -> OpenTerm) -> OpenTerm
@@ -178,7 +178,7 @@ piOpenTermMulti :: [(String, OpenTerm)] -> ([OpenTerm] -> OpenTerm) ->
                        OpenTerm
 piOpenTermMulti xs_tps body_f =
   foldr (\(x,tp) rest_f xs ->
-          piOpenTerm x tp (rest_f . (:xs))) body_f xs_tps []
+          piOpenTerm x tp (rest_f . (:xs))) (body_f . reverse) xs_tps []
 
 -- | Build a let expression as an 'OpenTerm'. This is equivalent to
 -- > 'applyOpenTerm' ('lambdaOpenTerm' x tp body) rhs
