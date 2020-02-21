@@ -475,13 +475,14 @@ instance TypeInfer (FlatTermF TypedTerm) where
 -- @[arg/x]b@. This substitution could create redexes, so we call the evaluator.
 applyPiTyped :: Term -> TypedTerm -> TCM Term
 applyPiTyped fun_tp arg =
-  case asPi fun_tp of
+  typeCheckWHNF fun_tp >>= \fun_tp' ->
+  case asPi fun_tp' of
     Just (_, arg_tp, ret_tp) -> do
       -- _ <- ensureSort aty -- NOTE: we assume tx is well-formed and WHNF
       -- aty' <- scTypeCheckWHNF aty
       checkSubtype arg arg_tp
       liftTCM instantiateVar 0 (typedVal arg) ret_tp >>= typeCheckWHNF
-    _ -> throwTCError (NotFuncType fun_tp)
+    _ -> throwTCError (NotFuncType fun_tp')
 
 -- | Ensure that a 'Term' is a sort, and return that sort
 ensureSort :: Term -> TCM Sort
