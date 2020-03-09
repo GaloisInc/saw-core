@@ -1506,7 +1506,7 @@ primitive errorM : (a:sort 0) -> CompM a;
 primitive catchM : (a:sort 0) -> CompM a -> CompM a -> CompM a;
 
 -- A representation of the type (x1:A1) -> ... -> (xn:An) -> CompM (B x1 ... xn)
-data LetRecType : sort 2 where {
+data LetRecType : sort 1 where {
   LRT_Ret : sort 0 -> LetRecType;
   LRT_Fun : (a:sort 0) -> (a -> LetRecType) -> LetRecType;
 }
@@ -1634,6 +1634,549 @@ test_fun6 x =
       f1 x);
 
 
+-------------------------------------------------------------------------------
+-- Dependent sums
+
+data Sigma (a : sort 0) (b : a -> sort 0) : sort 0 where {
+    exists : (pa : a) -> b pa -> Sigma a b;
+}
+
+Sigma__rec (a : sort 0) (b : a -> sort 0) (p : Sigma a b -> sort 0)
+           (f1 : (pa : a) -> (pb : b pa) -> p (exists a b pa pb)) (u : Sigma a b) : p u
+  = Sigma#rec a b p f1 u;
+
+
+--------------------------------------------------------------------------------
+-- Colimits and Least Fixed-Point Types
+
+-- FIXME: maybe remove all this stuff...?
+
+{-
+-- A diagram (i.e., functor) from the category Nat (with less than or equal as
+-- the morphisms) to types of sort 0. The NatDiagram type is the object portion
+-- of the functor, i.e., the mapping from Nat to types.
+NatDiagram : sort 1;
+NatDiagram = Nat -> sort 0;
+
+-- A "proof" that an element of NatDiagram is actually a diagram; i.e., a
+-- mapping from less than or equal proofs to functions between types in the
+-- image of the functor.
+IsDiagram : NatDiagram -> sort 0;
+IsDiagram f = (n: Nat) -> f n -> f (Succ n);
+
+-- The existential type exists n.f n is (the object portion of) a colimit of the
+-- diagram f
+data Colimit (f:NatDiagram) : sort 0 where {
+  mkColimit : (n:Nat) -> f n -> Colimit f;
+}
+
+-- Apply a natural transformation to a Colimit type
+mapColimit : (f g: NatDiagram) -> ((n:Nat) -> f n -> g n) ->
+             Colimit f -> Colimit g;
+mapColimit f g f_to_g col =
+  Colimit#rec f (\ (_:Colimit f) -> Colimit g)
+  (\ (n:Nat) (x:f n) -> mkColimit g n (f_to_g n x))
+  col;
+
+-- The type portion of a functor on the category of types of sort 0
+Functor : sort 1;
+Functor = sort 0 -> sort 0;
+
+-- The morphism portion of a functor
+IsFunctor : Functor -> sort 1;
+IsFunctor f = (a b : sort 0) -> (a -> b) -> f a -> f b;
+
+-- A continuous functor is one that commutes with colimits
+IsContinuous : Functor -> sort 1;
+IsContinuous g =
+  (f:NatDiagram) -> g (Colimit f) -> Colimit (\ (n:Nat) -> g (f n));
+
+-- The bottom / uninhabited type
+data Bottom : sort 0 where { }
+
+-- The diagram that maps any Nat n to f^n(Bottom)
+nth_functor : (f: sort 0 -> sort 0) -> Nat -> sort 0;
+nth_functor f = Nat__rec (\ (_:Nat) -> sort 0) Bottom (\ (_:Nat) -> f);
+
+-- The least fixed-point of f is the colimit of 0, f(0), f(f(0)), ...
+LFP : Functor -> sort 0;
+LFP f = Colimit (nth_functor f);
+
+-- Helper function for folding a least fixed-point type
+incrFunctorColimit : (f:Functor) ->
+                     Colimit (\ (n:Nat) -> f (nth_functor f n)) -> LFP f;
+incrFunctorColimit f col =
+  Colimit#rec (\ (n:Nat) -> f (nth_functor f n))
+  (\ (_:Colimit (\ (n:Nat) -> f (nth_functor f n))) -> LFP f)
+  (\ (n:Nat) (x:f (nth_functor f n)) -> mkColimit (nth_functor f) (Succ n) x)
+  col;
+
+-- Fold a least fixed-point type. Only works for continuous functors f.
+foldLFP : (f:Functor) -> IsContinuous f -> f (LFP f) -> LFP f;
+foldLFP f cont_f f_lfp = incrFunctorColimit f (cont_f (nth_functor f) f_lfp);
+
+-- Unfold a least fixed-point type. Only works for functors f.
+unfoldLFP : (f:Functor) -> IsFunctor f -> LFP f -> f (LFP f);
+unfoldLFP f fmap_f lfp =
+  Colimit#rec (nth_functor f) (\ (_:LFP f) -> f (LFP f))
+  (Nat__rec (\ (n:Nat) -> nth_functor f n -> f (LFP f))
+    (\ (b:Bottom) -> Bottom#rec (\ (_:Bottom) -> f (LFP f)) b)
+    (\ (n:Nat) (_:nth_functor f n -> f (LFP f))
+       (f_lfp:f (nth_functor f n)) ->
+       fmap_f (nth_functor f n) (LFP f)
+              (\ (x: nth_functor f n) -> mkColimit (nth_functor f) n x) f_lfp))
+  lfp;
+
+-- Helper function for mapping one LFP type to another
+mapNthFunctor : (f g:Functor) -> IsFunctor f -> ((a:sort 0) -> f a -> g a) ->
+                (n:Nat) -> nth_functor f n -> nth_functor g n;
+mapNthFunctor f g map_f f_to_g =
+  Nat__rec (\ (n:Nat) -> nth_functor f n -> nth_functor g n)
+  (\ (b:Bottom) -> b)
+  (\ (n:Nat) (f_rec: nth_functor f n -> nth_functor g n)
+     (x:nth_functor f (Succ n)) ->
+     f_to_g (nth_functor g n) (map_f (nth_functor f n) (nth_functor g n) f_rec x));
+
+-- Map one least fixed-point type to another by recursively mapping a natural
+-- transformation over each level of the least fixed-point
+mapLFP : (f g:Functor) -> IsFunctor f -> ((a:sort 0) -> f a -> g a) ->
+         LFP f -> LFP g;
+mapLFP f g map_f f_to_g lfp =
+  Colimit#rec (nth_functor f) (\ (_:LFP f) -> LFP g)
+  (\ (n:Nat) (x:nth_functor f n) ->
+     mkColimit (nth_functor g) n (mapNthFunctor f g map_f f_to_g n x))
+  lfp;
+
+
+----------------------------------------
+-- Examples of Continuous Functors
+
+-- The constant functor is a functor
+IsFunctor_Const : (t:sort 0) -> IsFunctor (\ (_:sort 0) -> t);
+IsFunctor_Const t a b _ x = x;
+
+-- The constant functor is continuous
+IsContinuous_Const : (t:sort 0) -> IsContinuous (\ (_:sort 0) -> t);
+IsContinuous_Const t f x = mkColimit (\ (n:Nat) -> t) 0 x;
+
+-- The identity functor is a functor
+IsFunctor_Id : IsFunctor (\ (a:sort 0) -> a);
+IsFunctor_Id a b f_ab = f_ab;
+
+-- The identity functor is continuous
+IsContinuous_Id : IsContinuous (\ (a:sort 0) -> a);
+IsContinuous_Id f = mapColimit f (\ (n:Nat) -> f n) (\ (n:Nat) (x:f n) -> x);
+
+-- The pair of two functors is a functor
+IsFunctor_Pair : (f g:Functor) -> IsFunctor f -> IsFunctor g ->
+                 IsFunctor (\ (a:sort 0) -> #(f a, g a));
+IsFunctor_Pair f g map_f map_g a b f_ab x =
+  (map_f a b f_ab x.1, map_g a b f_ab x.2);
+
+-- The pair of two continuous functors is continuous
+IsContinuous_Pair : (f g:Functor) -> IsContinuous f -> IsContinuous g ->
+                    IsContinuous (\ (a:sort 0) -> #(f a, g a));
+IsContinuous_Pair f g cont_f cont_g h =
+  FIXME: IsContinuous needs to know that the diagram of the colimit is a diagram  
+
+-- The Either of two functors is a functor
+IsFunctor_Either : (f g:Functor) -> IsFunctor f -> IsFunctor g ->
+                   IsFunctor (\ (a:sort 0) -> Either (f a) (g a));
+IsFunctor_Either f g map_f map_g a b f_ab =
+  either (f a) (g a) (Either (f b) (g b))
+  (\ (x: f a) -> Left (f b) (g b) (map_f a b f_ab x))
+  (\ (x: g a) -> Right (f b) (g b) (map_g a b f_ab x));
+
+-- The Either of two continuous functors is continuous
+IsContinuous_Either : (f g:Functor) -> IsContinuous f -> IsContinuous g ->
+                      IsContinuous (\ (a:sort 0) -> Either (f a) (g a));
+IsContinuous_Either f g cont_f cont_g h =
+  either (f (Colimit h)) (g (Colimit h))
+  (Colimit (\ (n:Nat) -> Either (f (h n)) (g (h n))))
+  (\ (x: f (Colimit h)) ->
+     mapColimit (\ (n:Nat) -> f (h n))
+                (\ (n:Nat) -> Either (f (h n)) (g (h n)))
+                (\ (n:Nat) (y:f (h n)) -> Left (f (h n)) (g (h n)) y)
+                (cont_f h x))
+  (\ (x: g (Colimit h)) ->
+     mapColimit (\ (n:Nat) -> g (h n))
+                (\ (n:Nat) -> Either (f (h n)) (g (h n)))
+                (\ (n:Nat) (y:g (h n)) -> Right (f (h n)) (g (h n)) y)
+                (cont_g h x));
+-}
+
+
+-- Descriptions of a collection of simple types
+data TpDesc : sort 0 where {
+  TpDesc_Unit : TpDesc;
+  TpDesc_Bool : TpDesc;
+  TpDesc_Nat : TpDesc;
+  TpDesc_BV : Nat -> TpDesc;
+  TpDesc_Pair : TpDesc -> TpDesc -> TpDesc;
+}
+
+-- Interpret a type description into the type it describes
+interpTpDesc : TpDesc -> sort 0;
+interpTpDesc tp =
+  TpDesc#rec (\ (_:TpDesc) -> sort 0)
+  #()
+  Bool
+  Nat
+  (\ (n:Nat) -> bitvector n)
+  (\ (_:TpDesc) (a:sort 0) (_:TpDesc) (b:sort 0) -> #(a,b))
+  tp;
+
+-- A description of an inductive type
+data IndDesc : sort 0 where {
+  IndDesc_Type : (tp:TpDesc) -> IndDesc;
+  IndDesc_Var : Nat -> IndDesc;
+  IndDesc_Pair : IndDesc -> IndDesc -> IndDesc;
+  IndDesc_Either : IndDesc -> IndDesc -> IndDesc;
+  IndDesc_Sigma : (tp:TpDesc) -> (interpTpDesc tp -> IndDesc) -> IndDesc;
+  IndDesc_BVVec : (n:Nat) -> bitvector n -> IndDesc -> IndDesc;
+  IndDesc_Ind : IndDesc -> IndDesc;
+}
+
+-- A list of descriptions of inductive types
+data IndDescs : sort 0 where {
+  IndDescs_Nil : IndDescs;
+  IndDescs_Cons : IndDesc -> IndDescs -> IndDescs;
+}
+
+-- Helper to build a one-element IndDescs list
+IndDescs1 : IndDesc -> IndDescs;
+IndDescs1 d = (IndDescs_Cons d IndDescs_Nil);
+
+-- Extract the head and tail of an IndDescs list, using dummy values for Nil
+unconsIndDescs : IndDescs -> IndDesc * IndDescs;
+unconsIndDescs descs =
+  IndDescs#rec (\ (_:IndDescs) -> IndDesc * IndDescs)
+  (IndDesc_Type TpDesc_Unit, IndDescs_Nil)
+  (\ (desc:IndDesc) (descs:IndDescs) (_:IndDesc * IndDescs) -> (desc, descs))
+  descs;
+
+-- Drop the first N elements of an IndDescs list
+dropIndDescs : IndDescs -> Nat -> IndDescs;
+dropIndDescs descs =
+  Nat__rec (\ (_:Nat) -> IndDescs)
+  descs
+  (\ (_:Nat) (descs:IndDescs) -> (unconsIndDescs descs).(2));
+
+-- Return the Nth element of an IndDescs list, or the unit type if we run out of
+-- elements of the list
+nthIndDesc : IndDescs -> Nat -> IndDesc;
+nthIndDesc descs n = (unconsIndDescs (dropIndDescs descs n)).(1);
+
+-- An element of an inductive type described by a description, where all the
+-- free variables are bound to elements of the list of descriptions
+data IndElem : IndDescs -> IndDesc -> sort 0 where {
+  IElem_Const : (descs:IndDescs) -> (tp:TpDesc) -> interpTpDesc tp ->
+                IndElem descs (IndDesc_Type tp);
+  IElem_Var : (descs:IndDescs) -> (i:Nat) ->
+              IndElem (dropIndDescs descs i) (nthIndDesc descs i) ->
+              IndElem descs (IndDesc_Var i);
+  IElem_Pair : (descs:IndDescs) -> (desc1 desc2:IndDesc) ->
+               IndElem descs desc1 -> IndElem descs desc2 ->
+               IndElem descs (IndDesc_Pair desc1 desc2);
+  IElem_Left : (descs:IndDescs) -> (desc1 desc2:IndDesc) ->
+               IndElem descs desc1 ->
+               IndElem descs (IndDesc_Either desc1 desc2);
+  IElem_Right : (descs:IndDescs) -> (desc1 desc2:IndDesc) ->
+                IndElem descs desc2 ->
+                IndElem descs (IndDesc_Either desc1 desc2);
+  IElem_Exists : (descs:IndDescs) -> (tp:TpDesc) ->
+                 (desc:interpTpDesc tp -> IndDesc) ->
+                 (x:interpTpDesc tp) -> IndElem descs (desc x) ->
+                 IndElem descs (IndDesc_Sigma tp desc);
+  IElem_BVVec : (descs:IndDescs) -> (desc:IndDesc) ->
+                (n:Nat) -> (len:bitvector n) ->
+                (bitvector n -> IndElem descs desc) ->
+                IndElem descs (IndDesc_BVVec n len desc);
+  IElem_Ind : (descs:IndDescs) -> (desc:IndDesc) ->
+              IndElem (IndDescs_Cons desc descs) desc ->
+              IndElem descs (IndDesc_Ind desc);
+}
+
+
+-- Lift an inductive description variable, by incrementing any deBruijn variable
+-- index >= the lifting number k. This is defined by:
+--
+-- liftVar 0 i = i+1
+-- liftVar (k+1) 0 = 0
+-- liftVar (k+1) (i+1) = (liftVar k i) + 1
+liftIndDescVar : Nat -> Nat -> Nat;
+liftIndDescVar =
+  Nat_cases2 Nat
+  (\ (i:Nat) -> Succ i) -- If k = 0
+  (\ (_:Nat) -> Zero) -- If i = 0
+  (\ (_:Nat) (_:Nat) (rec_result:Nat) -> Succ rec_result);
+
+-- Lift an inductive description by inserting (unused) variable k. This
+-- operation is also commonly called weakening
+liftIndDesc : Nat -> IndDesc -> IndDesc;
+liftIndDesc k_top desc =
+  IndDesc#rec (\ (_:IndDesc) -> Nat -> IndDesc)
+  (\ (tp:TpDesc) (_:Nat) -> IndDesc_Type tp)
+  (\ (i:Nat) (k:Nat) -> IndDesc_Var (liftIndDescVar k i))
+  (\ (_:IndDesc) (lift_d1: Nat -> IndDesc)
+     (_:IndDesc) (lift_d2:Nat -> IndDesc) (k:Nat) ->
+     IndDesc_Pair (lift_d1 k) (lift_d2 k))
+  (\ (_:IndDesc) (lift_d1: Nat -> IndDesc)
+     (_:IndDesc) (lift_d2:Nat -> IndDesc) (k:Nat) ->
+     IndDesc_Either (lift_d1 k) (lift_d2 k))
+  (\ (tp:TpDesc) (_:interpTpDesc tp -> IndDesc)
+     (lift_f:interpTpDesc tp -> Nat -> IndDesc) (k:Nat) ->
+     IndDesc_Sigma tp (\ (x:interpTpDesc tp) -> lift_f x k))
+  (\ (n:Nat) (len:bitvector n) (_:IndDesc) (lift_d:Nat -> IndDesc) (k:Nat) ->
+     IndDesc_BVVec n len (lift_d k))
+  (\ (_:IndDesc) (lift_d: Nat -> IndDesc) (k:Nat) ->
+     IndDesc_Ind (lift_d (Succ k)))
+  desc k_top;
+
+
+-- Insert an IndDesc into an IndDescs list
+liftIndDescs : Nat -> IndDesc -> IndDescs -> IndDescs;
+liftIndDescs =
+  Nat_cases (IndDesc -> IndDescs -> IndDescs)
+  (\ (d:IndDesc) (ds:IndDescs) -> IndDescs_Cons d ds)
+  (\ (k:Nat) (rec:IndDesc -> IndDescs -> IndDescs) (d:IndDesc) (ds:IndDescs) ->
+     IndDescs_Cons
+     (liftIndDesc (Succ k) (unconsIndDescs ds).(1))
+     (rec d (unconsIndDescs ds).(2)));
+
+
+-- FIXME HERE: write this!
+primitive liftIndElemVar : (ds:IndDescs) -> (i:Nat) ->
+                 IndElem (dropIndDescs ds i) (nthIndDesc ds i) ->
+                 ((k:Nat) -> (d_l:IndDesc) ->
+                  IndElem (liftIndDescs k d_l (dropIndDescs ds i))
+                          (liftIndDesc k (nthIndDesc ds i))) ->
+                 (k:Nat) -> (d_l:IndDesc) ->
+                 IndElem (dropIndDescs (liftIndDescs k d_l ds) (liftIndDescVar k i))
+                         (nthIndDesc (liftIndDescs k d_l ds) (liftIndDescVar k i));
+
+primitive FIXME_INCONSISTENT : (a:sort 0) -> a;
+
+-- Lift / weaken an element of an inductive description
+liftIndElem : (ds:IndDescs) -> (d:IndDesc) -> IndElem ds d ->
+              (k:Nat) -> (d_l:IndDesc) ->
+              IndElem (liftIndDescs k d_l ds) (liftIndDesc k d);
+liftIndElem ds_top d_top elem_top =
+  IndElem#rec (\ (ds:IndDescs) (d:IndDesc) (_:IndElem ds d) ->
+                 (k:Nat) -> (d_l:IndDesc) ->
+                 IndElem (liftIndDescs k d_l ds) (liftIndDesc k d))
+  (\ (ds:IndDescs) (tp:TpDesc) (x:interpTpDesc tp) (k:Nat) (d_l:IndDesc) ->
+     IElem_Const (liftIndDescs k d_l ds) tp x)
+  (\ (ds:IndDescs) (i:Nat)
+     (elem: IndElem (dropIndDescs ds i) (nthIndDesc ds i))
+     (rec: (k':Nat) -> (d_l':IndDesc) ->
+           IndElem (liftIndDescs k' d_l' (dropIndDescs ds i))
+                   (liftIndDesc k' (nthIndDesc ds i)))
+     (k:Nat) (d_l:IndDesc) ->
+     IElem_Var (liftIndDescs k d_l ds) (liftIndDescVar k i)
+               (liftIndElemVar ds i elem rec k d_l)
+  )
+  (\ (ds:IndDescs) (d1 d2:IndDesc) (_:IndElem ds d1)
+     (rec1: (k':Nat) -> (d_l':IndDesc) ->
+            IndElem (liftIndDescs k' d_l' ds) (liftIndDesc k' d1))
+     (_:IndElem ds d2)
+     (rec2: (k':Nat) -> (d_l':IndDesc) ->
+            IndElem (liftIndDescs k' d_l' ds) (liftIndDesc k' d2))
+     (k:Nat) (d_l:IndDesc) ->
+     IElem_Pair (liftIndDescs k d_l ds) (liftIndDesc k d1) (liftIndDesc k d2)
+                (rec1 k d_l) (rec2 k d_l))
+  (\ (ds:IndDescs) (d1 d2:IndDesc) (_:IndElem ds d1)
+     (rec1: (k':Nat) -> (d_l':IndDesc) ->
+            IndElem (liftIndDescs k' d_l' ds) (liftIndDesc k' d1))
+     (k:Nat) (d_l:IndDesc) ->
+     IElem_Left (liftIndDescs k d_l ds) (liftIndDesc k d1) (liftIndDesc k d2)
+                (rec1 k d_l))
+  (\ (ds:IndDescs) (d1 d2:IndDesc) (_:IndElem ds d2)
+     (rec2: (k':Nat) -> (d_l':IndDesc) ->
+            IndElem (liftIndDescs k' d_l' ds) (liftIndDesc k' d2))
+     (k:Nat) (d_l:IndDesc) ->
+     IElem_Right (liftIndDescs k d_l ds) (liftIndDesc k d1) (liftIndDesc k d2)
+                 (rec2 k d_l))
+  (\ (ds:IndDescs) (tp:TpDesc) (d:interpTpDesc tp -> IndDesc)
+     (x:interpTpDesc tp) (_:IndElem ds (d x))
+     (rec: (k':Nat) -> (d_l':IndDesc) ->
+           IndElem (liftIndDescs k' d_l' ds) (liftIndDesc k' (d x)))
+     (k:Nat) (d_l:IndDesc) ->
+     IElem_Exists (liftIndDescs k d_l ds) tp
+                  (\ (y:interpTpDesc tp) -> liftIndDesc k (d y))
+                  x
+                  (rec k d_l))
+   (\ (ds:IndDescs) (d:IndDesc) (n:Nat) (len:bitvector n)
+      (_: bitvector n -> IndElem ds d)
+      (rec: bitvector n -> (k':Nat) -> (d_l':IndDesc) ->
+            IndElem (liftIndDescs k' d_l' ds) (liftIndDesc k' d))
+      (k:Nat) (d_l:IndDesc) ->
+      IElem_BVVec (liftIndDescs k d_l ds) (liftIndDesc k d) n len
+                  (\ (bv:bitvector n) -> rec bv k d_l))
+   (\ (ds:IndDescs) (d:IndDesc) (_: IndElem (IndDescs_Cons d ds) d)
+      (rec: (k':Nat) -> (d_l':IndDesc) ->
+            IndElem (liftIndDescs k' d_l' (IndDescs_Cons d ds))
+                    (liftIndDesc k' d))
+      (k:Nat) (d_l:IndDesc) ->
+      IElem_Ind (liftIndDescs k d_l ds) (liftIndDesc (Succ k) d)
+                (rec (Succ k) d_l)
+   )
+   ds_top d_top elem_top;
+
+
+
+{-
+FIXME HERE NOW:
+- liftIndDesc: increment all vars >= k by 1
+- liftIndElem: add an IndDescs at the kth element of an IndDescs list and lift the primary IndDesc
+- substIndDesc: replace the kth var by lifting a supplied IndDesc, decrementing vars > k
+- substIndElem: remove the kth IndDesc in the IndDescs context, substituting it for the kth var
+- Then we want interpIndDesc, foldIndElem, and unfoldIndElem
+  + interpIndDesc should take a ctx of IndDescs for the variables
+  + foldIndElem and unfoldIndElem need to substitute and then interpret
+- Finally we need mapIndElem: the recursion replaces the kth element of the IndDescs ctx with a
+  different IndDesc, using a map forall desc. interp [desc] desc1 -> interp [desc] desc2
+  + NOTE: this suggests we are mapping perm vars X to IndDescs
+  + OR, BETTER: when we translate a mapIndDesc, we substitute desc2 in for X, getting a map from
+  interp [desc2] desc1 -> interp [desc2] desc2
+-}
+
+
+
+{- FIXME HERE NOW: uncomment these
+-- FIXME: implement this!
+primitive substIndDesc : Nat -> IndDesc -> IndDesc -> IndDesc;
+
+interpIndDesc : IndDescs -> IndDesc -> sort 0;
+interpIndDesc desc =
+  IndDesc#rec (\ (_:IndDesc) -> sort 0)
+  (\ (tp:TpDesc) -> interpTpDesc tp)
+  (\ (_:Nat) -> #())
+  (\ (_:IndDesc) (a:sort 0) (_:IndDesc) (b:sort 0) -> a * b)
+  (\ (_:IndDesc) (a:sort 0) (_:IndDesc) (b:sort 0) -> Either a b)
+  (\ (tp:TpDesc) (_:interpTpDesc tp -> IndDesc) (f:interpTpDesc tp -> sort 0) ->
+     Sigma (interpTpDesc tp) f)
+  (\ (n:Nat) (len:bitvector n) (_:IndDesc) (a:sort 0) -> BVVec n len a)
+  (\ (desc:IndDesc) -> IndElem (IndDescs1 desc) desc)
+  desc;
+
+-- FIXME: implement this!
+primitive foldIndElem : (top_desc desc:IndDesc) ->
+                        interpIndDesc top_desc desc ->
+                        IndElem (IndDescs1 top_desc) desc;
+
+-- FIXME: implement this!
+primitive unfoldIndElem : (top_desc desc:IndDesc) ->
+                          IndElem (IndDescs1 top_desc) desc ->
+                          interpIndDesc top_desc desc;
+-}
+
+
+
+{- FIXME: remove these!
+data Types : sort 1 where {
+  Types_Nil : Types;
+  Types_Cons : sort 0 -> Types -> Types;
+}
+
+nthType : Types -> Nat -> sort 0;
+nthType tps =
+  Types#rec (\ (_:Types) -> Nat -> sort 0)
+            (\ (_:Nat) -> #())
+            (\ (a:sort 0) (_:Types) (rec:Nat -> sort 0) (n:Nat) ->
+               Nat__rec (\ (_:Nat) -> sort 0) a
+                        (\ (n_pred:Nat) (_:sort 0) -> rec n_pred) n)
+            tps;
+
+-- A description of an inductive type
+data IndDesc : Nat -> sort 1 where {
+  IndDesc_Type : (n:Nat) -> sort 0 -> IndDesc n;
+  IndDesc_Rec : (m n:Nat) -> IndDesc (addNat (Succ m) n);
+  IndDesc_Pair : (n:Nat) -> IndDesc n -> IndDesc n -> IndDesc n;
+  IndDesc_Either : (n:Nat) -> IndDesc n -> IndDesc n -> IndDesc n;
+  IndDesc_Sigma : (n:Nat) -> (a:sort 0) -> (a -> IndDesc n) -> IndDesc n;
+  IndDesc_List : (n:Nat) -> IndDesc n -> IndDesc n;
+  IndDesc_Ind : (n:Nat) -> IndDesc (Succ n) -> IndDesc n;
+}
+
+data IndDescs : Nat -> sort 1 where {
+  IndDescs_Nil : IndDescs 0;
+  IndDescs_Cons : (n:Nat) -> IndDescs n -> IndDesc n -> IndDescs (Succ n);
+}
+
+-- Proof that Zero is never equal to (Succ n) for any n by proving an arbitrary
+-- type a
+notEqPZeroSucc : (a:sort 1) -> (n:Nat) -> EqP Nat Zero (Succ n) -> a;
+notEqPZeroSucc a n e =
+  EqP#rec Nat Zero
+  (\ (n:Nat) (_:EqP Nat Zero n) ->
+     Nat#rec (\ (_:Nat) -> sort 1) #() (\ (n:Nat) (_:sort 1) -> a) n)
+  ()
+  (Succ n) e;
+
+unconsIndDescsH : (n:Nat) -> IndDescs n -> (m:Nat) -> EqP Nat n (Succ m) ->
+                  IndDescs m * IndDesc m;
+unconsIndDescsH n descs =
+  IndDescs#rec (\ (n:Nat) (_:IndDescs n) ->
+                  (m:Nat) -> EqP Nat n (Succ m) -> IndDescs m * IndDesc m)
+  (\ (m:Nat) (eq_succ_z: EqP Nat Zero (Succ m)) ->
+     notEqPZeroSucc (IndDescs m * IndDesc m) m eq_succ_z)
+  (\ (n:Nat) (descs: IndDescs n)
+     (_: (m:Nat) -> EqP Nat n (Succ m) -> IndDescs m * IndDesc m)
+     (desc:IndDesc n)
+     (m:Nat) (eq: EqP Nat (Succ n) (Succ m)) ->
+     EqP#rec Nat (Succ n) (\ (i:Nat) (_:EqP Nat (Succ n) i) ->
+                             IndDescs (pred i) * IndDesc (pred i))
+     (descs, desc) (Succ m) eq)
+  n descs;
+
+unconsIndDesc : (n:Nat) -> IndDescs (Succ n) -> IndDescs n * IndDesc n;
+unconsIndDesc n descs =
+  unconsIndDescsH (Succ n) descs n (ReflP Nat (Succ n));
+
+unconsMIndDesc : (m n:Nat) -> IndDescs (addNat m n) * IndDesc (addNat m n) ->
+                 IndDescs n * IndDesc n;
+unconsMIndDesc m n =
+  Nat__rec (\ (m:Nat) -> IndDescs (addNat m n) * IndDesc (addNat m n) ->
+              IndDescs n * IndDesc n)
+           (\ (p: IndDescs n * IndDesc n) -> p)
+           (\ (m:Nat) (rec: IndDescs (addNat m n) * IndDesc (addNat m n) ->
+                            IndDescs n * IndDesc n)
+              (p: IndDescs (addNat (Succ m) n) * IndDesc (addNat (Succ m) n)) ->
+              rec (unconsIndDesc (addNat m n) p.1))
+           m;
+
+unconsSuccMIndDesc : (m n:Nat) -> IndDescs (addNat (Succ m) n) ->
+                     IndDescs n * IndDesc n;
+unconsSuccMIndDesc m n descs =
+  unconsMIndDesc m n (unconsIndDesc (addNat m n) descs);
+
+data IndElem (n:Nat) (descs: IndDescs n) : IndDesc n -> sort 0 where {
+  IndElem_Type : (a:sort 0) -> a -> IndElem n descs (IndDesc_Type n a);
+}
+-}
+
+
+{-
+(top_f: sort 0 -> sort 0) : (sort 0 -> sort 0) -> sort 1 where {
+  GIT_Const : (a: sort 0) -> a -> GenIndType top_f (\ (_:sort 0) -> a);
+  GIT_Recurse : GenIndType top_f top_f -> GenIndType top_f (\ (a:sort 0) -> a);
+  GIT_Pair : (f1 f2: sort 0 -> sort 0) ->
+             GenIndType top_f f1 -> GenIndType top_f f2 ->
+             GenIndType top_f (\ (a:sort 0) -> f1 a * f2 a);
+  GIT_Left : (f1 f2: sort 0 -> sort 0) ->
+             GenIndType top_f f1 ->
+             GenIndType top_f (\ (a:sort 0) -> Either (f1 a) (f2 a));
+  GIT_Right : (f1 f2: sort 0 -> sort 0) ->
+              GenIndType top_f f2 ->
+              GenIndType top_f (\ (a:sort 0) -> Either (f1 a) (f2 a));
+  GIT_exists : (a1:sort 0) -> (f : sort 0 -> a1 -> sort 0) ->
+               (x1:a1) -> (x2:GenIndType top_f (f a1)) ->
+               GenIndType top_f (\ (a:sort 0) -> Sigma a1 (f a));
+}
+-}
+
+
 --------------------------------------------------------------------------------
 -- General axioms
 
@@ -1677,14 +2220,3 @@ axiom map_map : (a b c : sort 0) -> (f : a -> b) -> (g : b -> c) ->
                  (n : Nat) -> (xs : Vec n a) ->
                  Eq (Vec n c) (map b c g n (map a b f n xs))
                               (map a c (\ (x:a) -> g (f x)) n xs);
-
--------------------------------------------------------------------------------
--- Dependent sums
-
-data Sigma (a : sort 0) (b : a -> sort 0) : sort 0 where {
-    exists : (pa : a) -> b pa -> Sigma a b;
-}
-
-Sigma__rec (a : sort 0) (b : a -> sort 0) (p : Sigma a b -> sort 0)
-           (f1 : (pa : a) -> (pb : b pa) -> p (exists a b pa pb)) (u : Sigma a b) : p u
-  = Sigma#rec a b p f1 u;
