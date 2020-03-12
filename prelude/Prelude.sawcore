@@ -2368,6 +2368,12 @@ primitive unfoldIndElem : (top_desc desc:IndDesc) ->
                           IndElem (IndDescs1 top_desc) desc ->
                           interpIndDesc top_desc desc;
 
+-- FIXME: implement this!
+primitive mapIndElem : (d1 d2:IndDesc) ->
+                       (interpIndDesc d2 d1 -> interpIndDesc d2 d2) ->
+                       IndElem (IndDescs1 d1) d1 ->
+                       IndElem (IndDescs1 d2) d2;
+
 
 {- FIXME: remove these!
 data Types : sort 1 where {
