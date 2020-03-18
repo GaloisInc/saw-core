@@ -1661,164 +1661,31 @@ Sigma__rec (a : sort 0) (b : a -> sort 0) (p : Sigma a b -> sort 0)
 
 
 --------------------------------------------------------------------------------
--- Colimits and Least Fixed-Point Types
+-- Lists of 64-bit words (for testing Heapster)
 
--- FIXME: maybe remove all this stuff...?
-
-{-
--- A diagram (i.e., functor) from the category Nat (with less than or equal as
--- the morphisms) to types of sort 0. The NatDiagram type is the object portion
--- of the functor, i.e., the mapping from Nat to types.
-NatDiagram : sort 1;
-NatDiagram = Nat -> sort 0;
-
--- A "proof" that an element of NatDiagram is actually a diagram; i.e., a
--- mapping from less than or equal proofs to functions between types in the
--- image of the functor.
-IsDiagram : NatDiagram -> sort 0;
-IsDiagram f = (n: Nat) -> f n -> f (Succ n);
-
--- The existential type exists n.f n is (the object portion of) a colimit of the
--- diagram f
-data Colimit (f:NatDiagram) : sort 0 where {
-  mkColimit : (n:Nat) -> f n -> Colimit f;
+data W64List : sort 0 where {
+  W64Nil : W64List;
+  W64Cons : bitvector 64 -> W64List -> W64List;
 }
 
--- Apply a natural transformation to a Colimit type
-mapColimit : (f g: NatDiagram) -> ((n:Nat) -> f n -> g n) ->
-             Colimit f -> Colimit g;
-mapColimit f g f_to_g col =
-  Colimit#rec f (\ (_:Colimit f) -> Colimit g)
-  (\ (n:Nat) (x:f n) -> mkColimit g n (f_to_g n x))
-  col;
+unfoldW64List : W64List -> Either #() #(bitvector 64, W64List);
+unfoldW64List l =
+  W64List#rec (\ (_:W64List) -> Either #() #(bitvector 64, W64List))
+  (Left #() #(bitvector 64, W64List) ())
+  (\ (bv:bitvector 64) (l':W64List) (_:Either #() #(bitvector 64, W64List)) ->
+     Right #() #(bitvector 64, W64List) (bv,l'))
+  l;
 
--- The type portion of a functor on the category of types of sort 0
-Functor : sort 1;
-Functor = sort 0 -> sort 0;
-
--- The morphism portion of a functor
-IsFunctor : Functor -> sort 1;
-IsFunctor f = (a b : sort 0) -> (a -> b) -> f a -> f b;
-
--- A continuous functor is one that commutes with colimits
-IsContinuous : Functor -> sort 1;
-IsContinuous g =
-  (f:NatDiagram) -> g (Colimit f) -> Colimit (\ (n:Nat) -> g (f n));
-
--- The bottom / uninhabited type
-data Bottom : sort 0 where { }
-
--- The diagram that maps any Nat n to f^n(Bottom)
-nth_functor : (f: sort 0 -> sort 0) -> Nat -> sort 0;
-nth_functor f = Nat__rec (\ (_:Nat) -> sort 0) Bottom (\ (_:Nat) -> f);
-
--- The least fixed-point of f is the colimit of 0, f(0), f(f(0)), ...
-LFP : Functor -> sort 0;
-LFP f = Colimit (nth_functor f);
-
--- Helper function for folding a least fixed-point type
-incrFunctorColimit : (f:Functor) ->
-                     Colimit (\ (n:Nat) -> f (nth_functor f n)) -> LFP f;
-incrFunctorColimit f col =
-  Colimit#rec (\ (n:Nat) -> f (nth_functor f n))
-  (\ (_:Colimit (\ (n:Nat) -> f (nth_functor f n))) -> LFP f)
-  (\ (n:Nat) (x:f (nth_functor f n)) -> mkColimit (nth_functor f) (Succ n) x)
-  col;
-
--- Fold a least fixed-point type. Only works for continuous functors f.
-foldLFP : (f:Functor) -> IsContinuous f -> f (LFP f) -> LFP f;
-foldLFP f cont_f f_lfp = incrFunctorColimit f (cont_f (nth_functor f) f_lfp);
-
--- Unfold a least fixed-point type. Only works for functors f.
-unfoldLFP : (f:Functor) -> IsFunctor f -> LFP f -> f (LFP f);
-unfoldLFP f fmap_f lfp =
-  Colimit#rec (nth_functor f) (\ (_:LFP f) -> f (LFP f))
-  (Nat__rec (\ (n:Nat) -> nth_functor f n -> f (LFP f))
-    (\ (b:Bottom) -> Bottom#rec (\ (_:Bottom) -> f (LFP f)) b)
-    (\ (n:Nat) (_:nth_functor f n -> f (LFP f))
-       (f_lfp:f (nth_functor f n)) ->
-       fmap_f (nth_functor f n) (LFP f)
-              (\ (x: nth_functor f n) -> mkColimit (nth_functor f) n x) f_lfp))
-  lfp;
-
--- Helper function for mapping one LFP type to another
-mapNthFunctor : (f g:Functor) -> IsFunctor f -> ((a:sort 0) -> f a -> g a) ->
-                (n:Nat) -> nth_functor f n -> nth_functor g n;
-mapNthFunctor f g map_f f_to_g =
-  Nat__rec (\ (n:Nat) -> nth_functor f n -> nth_functor g n)
-  (\ (b:Bottom) -> b)
-  (\ (n:Nat) (f_rec: nth_functor f n -> nth_functor g n)
-     (x:nth_functor f (Succ n)) ->
-     f_to_g (nth_functor g n) (map_f (nth_functor f n) (nth_functor g n) f_rec x));
-
--- Map one least fixed-point type to another by recursively mapping a natural
--- transformation over each level of the least fixed-point
-mapLFP : (f g:Functor) -> IsFunctor f -> ((a:sort 0) -> f a -> g a) ->
-         LFP f -> LFP g;
-mapLFP f g map_f f_to_g lfp =
-  Colimit#rec (nth_functor f) (\ (_:LFP f) -> LFP g)
-  (\ (n:Nat) (x:nth_functor f n) ->
-     mkColimit (nth_functor g) n (mapNthFunctor f g map_f f_to_g n x))
-  lfp;
+foldW64List : Either #() #(bitvector 64, W64List) -> W64List;
+foldW64List =
+  either #() #(bitvector 64, W64List) W64List
+         (\ (_:#()) -> W64Nil)
+         (\ (bv_l:#(bitvector 64, W64List)) ->
+            W64Cons bv_l.(1) bv_l.(2));
 
 
-----------------------------------------
--- Examples of Continuous Functors
-
--- The constant functor is a functor
-IsFunctor_Const : (t:sort 0) -> IsFunctor (\ (_:sort 0) -> t);
-IsFunctor_Const t a b _ x = x;
-
--- The constant functor is continuous
-IsContinuous_Const : (t:sort 0) -> IsContinuous (\ (_:sort 0) -> t);
-IsContinuous_Const t f x = mkColimit (\ (n:Nat) -> t) 0 x;
-
--- The identity functor is a functor
-IsFunctor_Id : IsFunctor (\ (a:sort 0) -> a);
-IsFunctor_Id a b f_ab = f_ab;
-
--- The identity functor is continuous
-IsContinuous_Id : IsContinuous (\ (a:sort 0) -> a);
-IsContinuous_Id f = mapColimit f (\ (n:Nat) -> f n) (\ (n:Nat) (x:f n) -> x);
-
--- The pair of two functors is a functor
-IsFunctor_Pair : (f g:Functor) -> IsFunctor f -> IsFunctor g ->
-                 IsFunctor (\ (a:sort 0) -> #(f a, g a));
-IsFunctor_Pair f g map_f map_g a b f_ab x =
-  (map_f a b f_ab x.1, map_g a b f_ab x.2);
-
--- The pair of two continuous functors is continuous
-IsContinuous_Pair : (f g:Functor) -> IsContinuous f -> IsContinuous g ->
-                    IsContinuous (\ (a:sort 0) -> #(f a, g a));
-IsContinuous_Pair f g cont_f cont_g h =
-  FIXME: IsContinuous needs to know that the diagram of the colimit is a diagram  
-
--- The Either of two functors is a functor
-IsFunctor_Either : (f g:Functor) -> IsFunctor f -> IsFunctor g ->
-                   IsFunctor (\ (a:sort 0) -> Either (f a) (g a));
-IsFunctor_Either f g map_f map_g a b f_ab =
-  either (f a) (g a) (Either (f b) (g b))
-  (\ (x: f a) -> Left (f b) (g b) (map_f a b f_ab x))
-  (\ (x: g a) -> Right (f b) (g b) (map_g a b f_ab x));
-
--- The Either of two continuous functors is continuous
-IsContinuous_Either : (f g:Functor) -> IsContinuous f -> IsContinuous g ->
-                      IsContinuous (\ (a:sort 0) -> Either (f a) (g a));
-IsContinuous_Either f g cont_f cont_g h =
-  either (f (Colimit h)) (g (Colimit h))
-  (Colimit (\ (n:Nat) -> Either (f (h n)) (g (h n))))
-  (\ (x: f (Colimit h)) ->
-     mapColimit (\ (n:Nat) -> f (h n))
-                (\ (n:Nat) -> Either (f (h n)) (g (h n)))
-                (\ (n:Nat) (y:f (h n)) -> Left (f (h n)) (g (h n)) y)
-                (cont_f h x))
-  (\ (x: g (Colimit h)) ->
-     mapColimit (\ (n:Nat) -> g (h n))
-                (\ (n:Nat) -> Either (f (h n)) (g (h n)))
-                (\ (n:Nat) (y:g (h n)) -> Right (f (h n)) (g (h n)) y)
-                (cont_g h x));
--}
-
+--------------------------------------------------------------------------------
+-- A General Inductive Type
 
 -- The vacuously true proposition
 data TrueP : Prop where {
@@ -1926,9 +1793,6 @@ data IndElem : IndDescs -> IndDesc -> sort 0 where {
               IndElem (IndDescs_Cons desc descs) desc ->
               IndElem descs (IndDesc_Ind desc);
 }
-
-
-
 
 
 -- Lift an inductive description variable, by incrementing any deBruijn variable
@@ -2374,109 +2238,6 @@ primitive mapIndElem : (d1 d2:IndDesc) ->
                        IndElem (IndDescs1 d1) d1 ->
                        IndElem (IndDescs1 d2) d2;
 
-
-{- FIXME: remove these!
-data Types : sort 1 where {
-  Types_Nil : Types;
-  Types_Cons : sort 0 -> Types -> Types;
-}
-
-nthType : Types -> Nat -> sort 0;
-nthType tps =
-  Types#rec (\ (_:Types) -> Nat -> sort 0)
-            (\ (_:Nat) -> #())
-            (\ (a:sort 0) (_:Types) (rec:Nat -> sort 0) (n:Nat) ->
-               Nat__rec (\ (_:Nat) -> sort 0) a
-                        (\ (n_pred:Nat) (_:sort 0) -> rec n_pred) n)
-            tps;
-
--- A description of an inductive type
-data IndDesc : Nat -> sort 1 where {
-  IndDesc_Type : (n:Nat) -> sort 0 -> IndDesc n;
-  IndDesc_Rec : (m n:Nat) -> IndDesc (addNat (Succ m) n);
-  IndDesc_Pair : (n:Nat) -> IndDesc n -> IndDesc n -> IndDesc n;
-  IndDesc_Either : (n:Nat) -> IndDesc n -> IndDesc n -> IndDesc n;
-  IndDesc_Sigma : (n:Nat) -> (a:sort 0) -> (a -> IndDesc n) -> IndDesc n;
-  IndDesc_List : (n:Nat) -> IndDesc n -> IndDesc n;
-  IndDesc_Ind : (n:Nat) -> IndDesc (Succ n) -> IndDesc n;
-}
-
-data IndDescs : Nat -> sort 1 where {
-  IndDescs_Nil : IndDescs 0;
-  IndDescs_Cons : (n:Nat) -> IndDescs n -> IndDesc n -> IndDescs (Succ n);
-}
-
--- Proof that Zero is never equal to (Succ n) for any n by proving an arbitrary
--- type a
-notEqPZeroSucc : (a:sort 1) -> (n:Nat) -> EqP Nat Zero (Succ n) -> a;
-notEqPZeroSucc a n e =
-  EqP#rec Nat Zero
-  (\ (n:Nat) (_:EqP Nat Zero n) ->
-     Nat#rec (\ (_:Nat) -> sort 1) #() (\ (n:Nat) (_:sort 1) -> a) n)
-  ()
-  (Succ n) e;
-
-unconsIndDescsH : (n:Nat) -> IndDescs n -> (m:Nat) -> EqP Nat n (Succ m) ->
-                  IndDescs m * IndDesc m;
-unconsIndDescsH n descs =
-  IndDescs#rec (\ (n:Nat) (_:IndDescs n) ->
-                  (m:Nat) -> EqP Nat n (Succ m) -> IndDescs m * IndDesc m)
-  (\ (m:Nat) (eq_succ_z: EqP Nat Zero (Succ m)) ->
-     notEqPZeroSucc (IndDescs m * IndDesc m) m eq_succ_z)
-  (\ (n:Nat) (descs: IndDescs n)
-     (_: (m:Nat) -> EqP Nat n (Succ m) -> IndDescs m * IndDesc m)
-     (desc:IndDesc n)
-     (m:Nat) (eq: EqP Nat (Succ n) (Succ m)) ->
-     EqP#rec Nat (Succ n) (\ (i:Nat) (_:EqP Nat (Succ n) i) ->
-                             IndDescs (pred i) * IndDesc (pred i))
-     (descs, desc) (Succ m) eq)
-  n descs;
-
-unconsIndDesc : (n:Nat) -> IndDescs (Succ n) -> IndDescs n * IndDesc n;
-unconsIndDesc n descs =
-  unconsIndDescsH (Succ n) descs n (ReflP Nat (Succ n));
-
-unconsMIndDesc : (m n:Nat) -> IndDescs (addNat m n) * IndDesc (addNat m n) ->
-                 IndDescs n * IndDesc n;
-unconsMIndDesc m n =
-  Nat__rec (\ (m:Nat) -> IndDescs (addNat m n) * IndDesc (addNat m n) ->
-              IndDescs n * IndDesc n)
-           (\ (p: IndDescs n * IndDesc n) -> p)
-           (\ (m:Nat) (rec: IndDescs (addNat m n) * IndDesc (addNat m n) ->
-                            IndDescs n * IndDesc n)
-              (p: IndDescs (addNat (Succ m) n) * IndDesc (addNat (Succ m) n)) ->
-              rec (unconsIndDesc (addNat m n) p.1))
-           m;
-
-unconsSuccMIndDesc : (m n:Nat) -> IndDescs (addNat (Succ m) n) ->
-                     IndDescs n * IndDesc n;
-unconsSuccMIndDesc m n descs =
-  unconsMIndDesc m n (unconsIndDesc (addNat m n) descs);
-
-data IndElem (n:Nat) (descs: IndDescs n) : IndDesc n -> sort 0 where {
-  IndElem_Type : (a:sort 0) -> a -> IndElem n descs (IndDesc_Type n a);
-}
--}
-
-
-{-
-(top_f: sort 0 -> sort 0) : (sort 0 -> sort 0) -> sort 1 where {
-  GIT_Const : (a: sort 0) -> a -> GenIndType top_f (\ (_:sort 0) -> a);
-  GIT_Recurse : GenIndType top_f top_f -> GenIndType top_f (\ (a:sort 0) -> a);
-  GIT_Pair : (f1 f2: sort 0 -> sort 0) ->
-             GenIndType top_f f1 -> GenIndType top_f f2 ->
-             GenIndType top_f (\ (a:sort 0) -> f1 a * f2 a);
-  GIT_Left : (f1 f2: sort 0 -> sort 0) ->
-             GenIndType top_f f1 ->
-             GenIndType top_f (\ (a:sort 0) -> Either (f1 a) (f2 a));
-  GIT_Right : (f1 f2: sort 0 -> sort 0) ->
-              GenIndType top_f f2 ->
-              GenIndType top_f (\ (a:sort 0) -> Either (f1 a) (f2 a));
-  GIT_exists : (a1:sort 0) -> (f : sort 0 -> a1 -> sort 0) ->
-               (x1:a1) -> (x2:GenIndType top_f (f a1)) ->
-               GenIndType top_f (\ (a:sort 0) -> Sigma a1 (f a));
-}
--}
 
 
 --------------------------------------------------------------------------------
