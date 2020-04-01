@@ -1659,6 +1659,16 @@ Sigma__rec (a : sort 0) (b : a -> sort 0) (p : Sigma a b -> sort 0)
            (f1 : (pa : a) -> (pb : b pa) -> p (exists a b pa pb)) (u : Sigma a b) : p u
   = Sigma#rec a b p f1 u;
 
+Sigma_proj1 : (a : sort 0) -> (b : a -> sort 0) -> Sigma a b -> a;
+Sigma_proj1 a b =
+  Sigma__rec a b (\ (_:Sigma a b) -> a) (\ (pa:a) (_: b pa) -> pa);
+
+Sigma_proj2 : (a : sort 0) -> (b : a -> sort 0) -> (p : Sigma a b) ->
+              b (Sigma_proj1 a b p);
+Sigma_proj2 a b =
+  Sigma__rec a b (\ (p:Sigma a b) -> b (Sigma_proj1 a b p))
+             (\ (pa:a) (pb: b pa) -> pb);
+
 
 --------------------------------------------------------------------------------
 -- Lists of 64-bit words (for testing Heapster)
@@ -1668,20 +1678,31 @@ data W64List : sort 0 where {
   W64Cons : bitvector 64 -> W64List -> W64List;
 }
 
-unfoldW64List : W64List -> Either #() #(bitvector 64, W64List);
+unfoldedW64List : sort 0;
+unfoldedW64List =
+  Either #()
+  (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #());
+
+unfoldW64List : W64List -> unfoldedW64List;
 unfoldW64List l =
-  W64List#rec (\ (_:W64List) -> Either #() #(bitvector 64, W64List))
-  (Left #() #(bitvector 64, W64List) ())
-  (\ (bv:bitvector 64) (l':W64List) (_:Either #() #(bitvector 64, W64List)) ->
-     Right #() #(bitvector 64, W64List) (bv,l'))
+  W64List#rec (\ (_:W64List) -> unfoldedW64List)
+  (Left #() (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #()) ())
+  (\ (bv:bitvector 64) (l':W64List) (_:unfoldedW64List) ->
+     Right #() (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #())
+               (exists (bitvector 64) (\ (_:bitvector 64) -> #()) bv (),
+                l', ()))
   l;
 
-foldW64List : Either #() #(bitvector 64, W64List) -> W64List;
+foldW64List : unfoldedW64List -> W64List;
 foldW64List =
-  either #() #(bitvector 64, W64List) W64List
+  either #() (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #())
+         W64List
          (\ (_:#()) -> W64Nil)
-         (\ (bv_l:#(bitvector 64, W64List)) ->
-            W64Cons bv_l.(1) bv_l.(2));
+         (\ (bv_l:(Sigma (bitvector 64) (\ (_:bitvector 64) -> #())
+                   * W64List * #())) ->
+            W64Cons (Sigma_proj1 (bitvector 64)
+                                 (\ (_:bitvector 64) -> #()) bv_l.(1))
+                    bv_l.(2).(1));
 
 
 --------------------------------------------------------------------------------
