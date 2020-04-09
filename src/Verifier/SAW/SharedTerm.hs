@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ParallelListComp #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -145,7 +146,10 @@ module Verifier.SAW.SharedTerm
   , scTypeOfGlobal
     -- ** Prelude operations
   , scAppend
+  , scJoin
+  , scSplit
   , scGet
+  , scAtWithDefault
   , scAt
   , scNot
   , scAnd
@@ -153,6 +157,7 @@ module Verifier.SAW.SharedTerm
   , scImplies
   , scXor
   , scBoolEq
+  , scBvForall
   , scIte
   , scSingle
   , scSlice
@@ -651,7 +656,7 @@ scWhnf sc t0 =
     go xs                     (asDataType -> Just (c,args))     = do args' <- mapM memo args
                                                                      t' <- scDataTypeApp sc c args'
                                                                      foldM reapply t' xs
-    go xs                     (asConstant -> Just (_,body,_))   = do go xs body
+    go xs                     (asConstant -> Just (_,body))     = do go xs body
     go xs                     t                                 = foldM reapply t xs
 
     reapply :: Term -> WHNFElim -> IO Term
@@ -692,8 +697,8 @@ scConvertibleEval sc eval unfoldConst tm1 tm2 = do
 
        goF :: Cache IO TermIndex Term -> TermF Term -> TermF Term -> IO Bool
 
-       goF c (Constant _ _ x) y | unfoldConst = join (goF c <$> whnf c x <*> return y)
-       goF c x (Constant _ _ y) | unfoldConst = join (goF c <$> return x <*> whnf c y)
+       goF c (Constant _ x) y | unfoldConst = join (goF c <$> whnf c x <*> return y)
+       goF c x (Constant _ y) | unfoldConst = join (goF c <$> return x <*> whnf c y)
 
        goF c (FTermF ftf1) (FTermF ftf2) =
                case zipWithFlatTermF (go c) ftf1 ftf2 of
@@ -789,7 +794,7 @@ scTypeOf' sc env t0 = State.evalStateT (memo t0) Map.empty
         LocalVar i
           | i < length env -> lift $ incVars sc 0 (i + 1) (env !! i)
           | otherwise      -> fail $ "Dangling bound variable: " ++ show (i - length env)
-        Constant _ t _ -> memo t
+        Constant ec _ -> return (ecType ec)
     ftermf :: FlatTermF Term
            -> State.StateT (Map TermIndex Term) IO Term
     ftermf tf =
@@ -909,7 +914,7 @@ instantiateVars sc f initialLevel t0 =
     go' l (LocalVar i)
       | i < l     = scTermF sc (LocalVar i)
       | otherwise = f l (Right i)
-    go' _ tf@(Constant _ _ _) = scTermF sc tf
+    go' _ tf@(Constant {}) = scTermF sc tf
 
 -- | @incVars k j t@ increments free variables at least @k@ by @j@.
 -- e.g., incVars 1 2 (C ?0 ?1) = C ?0 ?3
@@ -1011,7 +1016,7 @@ betaNormalize sc t0 =
     go3 (STApp{ stAppTermF = tf }) = scTermF sc =<< traverseTF go tf
 
     traverseTF :: (a -> IO a) -> TermF a -> IO (TermF a)
-    traverseTF _ tf@(Constant _ _ _) = pure tf
+    traverseTF _ tf@(Constant {}) = pure tf
     traverseTF f tf = traverse f tf
 
 
@@ -1160,7 +1165,8 @@ scConstant sc name rhs ty =
      let ecs = getAllExts rhs
      rhs' <- scAbstractExts sc ecs rhs
      ty' <- scFunAll sc (map ecType ecs) ty
-     t <- scTermF sc (Constant name rhs' ty')
+     i <- scFreshGlobalVar sc
+     t <- scTermF sc (Constant (EC i name ty') rhs')
      args <- mapM (scFlatTermF sc . ExtCns) ecs
      scApplyAll sc t args
 
@@ -1187,25 +1193,27 @@ scTupleReduced sc (t : ts) = scPairValueReduced sc t =<< scTupleReduced sc ts
 -- | An optimized variant of 'scVector' that will reduce vectors of
 -- the form @[at x 0, at x 1, at x 2, at x 3]@ to just @x@.
 scVectorReduced :: SharedContext -> Term {- ^ element type -} -> [Term] {- ^ elements -} -> IO Term
-scVectorReduced sc ety xs =
-  case traverse asAt xs >>= asRedex of
-    Just x -> return x
-    Nothing -> scVector sc ety xs
+scVectorReduced sc ety xs
+  | (hd : _) <- xs
+  , Just ((arr_sz :*: arr_tm) :*: 0) <- asAtOrBvAt hd
+  , fromIntegral (length xs) == arr_sz
+  , iall (\i x -> asAtOrBvAt x == Just ((arr_sz :*: arr_tm) :*: fromIntegral i)) xs =
+    return arr_tm
+  | otherwise = scVector sc ety xs
   where
     asAny :: Term -> Maybe ()
     asAny _ = Just ()
 
-    asAt :: Term -> Maybe (Term :*: Natural)
-    asAt = isGlobalDef "Prelude.at" @> asAny @> asAny @> return <@> asNat
+    asAt :: Term -> Maybe ((Natural :*: Term) :*: Natural)
+    asAt = (((isGlobalDef "Prelude.at" @> asNat) <@ asAny) <@> return) <@> asNat
 
-    asRedex :: [Term :*: Natural] -> Maybe Term
-    asRedex [] = Nothing
-    asRedex ((t :*: n) : ts) = if n == 0 then check t 0 ts else Nothing
+    asBvAt :: Term -> Maybe ((Natural :*: Term) :*: Natural)
+    asBvAt = ((((isGlobalDef "Prelude.bvAt" @> asNat) <@ asAny) <@ asAny) <@> return) <@> asUnsignedConcreteBv
 
-    check :: Term -> Natural -> [Term :*: Natural] -> Maybe Term
-    check t _ [] = Just t
-    check t n ((t' :*: n') : ts)
-      | t' == t && n' == n + 1 = check t n' ts
+    asAtOrBvAt :: Term -> Maybe ((Natural :*: Term) :*: Natural)
+    asAtOrBvAt term
+      | res@Just{} <- asAt term = res
+      | res@Just{} <- asBvAt term = res
       | otherwise = Nothing
 
 ------------------------------------------------------------
@@ -1248,6 +1256,9 @@ scXor sc x y = scGlobalApply sc "Prelude.xor" [x,y]
 scBoolEq :: SharedContext -> Term -> Term -> IO Term
 scBoolEq sc x y = scGlobalApply sc "Prelude.boolEq" [x,y]
 
+scBvForall :: SharedContext -> Term -> Term -> IO Term
+scBvForall sc w f = scGlobalApply sc "Prelude.bvForall" [w, f]
+
 -- ite :: (a :: sort 1) -> Bool -> a -> a -> a;
 scIte :: SharedContext -> Term -> Term ->
          Term -> Term -> IO Term
@@ -1257,6 +1268,14 @@ scIte sc t b x y = scGlobalApply sc "Prelude.ite" [t, b, x, y]
 scAppend :: SharedContext -> Term -> Term -> Term ->
             Term -> Term -> IO Term
 scAppend sc t m n x y = scGlobalApply sc "Prelude.append" [m, n, t, x, y]
+
+-- | join  : (m n : Nat) -> (a : sort 0) -> Vec m (Vec n a) -> Vec (mulNat m n) a;
+scJoin :: SharedContext -> Term -> Term -> Term -> Term -> IO Term
+scJoin sc m n a v = scGlobalApply sc "Prelude.join" [m, n, a, v]
+
+-- | split : (m n : Nat) -> (a : sort 0) -> Vec (mulNat m n) a -> Vec m (Vec n a);
+scSplit :: SharedContext -> Term -> Term -> Term -> Term -> IO Term
+scSplit sc m n a v = scGlobalApply sc "Prelude.split" [m, n, a, v]
 
 -- | slice :: (e :: sort 1) -> (i n o :: Nat) -> Vec (addNat (addNat i n) o) e -> Vec n e;
 scSlice :: SharedContext -> Term -> Term ->
@@ -1272,6 +1291,10 @@ scGet sc n e v i = scGlobalApply sc (mkIdent preludeName "get") [n, e, v, i]
 scBvAt :: SharedContext -> Term -> Term ->
          Term -> Term -> Term -> IO Term
 scBvAt sc n a i xs idx = scGlobalApply sc (mkIdent preludeName "bvAt") [n, a, i, xs, idx]
+
+-- | atWithDefault :: (n :: Nat) -> (a :: sort 0) -> a -> Vec n a -> Nat -> a;
+scAtWithDefault :: SharedContext -> Term -> Term -> Term -> Term -> Term -> IO Term
+scAtWithDefault sc n a v xs idx = scGlobalApply sc (mkIdent preludeName "atWithDefault") [n, a, v, xs, idx]
 
 -- | at :: (n :: Nat) -> (a :: sort 0) -> Vec n a -> Nat -> a;
 scAt :: SharedContext -> Term -> Term ->
@@ -1546,8 +1569,8 @@ getAllExtSet t = snd $ getExtCns (Set.empty, Set.empty) t
             (Set.insert idx is, Set.insert ec a)
           getExtCns (is, a) (Unshared (FTermF (ExtCns ec))) =
             (is, Set.insert ec a)
-          getExtCns acc (STApp{ stAppTermF = Constant _ _ _ }) = acc
-          getExtCns acc (Unshared (Constant _ _ _)) = acc
+          getExtCns acc (STApp{ stAppTermF = Constant {} }) = acc
+          getExtCns acc (Unshared (Constant {})) = acc
           getExtCns (is, a) (STApp{ stAppIndex = idx, stAppTermF = tf'}) =
             foldl' getExtCns (Set.insert idx is, a) tf'
           getExtCns acc (Unshared tf') =
@@ -1563,7 +1586,7 @@ getConstantSet t = snd $ go (Set.empty, Map.empty) t
 
     termf acc@(idxs, names) tf =
       case tf of
-        Constant n ty body -> (idxs, Map.insert n (ty, body) names)
+        Constant (EC _ n ty) body -> (idxs, Map.insert n (ty, body) names)
         _ -> foldl' go acc tf
 
 -- | Instantiate some of the external constants
@@ -1658,13 +1681,13 @@ scUnfoldConstantSet sc b names t0 = do
   let go :: Term -> IO Term
       go t@(Unshared tf) =
         case tf of
-          Constant name rhs _
+          Constant (EC _ name _) rhs
             | Set.member name names == b -> go rhs
             | otherwise                  -> return t
           _ -> Unshared <$> traverse go tf
       go t@(STApp{ stAppIndex = idx, stAppTermF = tf }) = useCache cache idx $
         case tf of
-          Constant name rhs _
+          Constant (EC _ name _) rhs
             | Set.member name names == b -> go rhs
             | otherwise         -> return t
           _ -> scTermF sc =<< traverse go tf
@@ -1682,13 +1705,13 @@ scUnfoldConstantSet' sc b names t0 = do
   let go :: Term -> ChangeT IO Term
       go t@(Unshared tf) =
         case tf of
-          Constant name rhs _
+          Constant (EC _ name _) rhs
             | Set.member name names == b -> taint (go rhs)
             | otherwise                  -> pure t
           _ -> whenModified t (return . Unshared) (traverse go tf)
       go t@(STApp{ stAppIndex = idx, stAppTermF = tf }) =
         case tf of
-          Constant name rhs _
+          Constant (EC _ name _) rhs
             | Set.member name names == b -> taint (go rhs)
             | otherwise                  -> pure t
           _ -> useChangeCache tcache idx $

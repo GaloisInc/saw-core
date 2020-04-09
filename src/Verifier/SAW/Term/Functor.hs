@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveLift #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
@@ -70,6 +71,9 @@ import Data.Word
 import GHC.Generics (Generic)
 import GHC.Exts (IsString(..))
 
+import qualified Language.Haskell.TH.Syntax as TH
+import Instances.TH.Lift () -- for instance TH.Lift Text
+
 import qualified Verifier.SAW.TermNet as Net
 import Verifier.SAW.Utils (internalError)
 
@@ -86,20 +90,12 @@ instance Hashable a => Hashable (Vector a) where
 -- Module Names ----------------------------------------------------------------
 
 newtype ModuleName = ModuleName Text -- [String]
-  deriving (Eq, Ord, Generic)
+  deriving (Eq, Ord, Generic, TH.Lift)
 
 instance Hashable ModuleName -- automatically derived
 
 instance Show ModuleName where
   show (ModuleName s) = Text.unpack s
-
-isModNameChar :: Char -> Bool
-isModNameChar c = isIdChar c || c == '.'
-
-instance Read ModuleName where
-  readsPrec _ s =
-    let (str1, str2) = break (not . isModNameChar) (dropWhile isSpace s) in
-    [(ModuleName (Text.pack str1), str2)]
 
 -- | Create a module name given a list of strings with the top-most
 -- module name given first.
@@ -173,7 +169,7 @@ isIdChar c = isAlphaNum c || (c == '_') || (c == '\'')
 data Sort
   = TypeSort Integer
   | PropSort
-  deriving (Eq, Generic)
+  deriving (Eq, Generic, TH.Lift)
 
 -- Prop is the lowest sort
 instance Ord Sort where
@@ -186,14 +182,6 @@ instance Hashable Sort -- automatically derived
 instance Show Sort where
   showsPrec p (TypeSort i) = showParen (p >= 10) (showString "sort " . shows i)
   showsPrec _ PropSort = showString "Prop"
-
-instance Read Sort where
-  readsPrec p str_in =
-    flip (readParen False) (dropWhile isSpace str_in) $ \str ->
-    if take 5 str == "sort " then
-      map (\(i,str') -> (TypeSort i, str')) (readsPrec p (drop 5 str))
-    else if take 4 str == "Prop" then [(PropSort, drop 4 str)]
-         else []
 
 -- | Create sort @Type i@ for the given integer @i@
 mkSort :: Integer -> Sort
@@ -380,8 +368,8 @@ data TermF e
       -- ^ The type of a (possibly) dependent function
     | LocalVar !DeBruijnIndex
       -- ^ Local variables are referenced by deBruijn index.
-    | Constant String !e !e
-      -- ^ An abstract constant packaged with its definition and type.
+    | Constant !(ExtCns e) !e
+      -- ^ An abstract constant packaged with its type and definition.
       -- The body and type should be closed terms.
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
@@ -430,7 +418,7 @@ alphaEquiv = term
     termf (Lambda _ t1 u1) (Lambda _ t2 u2) = term t1 t2 && term u1 u2
     termf (Pi _ t1 u1) (Pi _ t2 u2) = term t1 t2 && term u1 u2
     termf (LocalVar i1) (LocalVar i2) = i1 == i2
-    termf (Constant x1 t1 _) (Constant x2 t2 _) = x1 == x2 && term t1 t2
+    termf (Constant x1 _) (Constant x2 _) = ecVarIndex x1 == ecVarIndex x2
     termf _ _ = False
 
     ftermf :: FlatTermF Term -> FlatTermF Term -> Bool
@@ -448,7 +436,7 @@ instance Net.Pattern Term where
 termToPat :: Term -> Net.Pat
 termToPat t =
     case unwrapTermF t of
-      Constant d _ _            -> Net.Atom (Text.pack d)
+      Constant ec _             -> Net.Atom (Text.pack (ecName ec))
       App t1 t2                 -> Net.App (termToPat t1) (termToPat t2)
       FTermF (GlobalDef d)      -> Net.Atom (identBaseName d)
       FTermF (Sort s)           -> Net.Atom (Text.pack ('*' : show s))
@@ -521,7 +509,7 @@ freesTermF tf =
       Lambda _name tp rhs -> unionBitSets tp (decrBitSet rhs)
       Pi _name lhs rhs -> unionBitSets lhs (decrBitSet rhs)
       LocalVar i -> singletonBitSet i
-      Constant _ _ _ -> emptyBitSet -- assume rhs is a closed term
+      Constant {} -> emptyBitSet -- assume rhs is a closed term
 
 -- | Return a bitset containing indices of all free local variables
 looseVars :: Term -> BitSet

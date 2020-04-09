@@ -11,6 +11,7 @@ Lightweight calculus for composing patterns as functions.
 
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -24,7 +25,7 @@ module Verifier.SAW.Recognizer
   , asGlobalDef
   , isGlobalDef
   , asApp
-  , (<@>), (@>)
+  , (<@>), (@>), (<@)
   , asApplyAll
   , asPairType
   , asPairValue
@@ -43,6 +44,8 @@ module Verifier.SAW.Recognizer
   , asRecursorApp
   , isDataType
   , asNat
+  , asBvNat
+  , asUnsignedConcreteBv
   , asStringLit
   , asLambda
   , asLambdaList
@@ -268,6 +271,14 @@ asNat (asCtor -> Just (c, [])) | c == "Prelude.Zero" = return 0
 asNat (asCtor -> Just (c, [asNat -> Just i])) | c == "Prelude.Succ" = return (i+1)
 asNat _ = fail "not Nat"
 
+asBvNat :: (MonadFail f) => Recognizer f Term (Natural :*: Natural)
+asBvNat = (isGlobalDef "Prelude.bvNat" @> asNat) <@> asNat
+
+asUnsignedConcreteBv :: (MonadFail f) => Recognizer f Term Natural
+asUnsignedConcreteBv term = do
+  (n :*: v) <- asBvNat term
+  return $ mod v (2 ^ n)
+
 asStringLit :: (MonadFail f) => Recognizer f Term String
 asStringLit t = do StringLit i <- asFTermF t; return i
 
@@ -295,8 +306,8 @@ asLocalVar :: (MonadFail m) => Recognizer m Term DeBruijnIndex
 asLocalVar (unwrapTermF -> LocalVar i) = return i
 asLocalVar _ = fail "not a local variable"
 
-asConstant :: (MonadFail m) => Recognizer m Term (String, Term, Term)
-asConstant (unwrapTermF -> Constant s x t) = return (s, x, t)
+asConstant :: (MonadFail m) => Recognizer m Term (ExtCns Term, Term)
+asConstant (unwrapTermF -> Constant ec t) = return (ec, t)
 asConstant _ = fail "asConstant: not a defined constant"
 
 asExtCns :: (MonadFail m) => Recognizer m Term (ExtCns Term)
