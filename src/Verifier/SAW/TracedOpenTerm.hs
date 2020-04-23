@@ -35,17 +35,18 @@ module Verifier.SAW.TracedOpenTerm (
   ) where
 
 import Control.Monad
-import Control.Monad.IO.Class
+-- import Control.Monad.IO.Class
 import Verifier.SAW.Term.Functor
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.SCTypeCheck
 import Verifier.SAW.Module
+import Verifier.SAW.OpenTerm (OpenTerm(..),OpenTermM(..))
 
 import Debug.Trace
 
 -- | An open term is represented as a type-checking computation that computes a
 -- SAW core term and its type
-newtype OpenTerm = OpenTerm { unOpenTerm :: TCM TypedTerm }
+-- newtype OpenTerm = OpenTerm { unOpenTerm :: TCM TypedTerm }
 
 -- | Emit debugging output during type-checking
 traceOpenTerm :: String -> OpenTerm -> OpenTerm
@@ -210,11 +211,13 @@ letOpenTerm x tp rhs body_f = applyOpenTerm (lambdaOpenTerm x tp body_f) rhs
 -- | The monad for building 'OpenTerm's if you want to add in 'IO' actions. This
 -- is just the type-checking monad, but we give it a new name to keep this
 -- module self-contained.
+{-
 newtype OpenTermM a = OpenTermM { unOpenTermM :: TCM a }
                     deriving (Functor, Applicative, Monad)
 
 instance MonadIO OpenTermM where
   liftIO = OpenTermM . liftIO
+-}
 
 -- | "Complete" an 'OpenTerm' build in 'OpenTermM' to a closed term, or 'fail'
 -- on a type-checking error
