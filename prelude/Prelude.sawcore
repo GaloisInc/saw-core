@@ -1571,6 +1571,9 @@ lrtToType lrt =
   (\ (a:sort 0) (_: a -> LetRecType) (b: a -> sort 0) -> (x:a) -> b x)
   lrt;
 
+-- NOTE: the following are needed to define multiFixM instead of making it a
+-- primitive, which we are keeping commented here in case that is needed
+{-
 -- Convert the argument types of a LetRecType to their "flat" version of the
 -- form { x1:A1 & { x2:A2 & ... { xn:An & unit } ... }}
 lrtToFlatArgs : LetRecType -> sort 0;
@@ -1626,7 +1629,7 @@ unflattenLRTFun lrt =
      restF x (\ (args:lrtToFlatArgs (lrtF x)) ->
                 f (exists a (\ (y:a) -> lrtToFlatArgs (lrtF y)) x args)))
   lrt;
-
+-}
 
 -- A list of 0 or more LetRecTypes
 data LetRecTypes : sort 0 where {
@@ -1654,6 +1657,9 @@ lrtTupleType lrts =
   (\ (lrt:LetRecType) (_:LetRecTypes) (rest:sort 0) -> #(lrtToType lrt, rest))
   lrts;
 
+-- NOTE: the following are needed to define multiFixM instead of making it a
+-- primitive, which we are keeping commented here in case that is needed
+{-
 -- Construct a multi-arity function of type lrtPi lrts B from one of type
 -- lrtTupleType lrts -> B
 lrtLambda : (lrts:LetRecTypes) -> (B:sort 0) -> (lrtTupleType lrts -> B) -> lrtPi lrts B;
@@ -1719,17 +1725,20 @@ multiFixM lrts F =
 letRecM : (lrts : LetRecTypes) -> (B:sort 0) -> lrtPi lrts (lrtTupleType lrts) ->
           lrtPi lrts (CompM B) -> CompM B;
 letRecM lrts B F body = lrtApply lrts (CompM B) body (multiFixM lrts F);
+-}
+
+-- Construct a fixed-point for a tuple of mutually-recursive functions
+primitive multiFixM : (lrts:LetRecTypes) -> lrtPi lrts (lrtTupleType lrts) ->
+                      lrtTupleType lrts;
 
 -- This is like let rec in ML: letRecM defs body defines N recursive functions
 -- in terms of themselves using defs, and then passes them to body. We use this
 -- instead of the more standard fixM because it offers a more compact
 -- representation, and because fixM messes with functional extensionality by
 -- introducing an irreducible term at function type.
-{-
 primitive letRecM : (lrts : LetRecTypes) -> (b : sort 0) ->
                     (lrtPi lrts (lrtTupleType lrts)) ->
                     (lrtPi lrts (CompM b)) -> CompM b;
--}
 
 -- This is let rec with exactly one binding
 letRecM1 : (a b c : sort 0) -> ((a -> CompM b) -> (a -> CompM b)) ->
