@@ -1533,6 +1533,70 @@ Sigma_proj2 a b =
 
 
 --------------------------------------------------------------------------------
+-- Lists
+
+data List (a:sort 0) : sort 0 where {
+  Nil : List a;
+  Cons : a -> List a -> List a;
+}
+
+List__rec : (a:sort 0) -> (P : List a -> sort 0) -> P (Nil a) ->
+            ((x:a) -> (l:List a) -> P l -> P (Cons a x l)) ->
+            (l:List a) -> P l;
+List__rec a P f1 f2 l = List#rec a P f1 f2 l;
+
+unfoldList : (a:sort 0) -> List a -> Either #() (a * List a * #());
+unfoldList a l =
+  List__rec a (\ (_:List a) -> Either #() (a * List a * #()))
+  (Left #() (a * List a * #()) ())
+  (\ (x:a) (l:List a) (_:Either #() (a * List a * #())) ->
+     Right #() (a * List a * #()) (x, l, ()))
+  l;
+
+foldList : (a:sort 0) -> Either #() (a * List a * #()) -> List a;
+foldList a =
+  either #() (a * List a * #()) (List a)
+         (\ (_ : #()) -> Nil a)
+         (\ (tup : (a * List a * #())) ->
+            Cons a tup.(1) tup.(2).(1));
+
+
+--------------------------------------------------------------------------------
+-- Lists of 64-bit words (for testing Heapster)
+
+data W64List : sort 0 where {
+  W64Nil : W64List;
+  W64Cons : bitvector 64 -> W64List -> W64List;
+}
+
+unfoldedW64List : sort 0;
+unfoldedW64List =
+  Either #()
+  (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #());
+
+unfoldW64List : W64List -> unfoldedW64List;
+unfoldW64List l =
+  W64List#rec (\ (_:W64List) -> unfoldedW64List)
+  (Left #() (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #()) ())
+  (\ (bv:bitvector 64) (l':W64List) (_:unfoldedW64List) ->
+     Right #() (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #())
+               (exists (bitvector 64) (\ (_:bitvector 64) -> #()) bv (),
+                l', ()))
+  l;
+
+foldW64List : unfoldedW64List -> W64List;
+foldW64List =
+  either #() (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #())
+         W64List
+         (\ (_:#()) -> W64Nil)
+         (\ (bv_l:(Sigma (bitvector 64) (\ (_:bitvector 64) -> #())
+                   * W64List * #())) ->
+            W64Cons (Sigma_proj1 (bitvector 64)
+                                 (\ (_:bitvector 64) -> #()) bv_l.(1))
+                    bv_l.(2).(1));
+
+
+--------------------------------------------------------------------------------
 -- Computation monad
 
 primitive CompM : sort 0 -> sort 0;
@@ -1813,41 +1877,6 @@ test_fun6 x =
     (\ (f1:(bitvector 64 -> CompM (bitvector 64)))
        (f2:(bitvector 64 -> CompM (bitvector 64))) ->
       f1 x);
-
-
---------------------------------------------------------------------------------
--- Lists of 64-bit words (for testing Heapster)
-
-data W64List : sort 0 where {
-  W64Nil : W64List;
-  W64Cons : bitvector 64 -> W64List -> W64List;
-}
-
-unfoldedW64List : sort 0;
-unfoldedW64List =
-  Either #()
-  (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #());
-
-unfoldW64List : W64List -> unfoldedW64List;
-unfoldW64List l =
-  W64List#rec (\ (_:W64List) -> unfoldedW64List)
-  (Left #() (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #()) ())
-  (\ (bv:bitvector 64) (l':W64List) (_:unfoldedW64List) ->
-     Right #() (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #())
-               (exists (bitvector 64) (\ (_:bitvector 64) -> #()) bv (),
-                l', ()))
-  l;
-
-foldW64List : unfoldedW64List -> W64List;
-foldW64List =
-  either #() (Sigma (bitvector 64) (\ (_:bitvector 64) -> #()) * W64List * #())
-         W64List
-         (\ (_:#()) -> W64Nil)
-         (\ (bv_l:(Sigma (bitvector 64) (\ (_:bitvector 64) -> #())
-                   * W64List * #())) ->
-            W64Cons (Sigma_proj1 (bitvector 64)
-                                 (\ (_:bitvector 64) -> #()) bv_l.(1))
-                    bv_l.(2).(1));
 
 
 --------------------------------------------------------------------------------
