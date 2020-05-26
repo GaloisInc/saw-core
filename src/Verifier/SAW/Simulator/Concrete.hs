@@ -209,7 +209,7 @@ prims =
   , Prims.bpBvPopcount = pure1 (Prim.bvPopcount undefined)
   , Prims.bpBvCountLeadingZeros = pure1 (Prim.bvCountLeadingZeros undefined)
   , Prims.bpBvCountTrailingZeros = pure1 (Prim.bvCountTrailingZeros undefined)
-  , Prims.bpBvForall = error "bvForall unimplemented for backend"
+  , Prims.bpBvForall = unsupportedConcretePrimitive "bvForall"
 
     -- Integer operations
   , Prims.bpIntAdd = pure2 (+)
@@ -230,6 +230,9 @@ prims =
   , Prims.bpArrayLookup = error "bpArrayLookup unimplemented for backend"
   , Prims.bpArrayUpdate = error "bpArrayUpdate unimplemented for backend"
   }
+
+unsupportedConcretePrimitive :: String -> a
+unsupportedConcretePrimitive = Prim.unsupportedPrimitive "concrete"
 
 constMap :: Map Ident CValue
 constMap =
