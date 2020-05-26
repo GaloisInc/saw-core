@@ -227,7 +227,7 @@ prims =
   }
 
 unsupportedConcretePrimitive :: String -> a
-unsupportedConcretePrimitive = Prim.unsupportedPrimitive "Concrete"
+unsupportedConcretePrimitive = Prim.unsupportedPrimitive "concrete"
 
 constMap :: Map Ident CValue
 constMap =

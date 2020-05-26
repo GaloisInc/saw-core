@@ -281,7 +281,7 @@ instance Show EvalError where
   show e = case e of
     InvalidIndex i -> "invalid sequence index: " ++ show i
     DivideByZero -> "division by 0"
-    UnsupportedPrimitive b p -> "unsupported primitive " ++ p ++ " in backend" ++ b
+    UnsupportedPrimitive b p -> "unsupported primitive " ++ p ++ " in " ++ b ++ " backend"
     UserError msg -> "Run-time error: " ++ msg
 
 -- | A sequencing operation has gotten an invalid index.

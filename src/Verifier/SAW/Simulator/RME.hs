@@ -174,7 +174,7 @@ prims =
   , Prims.bpBvURem = pure2 RMEV.urem
   , Prims.bpBvSDiv = pure2 RMEV.sdiv
   , Prims.bpBvSRem = pure2 RMEV.srem
-  , Prims.bpBvLg2  = undefined--pure1 Prim.bvLg2
+  , Prims.bpBvLg2  = unsupportedRMEPrimitive "bpBvLg2"
     -- Bitvector comparisons
   , Prims.bpBvEq   = pure2 RMEV.eq
   , Prims.bpBvsle  = pure2 RMEV.sle
@@ -210,8 +210,8 @@ prims =
   , Prims.bpIntEq  = pure2 (\x y -> RME.constant (x == y))
   , Prims.bpIntLe  = pure2 (\x y -> RME.constant (x <= y))
   , Prims.bpIntLt  = pure2 (\x y -> RME.constant (x < y))
-  , Prims.bpIntMin = undefined--pure2 min
-  , Prims.bpIntMax = undefined--pure2 max
+  , Prims.bpIntMin = unsupportedRMEPrimitive "bpIntMin"
+  , Prims.bpIntMax = unsupportedRMEPrimitive "bpIntMax"
   }
 
 unsupportedRMEPrimitive :: String -> a
@@ -249,11 +249,11 @@ constMap =
 
 -- primitive bvToInt :: (n::Nat) -> bitvector n -> Integer;
 bvToIntOp :: RValue
-bvToIntOp = undefined -- constFun $ wordFun $ VInt . unsigned
+bvToIntOp = unsupportedRMEPrimitive "bvToIntOp"
 
 -- primitive sbvToInt :: (n::Nat) -> bitvector n -> Integer;
 sbvToIntOp :: RValue
-sbvToIntOp = undefined -- constFun $ wordFun $ VInt . signed
+sbvToIntOp = unsupportedRMEPrimitive "sbvToIntOp"
 
 -- primitive intToBv :: (n::Nat) -> Integer -> bitvector n;
 intToBvOp :: RValue
