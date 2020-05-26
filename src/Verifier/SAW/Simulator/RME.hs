@@ -198,7 +198,7 @@ prims =
   , Prims.bpBvPopcount = pure1 RMEV.popcount
   , Prims.bpBvCountLeadingZeros = pure1 RMEV.countLeadingZeros
   , Prims.bpBvCountTrailingZeros = pure1 RMEV.countTrailingZeros
-  , Prims.bpBvForall = error "bvForall unimplemented for backend"
+  , Prims.bpBvForall = unsupportedRMEPrimitive "bvForall"
     -- Integer operations
   , Prims.bpIntAdd = pure2 (+)
   , Prims.bpIntSub = pure2 (-)
@@ -213,6 +213,9 @@ prims =
   , Prims.bpIntMin = undefined--pure2 min
   , Prims.bpIntMax = undefined--pure2 max
   }
+
+unsupportedRMEPrimitive :: String -> a
+unsupportedRMEPrimitive = Prim.unsupportedPrimitive "RME"
 
 constMap :: Map Ident RValue
 constMap =
