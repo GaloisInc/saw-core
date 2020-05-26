@@ -64,6 +64,7 @@ type instance EvalM Concrete = Identity
 type instance VBool Concrete = Bool
 type instance VWord Concrete = BitVector
 type instance VInt  Concrete = Integer
+type instance VArray Concrete = ()
 type instance Extra Concrete = CExtra
 
 type CValue = Value Concrete -- (WithM Identity Concrete)
@@ -226,9 +227,9 @@ prims =
   , Prims.bpIntMax = pure2 max
 
     -- Array operations
-  , Prims.bpArrayConstant = error "bpArrayConstant unimplemented for backend"
-  , Prims.bpArrayLookup = error "bpArrayLookup unimplemented for backend"
-  , Prims.bpArrayUpdate = error "bpArrayUpdate unimplemented for backend"
+  , Prims.bpArrayConstant = unsupportedConcretePrimitive "bpArrayConstant"
+  , Prims.bpArrayLookup = unsupportedConcretePrimitive "bpArrayLookup"
+  , Prims.bpArrayUpdate = unsupportedConcretePrimitive "bpArrayUpdate"
   }
 
 unsupportedConcretePrimitive :: String -> a
