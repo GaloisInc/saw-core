@@ -1560,6 +1560,20 @@ foldList a =
          (\ (tup : (a * List a * #())) ->
             Cons a tup.(1) tup.(2).(1));
 
+-- FIXME: this should eventually move somewhere better in this file...
+primitive equalString : String -> String -> Bool;
+
+stringListInsert : List String -> String -> List String;
+stringListInsert l s = Cons String s l;
+
+stringListRemove : List String -> String -> List String;
+stringListRemove l s =
+  List__rec String (\ (_:List String) -> List String)
+  (Nil String)
+  (\ (s':String) (_:List String) (rec:List String) ->
+     ite (List String) (equalString s s') rec (Cons String s' rec))
+  l;
+
 
 --------------------------------------------------------------------------------
 -- Lists of 64-bit words (for testing Heapster)
