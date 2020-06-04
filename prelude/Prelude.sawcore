@@ -1560,20 +1560,6 @@ foldList a =
          (\ (tup : (a * List a * #())) ->
             Cons a tup.(1) tup.(2).(1));
 
--- FIXME: this should eventually move somewhere better in this file...
-primitive equalString : String -> String -> Bool;
-
-stringListInsert : List String -> String -> List String;
-stringListInsert l s = Cons String s l;
-
-stringListRemove : List String -> String -> List String;
-stringListRemove l s =
-  List__rec String (\ (_:List String) -> List String)
-  (Nil String)
-  (\ (s':String) (_:List String) (rec:List String) ->
-     ite (List String) (equalString s s') rec (Cons String s' rec))
-  l;
-
 
 --------------------------------------------------------------------------------
 -- Lists of 64-bit words (for testing Heapster)
@@ -1936,3 +1922,46 @@ axiom map_map : (a b c : sort 0) -> (f : a -> b) -> (g : b -> c) ->
                  (n : Nat) -> (xs : Vec n a) ->
                  Eq (Vec n c) (map b c g n (map a b f n xs))
                               (map a c (\ (x:a) -> g (f x)) n xs);
+
+
+----------------------------------------------------------------------
+-- Helper defs for Heapster examples
+
+-- FIXME: this should eventually move somewhere better in this file...
+primitive equalString : String -> String -> Bool;
+
+stringList : sort 0;
+stringList = List String;
+
+stringListInsertM : List String -> String ->
+                    CompM (Sigma #() (\ (_:#()) -> List String));
+stringListInsertM l s =
+  returnM (Sigma #() (\ (_:#()) -> List String))
+          (exists #() (\ (_:#()) -> List String) () (Cons String s l));
+
+stringListRemoveM : List String -> String ->
+                    CompM (Sigma #() (\ (_:#()) -> stringList * String * #()));
+stringListRemoveM l s =
+  returnM
+    (Sigma #() (\ (_:#()) -> stringList * String * #()))
+    (exists
+       #() (\ (_:#()) -> stringList * String * #()) ()
+       (List__rec
+         String (\ (_:List String) -> List String)
+         (Nil String)
+         (\ (s':String) (_:List String) (rec:List String) ->
+            ite (List String) (equalString s s') rec (Cons String s' rec))
+         l,
+        s, ()));
+
+
+string_dup : String -> String * String;
+string_dup x = (x,x);
+
+data ULCTerm : sort 0 where {
+  ULCTerm_Const : bitvector 64 -> ULCTerm;
+  ULCTerm_Variable : String -> ULCTerm;
+  ULCTerm_Lambda : String -> ULCTerm -> ULCTerm;
+  ULCTerm_Add : ULCTerm -> ULCTerm -> ULCTerm;
+  ULCTerm_Call : ULCTerm -> ULCTerm -> ULCTerm;
+}
