@@ -162,6 +162,10 @@ firstOrderTypeOf fv =
     FOVInt _    -> FOTInt
     FOVWord n _ -> FOTVec n FOTBit
     FOVVec t vs -> FOTVec (fromIntegral (length vs)) t
+    -- Note: FOVArray contains type information, but not an actual Array value,
+    -- because it is not possible to obtain Array values from SMT solvers. This
+    -- is needed to display a counterexample that includes variables of Array
+    -- type.
     FOVArray t1 t2 -> FOTArray t1 t2
     FOVTuple vs -> FOTTuple (map firstOrderTypeOf vs)
     FOVRec vm   -> FOTRec (fmap firstOrderTypeOf vm)
