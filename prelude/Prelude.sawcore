@@ -1546,6 +1546,10 @@ data List (a:sort 0) : sort 0 where {
   Cons : a -> List a -> List a;
 }
 
+-- A definition for the List datatype; currently needed as a workaround in Heapster
+List_def : (a:sort 0) -> sort 0;
+List_def a = List a;
+
 List__rec : (a:sort 0) -> (P : List a -> sort 0) -> P (Nil a) ->
             ((x:a) -> (l:List a) -> P l -> P (Cons a x l)) ->
             (l:List a) -> P l;
