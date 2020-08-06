@@ -1489,31 +1489,75 @@ primitive updSliceWithProof : (a : sort 0) -> (n off len : Nat) ->
 --------------------------------------------------------------------------------
 -- Vectors indexed by bitvectors
 
+-- Helper definition to write the proposition that x <u y
+is_bvult : (n:Nat) -> (x y:bitvector n) -> Prop;
+is_bvult n x y = EqP Bool (bvult n x y) True;
+
+-- Helper definition to write the proposition that x <=u y
+is_bvule : (n:Nat) -> (x y:bitvector n) -> Prop;
+is_bvule n x y = EqP Bool (bvule n x y) True;
+
+-- Axiom: x <=u y <u z implies x <u z
+axiom trans_bvult_bvule : (n:Nat) -> (x y z:bitvector n) ->
+                          is_bvult n x y -> is_bvule n y z -> is_bvult n x z;
+
+axiom bvult_sub_add_bvult : (n:Nat) -> (x y z:bitvector n) ->
+                            is_bvule n y z -> is_bvult n x (bvSub n z y) ->
+                            is_bvult n (bvAdd n y x) z;
+
 -- The type of a bitvector-indexed array of length len : bitvector n
 primitive BVVec : (n:Nat) -> bitvector n -> sort 0 -> sort 0;
 
 -- Generate a BVVec of length len whose elements are given by a function
 primitive genBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
-                     (bitvector n -> a) -> BVVec n len a;
+                     ((i:bitvector n) -> is_bvult n i len -> a) ->
+                     BVVec n len a;
 
 -- Read the ixth element of a BVVec, assuming that ix < len
 primitive atBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
                     BVVec n len a -> (ix : bitvector n) ->
-                    EqP Bool (bvult n ix len) True -> a;
+                    is_bvult n ix len -> a;
 
 -- Indexing a generated BVVec just returns the generating function
 axiom at_gen_BVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
-                     (f : bitvector n -> a) -> (ix : bitvector n) ->
-                     (pf : EqP Bool (bvult n ix len) True) ->
-                     EqP a (atBVVec n len a (genBVVec n len a f) ix pf) (f ix);
+                     (f : (i:bitvector n) -> is_bvult n i len -> a) ->
+                     (ix : bitvector n) -> (pf : is_bvult n ix len) ->
+                     EqP a (atBVVec n len a (genBVVec n len a f) ix pf) (f ix pf);
 
 -- Update the value at a specific index in a BVVec
 updBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
            BVVec n len a -> (ix : bitvector n) ->
-           EqP Bool (bvult n ix len) True -> a -> BVVec n len a;
+           is_bvult n ix len -> a -> BVVec n len a;
 updBVVec n len a v ix pf elem =
-  genBVVec n len a (\(i:bitvector n) ->
-                     ite a (bvEq n i ix) elem (atBVVec n len a v ix pf));
+  genBVVec n len a (\ (i:bitvector n) (_:is_bvult n i len) ->
+                      ite a (bvEq n i ix) elem (atBVVec n len a v ix pf));
+
+-- Take the first i elements of a BVVec, assuming i <= len
+takeBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
+            (i : bitvector n) -> is_bvule n i len ->
+            BVVec n len a -> BVVec n i a;
+takeBVVec n len a i pf v =
+  genBVVec n i a
+    (\ (j:bitvector n) (pf2:is_bvult n j i) ->
+       atBVVec n len a v j (trans_bvult_bvule n j i len pf2 pf));
+
+-- Drop the first i elements of a BVVec, assuming i <= len
+dropBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
+            (i : bitvector n) -> is_bvule n i len ->
+            BVVec n len a -> BVVec n (bvSub n len i) a;
+dropBVVec n len a i pf v =
+  genBVVec n (bvSub n len i) a
+    (\ (j:bitvector n) (pf2:is_bvult n j (bvSub n len i)) ->
+       atBVVec n len a v (bvAdd n i j) (bvult_sub_add_bvult n j i len pf pf2));
+
+-- Combined drop and take
+sliceBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
+             (start' len' : bitvector n) -> is_bvule n start' len ->
+             is_bvule n len' (bvSub n len start') ->
+             BVVec n len a -> BVVec n len' a;
+sliceBVVec n len a start' len' pf1 pf2 v =
+  takeBVVec n (bvSub n len start') a len' pf2
+    (dropBVVec n len a start' pf1 v);
 
 
 -------------------------------------------------------------------------------
