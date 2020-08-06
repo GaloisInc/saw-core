@@ -1454,8 +1454,20 @@ primitive bvEqWithProof : (n : Nat) -> (v1 v2 : bitvector n) ->
                           Maybe (EqP (bitvector n) v1 v2);
 
 -- Compare two bitvectors with bvult, returning a proof if bvult succeeds
-primitive bvultWithProof : (n : Nat) -> (v1 v2 : bitvector n) ->
-                           Maybe (EqP Bool (bvult n v1 v2) True);
+bvultWithProof : (n : Nat) -> (v1 v2 : bitvector n) ->
+                 Maybe (EqP Bool (bvult n v1 v2) True);
+bvultWithProof n v1 v2 =
+  iteDep (\ (b:Bool) -> Maybe (EqP Bool b True)) (bvult n v1 v2)
+         (Just (EqP Bool True True) (ReflP Bool True))
+         (Nothing (EqP Bool False True));
+
+-- Compare two bitvectors with bvule, returning a proof if bvule succeeds
+bvuleWithProof : (n : Nat) -> (v1 v2 : bitvector n) ->
+                 Maybe (EqP Bool (bvule n v1 v2) True);
+bvuleWithProof n v1 v2 =
+  iteDep (\ (b:Bool) -> Maybe (EqP Bool b True)) (bvule n v1 v2)
+         (Just (EqP Bool True True) (ReflP Bool True))
+         (Nothing (EqP Bool False True));
 
 -- Convert a proof of bitvector equality to one of Nat equality
 primitive bvEqToEqNat : (n : Nat) -> (v1 v2 : bitvector n) ->
@@ -1558,6 +1570,21 @@ sliceBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
 sliceBVVec n len a start' len' pf1 pf2 v =
   takeBVVec n (bvSub n len start') a len' pf2
     (dropBVVec n len a start' pf1 v);
+
+-- Update a slice of a BVVec
+updSliceBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
+                BVVec n len a -> (start' len' : bitvector n) ->
+                BVVec n len' a -> BVVec n len a;
+updSliceBVVec n len a v start' len' v_sub =
+  genBVVec n len a
+    (\ (i:bitvector n) (pf:is_bvult n i len) ->
+       ite a (bvule n start' i)
+           (maybe (is_bvult n (bvSub n i start') len') a
+              (atBVVec n len a v i pf)
+              (\ (pf_sub:is_bvult n (bvSub n i start') len') ->
+                 atBVVec n len' a v_sub (bvSub n i start') pf_sub)
+              (bvultWithProof n (bvSub n i start') len'))
+           (atBVVec n len a v i pf));
 
 
 -------------------------------------------------------------------------------
