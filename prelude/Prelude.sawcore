@@ -80,6 +80,8 @@ primitive String : sort 0;
 
 primitive error : (a : sort 1) -> String -> a;
 
+primitive appendString : String -> String -> String;
+
 
 --------------------------------------------------------------------------------
 -- Record types
