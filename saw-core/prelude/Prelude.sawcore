@@ -1549,6 +1549,16 @@ updBVVec n len a v ix pf elem =
   genBVVec n len a (\ (i:bitvector n) (_:is_bvult n i len) ->
                       ite a (bvEq n i ix) elem (atBVVec n len a v ix pf));
 
+-- Adjust the value at a specific index in a BVVec by applying a function
+adjustBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
+              BVVec n len a -> (a -> a) -> bitvector n ->
+              BVVec n len a;
+adjustBVVec n len a v f ix =
+  genBVVec n len a (\ (i:bitvector n) (pf:is_bvult n i len) ->
+                      ite a (bvEq n i ix)
+                          (f (atBVVec n len a v i pf))
+                          (atBVVec n len a v i pf));
+
 -- Take the first i elements of a BVVec, assuming i <= len
 takeBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
             (i : bitvector n) -> is_bvule n i len ->
