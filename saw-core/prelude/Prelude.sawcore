@@ -140,6 +140,10 @@ eq_cong t x y eq u f =
   Eq__rec t x (\ (y':t) -> \ (eq':Eq t x y') -> Eq u (f x) (f y'))
           (Refl u (f x)) y eq;
 
+-- Eq implies EqP
+eq_eqP : (t : sort 1) -> (x y : t) -> Eq t x y -> EqP t x y;
+eq_eqP t x = Eq__rec t x (\ (y:t) (_:Eq t x y) -> EqP t x y) (ReflP t x);
+
 -- The eliminator for the Eq type at sort 1, assuming the usual parameter-index
 -- structure of the Eq type
 EqP__rec : (t : sort 1) -> (x : t) -> (p : (y : t) -> EqP t x y -> sort 1) ->
@@ -156,6 +160,10 @@ eqP_cong t x y eq u f =
 sym : (a : sort 1) -> (x y : a) -> Eq a x y -> Eq a y x;
 sym a x y eq =
   Eq__rec a x (\ (y':a) -> \ (eq':Eq a x y') -> Eq a y' x) (Refl a x) y eq;
+
+symP : (a : sort 1) -> (x y : a) -> EqP a x y -> EqP a y x;
+symP a x y eq =
+  EqP__rec a x (\ (y':a) -> \ (eq':EqP a x y') -> EqP a y' x) (ReflP a x) y eq;
 
 trans : (a : sort 1) -> (x y z : a) -> Eq a x y -> Eq a y z -> Eq a x z;
 trans a x y z eq1 eq2 =
@@ -292,6 +300,12 @@ ite_true (a : sort 1) (x y : a) : Eq a (ite a True x y) x =
 ite_false (a : sort 1) (x y : a) : Eq a (ite a False x y) y =
   trans a (ite a False x y) (iteDep (\ (b:Bool) -> a) False x y) y
         (ite_eq_iteDep a False x y) (iteDep_False (\ (_:Bool) -> a) x y);
+
+ite_trueP (a : sort 1) (x y : a) : EqP a (ite a True x y) x =
+  eq_eqP a (ite a True x y) x (ite_true a x y);
+
+ite_falseP (a : sort 1) (x y : a) : EqP a (ite a False x y) y =
+  eq_eqP a (ite a False x y) y (ite_false a x y);
 
 
 --
@@ -1514,6 +1528,10 @@ is_bvult n x y = EqP Bool (bvult n x y) True;
 is_bvule : (n:Nat) -> (x y:bitvector n) -> Prop;
 is_bvule n x y = EqP Bool (bvule n x y) True;
 
+-- Axiom: x <u 0 never hold
+axiom not_bvult_zero : (n:Nat) -> (x:bitvector n) ->
+                       EqP Bool (bvult n x (bvNat n 0)) False;
+
 -- Axiom: x <=u y <u z implies x <u z
 axiom trans_bvult_bvule : (n:Nat) -> (x y z:bitvector n) ->
                           is_bvult n x y -> is_bvule n y z -> is_bvult n x z;
@@ -1529,6 +1547,38 @@ primitive BVVec : (n:Nat) -> bitvector n -> sort 0 -> sort 0;
 primitive genBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
                      ((i:bitvector n) -> is_bvult n i len -> a) ->
                      BVVec n len a;
+
+-- Ex Falso Quodlibet: if True = False then anything is possible
+efq : (a : sort 0) -> EqP Bool True False -> a;
+efq a contra =
+  coerceP
+    #() a
+    (transP
+     (sort 0) #() (ite (sort 0) True #() a) a
+     (symP (sort 0) (ite (sort 0) True #() a) #()
+           (ite_trueP (sort 0) #() a))
+     (transP
+      (sort 0) (ite (sort 0) True #() a) (ite (sort 0) False #() a) a
+      (eqP_cong Bool True False contra (sort 0)
+                (\ (b:Bool) -> ite (sort 0) b #() a))
+      (ite_falseP (sort 0) #() a)
+      ))
+    ();
+
+-- Generate an empty BVVec
+emptyBVVec : (n : Nat) -> (a : sort 0) -> BVVec n (bvNat n 0) a;
+emptyBVVec n a =
+  genBVVec n (bvNat n 0) a
+           (\ (i:bitvector n) (pf:is_bvult n i (bvNat n 0)) ->
+              efq a (transP Bool True (bvult n i (bvNat n 0)) False
+                            (symP Bool (bvult n i (bvNat n 0)) True pf)
+                            (not_bvult_zero n i)));
+
+-- Generate a BVVec with 1 element
+singletonBVVec : (n : Nat) -> (a : sort 0) -> a -> BVVec n (bvNat n 1) a;
+singletonBVVec n a x =
+  genBVVec n (bvNat n 1) a
+           (\ (i:bitvector n) (_:is_bvult n i (bvNat n 1)) -> x);
 
 -- Read the ixth element of a BVVec, assuming that ix < len
 primitive atBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
