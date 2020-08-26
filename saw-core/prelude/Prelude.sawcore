@@ -1574,11 +1574,15 @@ emptyBVVec n a =
                             (symP Bool (bvult n i (bvNat n 0)) True pf)
                             (not_bvult_zero n i)));
 
+-- Generate a BVVec by repeating a single element
+repeatBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) -> a ->
+              BVVec n len a;
+repeatBVVec n len a x =
+  genBVVec n len a (\ (i:bitvector n) (_:is_bvult n i len) -> x);
+
 -- Generate a BVVec with 1 element
 singletonBVVec : (n : Nat) -> (a : sort 0) -> a -> BVVec n (bvNat n 1) a;
-singletonBVVec n a x =
-  genBVVec n (bvNat n 1) a
-           (\ (i:bitvector n) (_:is_bvult n i (bvNat n 1)) -> x);
+singletonBVVec n a x = repeatBVVec n (bvNat n 1) a x;
 
 -- Read the ixth element of a BVVec, assuming that ix < len
 primitive atBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
