@@ -1152,6 +1152,10 @@ bvShiftL n a w z xs i = shiftL n a z xs (bvToNat w i);
 bvShiftR : (n : Nat) -> (a : sort 0) -> (w : Nat) -> a -> Vec n a -> bitvector w -> Vec n a;
 bvShiftR n a w z xs i = shiftR n a z xs (bvToNat w i);
 
+-- A version of bvShiftR that uses the 0th element of the input Vec as the default shift value
+bvSShiftR : (n : Nat) -> (a : sort 0) -> (w : Nat) -> Vec (Succ n) a -> bitvector w -> Vec (Succ n) a;
+bvSShiftR n a w xs i = bvShiftR (Succ n) a w (at (Succ n) a xs 0) xs i;
+
 primitive bvAdd : (n : Nat) -> bitvector n -> bitvector n -> bitvector n;
 
 -- | Unsigned and signed comparison functions.
