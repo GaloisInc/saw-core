@@ -49,6 +49,8 @@ module Verifier.SAW.Simulator.What4
   , w4Eval
   , w4EvalAny
   , w4EvalBasic
+
+  , w4SimulatorEval
   ) where
 
 
@@ -639,8 +641,11 @@ insertSymFn s args ty fn = Map.alter upd s
 
 mkSymFn ::
   forall sym args ret. (IsSymExprBuilder sym) =>
-  sym -> IORef (SymFnCache sym) ->
-  String -> Assignment BaseTypeRepr args -> BaseTypeRepr ret ->
+  sym ->
+  IORef (SymFnCache sym) ->
+  String ->
+  Assignment BaseTypeRepr args ->
+  BaseTypeRepr ret ->
   IO (W.SymFn sym args ret)
 mkSymFn sym ref nm args ret =
   case W.userSymbol nm of
@@ -953,7 +958,9 @@ typedToSValue (TypedExpr ty expr) =
 w4EvalAny ::
   forall n solver fs.
   CS.SAWCoreBackend n solver fs -> SharedContext ->
-  Map Ident (SValue (CS.SAWCoreBackend n solver fs)) -> [String] -> Term ->
+  Map Ident (SValue (CS.SAWCoreBackend n solver fs)) ->
+  [String] ->
+  Term ->
   IO ([String], ([Maybe (Labeler (CS.SAWCoreBackend n solver fs))], SValue (CS.SAWCoreBackend n solver fs)))
 w4EvalAny sym sc ps unints t =
   do modmap <- scGetModuleMap sc
@@ -987,8 +994,11 @@ w4EvalAny sym sc ps unints t =
 
 w4Eval ::
   forall n solver fs.
-  CS.SAWCoreBackend n solver fs -> SharedContext ->
-  Map Ident (SValue (CS.SAWCoreBackend n solver fs)) -> [String] -> Term ->
+  CS.SAWCoreBackend n solver fs ->
+  SharedContext ->
+  Map Ident (SValue (CS.SAWCoreBackend n solver fs)) ->
+  [String] ->
+  Term ->
   IO ([String], ([Maybe (Labeler (CS.SAWCoreBackend n solver fs))], SBool (CS.SAWCoreBackend n solver fs)))
 w4Eval sym sc ps uints t =
   do (argNames, (bvs, bval)) <- w4EvalAny sym sc ps uints t
@@ -1016,6 +1026,31 @@ w4EvalBasic sym sc m addlPrims ref unints t =
      let uninterpreted tf ec
            | Set.member (ecName ec) unintSet = Just (extcns tf ec)
            | otherwise                       = Nothing
+     cfg <- Sim.evalGlobal' m (give sym constMap `Map.union` addlPrims) extcns uninterpreted
+     Sim.evalSharedTerm cfg t
+
+
+-- | Evaluate a saw-core term to a What4 value for the purposes of
+--   using it as an input for symbolic simulation.  This will evaluate
+--   primitives, but treat every application of a constant value as
+--   an unintepreted function.
+w4SimulatorEval ::
+  forall n solver fs.
+  CS.SAWCoreBackend n solver fs ->
+  SharedContext ->
+  ModuleMap ->
+  Map Ident (SValue (CS.SAWCoreBackend n solver fs)) {- ^ additional primitives -} ->
+  IORef (SymFnCache (CS.SAWCoreBackend n solver fs)) {- ^ cache for uninterpreted function symbols -} ->
+  Term {- ^ term to simulate -} ->
+  IO (SValue (CS.SAWCoreBackend n solver fs))
+w4SimulatorEval sym sc m addlPrims ref t =
+  do let extcns tf (EC ix _nm ty) =
+           do trm <- ArgTermConst <$> scTermF sc tf
+              let nm' = "x_"
+--              let nm' | null nm   = "x"
+--                      | otherwise = nm
+              parseUninterpretedSAW sym sc ref trm (mkUnintApp (nm' ++ "_" ++ show ix)) ty
+     let uninterpreted tf ec = Just (extcns tf ec)
      cfg <- Sim.evalGlobal' m (give sym constMap `Map.union` addlPrims) extcns uninterpreted
      Sim.evalSharedTerm cfg t
 
@@ -1086,7 +1121,8 @@ parseUninterpretedSAW sym sc ref trm app ty =
 
 mkUninterpretedSAW ::
   forall n solver fs t.
-  CS.SAWCoreBackend n solver fs -> IORef (SymFnCache (CS.SAWCoreBackend n solver fs)) ->
+  CS.SAWCoreBackend n solver fs ->
+  IORef (SymFnCache (CS.SAWCoreBackend n solver fs)) ->
   ArgTerm ->
   UnintApp (SymExpr (CS.SAWCoreBackend n solver fs)) ->
   BaseTypeRepr t ->
