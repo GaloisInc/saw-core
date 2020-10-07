@@ -203,6 +203,7 @@ importPC sc pc =
     C.PTrue      -> panic "importPC PTrue" []
     C.PFLiteral  -> panic "importPC PFLiteral" []
     C.PValidFloat -> panic "importPC PValidFloat" []
+    C.PPrime     -> panic "importPC PPrime" []
 
 -- | Translate size types to SAW values of type Num, value types to SAW types of sort 0.
 importType :: SharedContext -> Env -> C.Type -> IO Term
