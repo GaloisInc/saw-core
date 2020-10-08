@@ -228,7 +228,6 @@ prims be =
   , Prims.bpBvPopcount = AIG.popCount be
   , Prims.bpBvCountLeadingZeros = AIG.countLeadingZeros be
   , Prims.bpBvCountTrailingZeros = AIG.countTrailingZeros be
-  , Prims.bpBvForall = unsupportedAIGPrimitive "bvForall"
 
     -- Integer operations
   , Prims.bpIntAdd = pure2 (+)

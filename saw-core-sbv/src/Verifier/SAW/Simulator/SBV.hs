@@ -156,7 +156,6 @@ prims =
   , Prims.bpBvPopcount = pure1 svPopcount
   , Prims.bpBvCountLeadingZeros = pure1 svCountLeadingZeros
   , Prims.bpBvCountTrailingZeros = pure1 svCountTrailingZeros
-  , Prims.bpBvForall = unsupportedSBVPrimitive "bvForall"
     -- Integer operations
   , Prims.bpIntAdd = pure2 svPlus
   , Prims.bpIntSub = pure2 svMinus

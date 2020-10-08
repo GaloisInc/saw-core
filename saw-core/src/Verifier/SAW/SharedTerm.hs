@@ -186,7 +186,6 @@ module Verifier.SAW.SharedTerm
   , scBvAt
   , scBvConst
   , scFinVal
-  , scBvForall
   , scUpdBvFun
   , scBvNonzero, scBvBool
   , scBvAdd, scBvSub, scBvMul, scBvNeg
@@ -1415,12 +1414,6 @@ scXor sc x y = scGlobalApply sc "Prelude.xor" [x,y]
 -- > boolEq : Bool -> Bool -> Bool;
 scBoolEq :: SharedContext -> Term -> Term -> IO Term
 scBoolEq sc x y = scGlobalApply sc "Prelude.boolEq" [x,y]
-
--- | Create a universally quantified bitvector term.
---
--- > bvForall : (n : Nat) -> (bitvector n -> Bool) -> Bool;
-scBvForall :: SharedContext -> Term -> Term -> IO Term
-scBvForall sc w f = scGlobalApply sc "Prelude.bvForall" [w, f]
 
 -- | Create a non-dependent if-then-else term.
 --

@@ -212,7 +212,6 @@ prims =
   , Prims.bpBvPopcount = SW.bvPopcount sym
   , Prims.bpBvCountLeadingZeros = SW.bvCountLeadingZeros sym
   , Prims.bpBvCountTrailingZeros = SW.bvCountTrailingZeros sym
-  , Prims.bpBvForall = bvForall sym
     -- Integer operations
   , Prims.bpIntAbs = W.intAbs sym
   , Prims.bpIntAdd = W.intAdd sym
@@ -422,21 +421,6 @@ bvShROp = bvShiftOp (SW.bvLshr given)
 bvSShROp :: forall sym. (Sym sym) => SValue sym
 bvSShROp = bvShiftOp (SW.bvAshr given)
                      (liftShift given (SW.bvAshr given))
-
-bvForall :: W.IsSymExprBuilder sym =>
-  sym -> Natural -> (SWord sym -> IO (Pred sym)) -> IO (Pred sym)
-bvForall sym n f =
-  case W.userSymbol "i" of
-    Left err -> fail $ show err
-    Right indexSymbol ->
-      case mkNatRepr n of
-        Some w
-          | Just LeqProof <- testLeq (knownNat @1) w ->
-            withKnownNat w $ do
-              i <- W.freshBoundVar sym indexSymbol $ W.BaseBVRepr w
-              body <- f . DBV $ W.varExpr sym i
-              W.forallPred sym i body
-          | otherwise -> f ZBV
 
 --
 -- missing integer operations

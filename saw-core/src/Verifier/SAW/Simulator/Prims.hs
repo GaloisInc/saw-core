@@ -110,7 +110,6 @@ data BasePrims l =
   , bpBvPopcount           :: VWord l -> MWord l
   , bpBvCountLeadingZeros  :: VWord l -> MWord l
   , bpBvCountTrailingZeros :: VWord l -> MWord l
-  , bpBvForall             :: Natural -> (VWord l -> MBool l) -> MBool l
     -- Integer operations
   , bpIntAdd :: VInt l -> VInt l -> MInt l
   , bpIntSub :: VInt l -> VInt l -> MInt l
@@ -179,16 +178,7 @@ constMap bp = Map.fromList
   , ("Prelude.bvPopcount", wordUnOp (bpPack bp) (bpBvPopcount bp))
   , ("Prelude.bvCountLeadingZeros", wordUnOp (bpPack bp) (bpBvCountLeadingZeros bp))
   , ("Prelude.bvCountTrailingZeros", wordUnOp (bpPack bp) (bpBvCountTrailingZeros bp))
-  , ("Prelude.bvForall", natFun $ \n ->
-        pure . strictFun $ fmap VBool . bpBvForall bp n . toWordPred
-    )
 
-{-
-  -- Shifts
-  , ("Prelude.bvShl" , bvShLOp)
-  , ("Prelude.bvShr" , bvShROp)
-  , ("Prelude.bvSShr", bvSShROp)
--}
   -- Nat
   , ("Prelude.Succ", succOp)
   , ("Prelude.addNat", addNatOp)
@@ -220,8 +210,6 @@ constMap bp = Map.fromList
   , ("Prelude.intToBv" , intToBvOp)
   , ("Prelude.bvToInt" , bvToIntOp)
   , ("Prelude.sbvToInt", sbvToIntOp)
-  --XXX , ("Prelude.intMin"  , Prims.intMinOp)
-  --XXX , ("Prelude.intMax"  , Prims.intMaxOp)
 -}
   , ("Prelude.intMin", intBinOp "intMin" (bpIntMin bp))
   , ("Prelude.intMax", intBinOp "intMax" (bpIntMax bp))

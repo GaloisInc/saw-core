@@ -212,7 +212,6 @@ prims =
   , Prims.bpBvPopcount = pure1 (Prim.bvPopcount undefined)
   , Prims.bpBvCountLeadingZeros = pure1 (Prim.bvCountLeadingZeros undefined)
   , Prims.bpBvCountTrailingZeros = pure1 (Prim.bvCountTrailingZeros undefined)
-  , Prims.bpBvForall = unsupportedConcretePrimitive "bvForall"
 
     -- Integer operations
   , Prims.bpIntAdd = pure2 (+)
