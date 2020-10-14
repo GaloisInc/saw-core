@@ -1189,7 +1189,12 @@ axiom bvAddZeroL : (n : Nat) -> (x : bitvector n) -> Eq (bitvector n) (bvAdd n (
 axiom bvAddZeroR : (n : Nat) -> (x : bitvector n) -> Eq (bitvector n) (bvAdd n x (bvNat n 0)) x;
 
 primitive bvNeg : (n : Nat) -> bitvector n -> bitvector n;
+
 primitive bvSub : (n : Nat) -> bitvector n -> bitvector n -> bitvector n;
+
+bvSBorrow : (n : Nat) -> bitvector (Succ n) -> bitvector (Succ n) -> Bool;
+bvSBorrow n x y = and (xor (msb n x) (msb n y)) (xor (msb n x) (msb n (bvSub (Succ n) x y)));
+
 primitive bvMul : (n : Nat) -> bitvector n -> bitvector n -> bitvector n;
 primitive bvLg2 : (n : Nat) -> bitvector n -> bitvector n;
 
