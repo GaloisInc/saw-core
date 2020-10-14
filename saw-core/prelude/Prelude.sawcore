@@ -1114,7 +1114,12 @@ axiom bvAddZeroL : (n : Nat) -> (x : Vec n Bool) -> Eq (Vec n Bool) (bvAdd n (bv
 axiom bvAddZeroR : (n : Nat) -> (x : Vec n Bool) -> Eq (Vec n Bool) (bvAdd n x (bvNat n 0)) x;
 
 primitive bvNeg : (n : Nat) -> Vec n Bool -> Vec n Bool;
+
 primitive bvSub : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+
+bvSBorrow : (n : Nat) -> Vec (Succ n) Bool -> Vec (Succ n) Bool -> Bool;
+bvSBorrow n x y = and (xor (msb n x) (msb n y)) (xor (msb n x) (msb n (bvSub (Succ n) x y)));
+
 primitive bvMul : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
 primitive bvLg2 : (n : Nat) -> Vec n Bool -> Vec n Bool;
 
