@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {- |
 Module      : Verifier.SAW.TracedOpenTerm
@@ -21,15 +22,16 @@ module Verifier.SAW.TracedOpenTerm (
   OpenTerm, traceOpenTerm, completeOpenTerm,
   -- * Basic operations for building open terms
   closedOpenTerm, flatOpenTerm, sortOpenTerm, natOpenTerm,
-  unitOpenTerm, unitTypeOpenTerm,
+  unitOpenTerm, unitTypeOpenTerm, stringLitOpenTerm, stringTypeOpenTerm,
   pairOpenTerm, pairTypeOpenTerm, pairLeftOpenTerm, pairRightOpenTerm,
   tupleOpenTerm, tupleTypeOpenTerm, projTupleOpenTerm,
   ctorOpenTerm, dataTypeOpenTerm, globalOpenTerm,
   applyOpenTerm, applyOpenTermMulti,
-  lambdaOpenTerm, lambdaOpenTermMulti, piOpenTerm, piOpenTermMulti,
+  lambdaOpenTerm, lambdaOpenTermMulti,
+  piOpenTerm, piOpenTermMulti, arrowOpenTerm,
   letOpenTerm,
   -- * Monadic operations for building terms with binders
-  OpenTermM, completeOpenTermM,
+  OpenTermM(..), completeOpenTermM,
   dedupOpenTermM, lambdaOpenTermM, piOpenTermM,
   lambdaOpenTermAuxM, piOpenTermAuxM
   ) where
@@ -84,6 +86,14 @@ unitOpenTerm = flatOpenTerm UnitValue
 -- | The 'OpenTerm' for the unit type
 unitTypeOpenTerm :: OpenTerm
 unitTypeOpenTerm = flatOpenTerm UnitType
+
+-- | Build a SAW core string literal
+stringLitOpenTerm :: String -> OpenTerm
+stringLitOpenTerm = flatOpenTerm . StringLit
+
+-- | Return the SAW core type @String@ of strings
+stringTypeOpenTerm :: OpenTerm
+stringTypeOpenTerm = globalOpenTerm "Prelude.String"
 
 -- | Build an 'OpenTerm' for a pair
 pairOpenTerm :: OpenTerm -> OpenTerm -> OpenTerm
@@ -200,6 +210,10 @@ piOpenTerm x (OpenTerm tpM) body_f = OpenTerm $
   do tp <- tpM
      body <- bindOpenTerm x tp body_f
      typeInferComplete $ Pi x tp body
+
+-- | Build a non-dependent function type
+arrowOpenTerm :: String -> OpenTerm -> OpenTerm -> OpenTerm
+arrowOpenTerm x tp body = piOpenTerm x tp (const body)
 
 -- | Build a nested sequence of Pi abstractions as an 'OpenTerm'
 piOpenTermMulti :: [(String, OpenTerm)] -> ([OpenTerm] -> OpenTerm) ->
