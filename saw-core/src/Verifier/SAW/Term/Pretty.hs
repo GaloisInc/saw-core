@@ -614,7 +614,7 @@ ppTermDepth depth t = ppTerm (depthPPOpts depth) t
 
 -- | Like 'ppTerm', but also supply a context of bound names, where the most
 -- recently-bound variable is listed first in the context
-ppTermInCtx :: PPOpts -> [String] -> Term -> Doc
+ppTermInCtx :: PPOpts -> [String] -> Term -> SawDoc
 ppTermInCtx opts ctx trm =
   runPPM opts $
   flip (Fold.foldl' (\m x -> snd <$> withBoundVarM x m)) ctx $
@@ -633,8 +633,10 @@ scPrettyTerm opts t =
 -- most recently-bound variable is listed first in the context
 scPrettyTermInCtx :: PPOpts -> [String] -> Term -> String
 scPrettyTermInCtx opts ctx trm =
-  flip displayS "" $ renderPretty 0.8 80 $
-  ppTermInCtx opts ctx trm
+  renderSawDoc (if ppColor opts then colorStyle else const mempty) $
+  runPPM opts $
+  flip (Fold.foldl' (\m x -> snd <$> withBoundVarM x m)) ctx $
+  ppTermWithMemoTable PrecNone False trm
 
 
 -- | Pretty-print a term and render it to a string
