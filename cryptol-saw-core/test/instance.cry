@@ -188,6 +188,10 @@ fieldRational = recip
 fieldFloat : {e, p} (ValidFloat e p) => Float e p -> Float e p
 fieldFloat = recip
 
+/* instance (prime p) => Field (Z p) */
+fieldZ : {p} prime p => Z p -> Z p
+fieldZ = recip
+
 ////////////////////////////////////////////////////////////////////////////////
 // Round
 
@@ -337,6 +341,10 @@ signedCmpRecord = (<$)
 
 ////////////////////////////////////////////////////////////////////////////////
 // Literal
+
+/* instance (1 >= val) => Literal val Bit */
+literalBit : {val} (1 >= val) => Bit
+literalBit = `val
 
 /* instance (fin val) => Literal val Integer */
 literalInteger : {val} (fin val) => Integer

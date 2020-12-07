@@ -27,14 +27,24 @@ module Verifier.SAW.SharedTerm
   , Ident, mkIdent
   , VarIndex
   , ExtCns(..)
+  , NameInfo(..)
+  , ppName
     -- * Shared terms
   , Term(..)
   , TermIndex
   , looseVars
   , smallestFreeVar
+  , scSharedTerm
   , unshare
+  , scImport
   , alphaEquiv
   , alistAllFields
+  , scRegisterName
+  , scResolveName
+  , scResolveNameByURI
+  , scResolveUnambiguous
+  , scFindBestName
+  , DuplicateNameException(..)
     -- * Re-exported pretty-printing functions
   , PPOpts(..)
   , defaultPPOpts
@@ -54,6 +64,8 @@ module Verifier.SAW.SharedTerm
   , scDefTerm
   , scFreshGlobalVar
   , scFreshGlobal
+  , scFreshEC
+  , scExtCns
   , scGlobalDef
     -- ** Recursors and datatypes
   , scRecursorElimTypes
@@ -74,44 +86,36 @@ module Verifier.SAW.SharedTerm
   , scRequireDataType
   , scRequireCtor
     -- ** Term construction
-  , scApply
-  , scApplyAll
-  , scRecord
-  , scRecordSelect
-  , scRecordType
+    -- *** Datatypes and constructors
   , scDataTypeAppParams
   , scDataTypeApp
   , scCtorAppParams
   , scCtorApp
   , scApplyCtor
+  , scSort
+    -- *** Variables and constants
+  , scLocalVar
+  , scConstant
+  , scConstant'
+  , scLookupDef
+    -- *** Functions and function application
+  , scApply
+  , scApplyAll
+  , scGlobalApply
   , scFun
-  , scString
-  , scStringType
-  , scNat
-  , scNatType
-  , scAddNat
-  , scSubNat
-  , scMulNat
-  , scDivNat
-  , scModNat
-  , scDivModNat
-  , scEqualNat
-  , scLtNat
-  , scMinNat
-  , scMaxNat
-
-  , scEqTrue
-  , scBool
-  , scBoolType
   , scFunAll
   , scLambda
   , scLambdaList
   , scPi
   , scPiList
-  , scLocalVar
-  , scConstant
-  , scLookupDef
-  , scSort
+    -- *** Strings
+  , scString
+  , scStringType
+    -- *** Booleans
+  , scEqTrue
+  , scBool
+  , scBoolType
+    -- *** Unit, pairs, and tuples
   , scUnitValue
   , scUnitType
   , scPairValue
@@ -123,14 +127,14 @@ module Verifier.SAW.SharedTerm
   , scTupleType
   , scTupleSelector
   , scTupleReduced
+    -- *** Records
+  , scRecord
+  , scRecordSelect
+  , scRecordType
+    -- *** Vectors
   , scVector
   , scVecType
   , scVectorReduced
-  , scUpdNatFun
-  , scUpdBvFun
-  , scGlobalApply
-  , scSharedTerm
-  , scImport
     -- ** Normalization
   , asCtorOrNat
   , scWhnf
@@ -145,27 +149,29 @@ module Verifier.SAW.SharedTerm
   , scTypeOfDataType
   , scTypeOfGlobal
     -- ** Prelude operations
-  , scAppend
-  , scJoin
-  , scSplit
-  , scGet
-  , scAtWithDefault
-  , scAt
+    -- *** Booleans
   , scNot
   , scAnd
   , scOr
   , scImplies
   , scXor
   , scBoolEq
-  , scBvForall
   , scIte
-  , scSingle
-  , scSlice
-  , scArrayType
-  , scArrayConstant
-  , scArrayLookup
-  , scArrayUpdate
-  -- *** Integer primitives
+  -- *** Natural numbers
+  , scNat
+  , scNatType
+  , scAddNat
+  , scSubNat
+  , scMulNat
+  , scDivNat
+  , scModNat
+  , scDivModNat
+  , scEqualNat
+  , scLtNat
+  , scMinNat
+  , scMaxNat
+  , scUpdNatFun
+    -- *** Integers
   , scIntegerType
   , scIntegerConst
   , scIntAdd, scIntSub, scIntMul
@@ -174,14 +180,27 @@ module Verifier.SAW.SharedTerm
   , scIntEq, scIntLe, scIntLt
   , scIntToNat, scNatToInt
   , scIntToBv, scBvToInt, scSbvToInt
-
-    -- *** Bitvector primitives
+    -- *** IntMod
+  , scIntModType
+  , scToIntMod
+    -- *** Vectors
+  , scAppend
+  , scJoin
+  , scSplit
+  , scGet
+  , scAtWithDefault
+  , scAt
+  , scSingle
+  , scSlice
+    -- *** Bitvectors
   , scBitvector
   , scBvNat
   , scBvToNat
   , scBvAt
   , scBvConst
   , scFinVal
+  , scBvForall
+  , scUpdBvFun
   , scBvNonzero, scBvBool
   , scBvAdd, scBvSub, scBvMul, scBvNeg
   , scBvURem, scBvUDiv, scBvSRem, scBvSDiv
@@ -196,6 +215,11 @@ module Verifier.SAW.SharedTerm
   , scBvCountLeadingZeros
   , scBvCountTrailingZeros
   , scLsb, scMsb
+    -- *** Arrays
+  , scArrayType
+  , scArrayConstant
+  , scArrayLookup
+  , scArrayUpdate
     -- ** Utilities
 --  , scTrue
 --  , scFalse
@@ -232,18 +256,23 @@ import Data.Maybe
 import qualified Data.Foldable as Fold
 import Data.Foldable (foldl', foldlM, foldrM, maximum)
 import Data.HashMap.Strict (HashMap)
+import Data.List.NonEmpty ( NonEmpty(..) )
 import qualified Data.HashMap.Strict as HMap
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
-import Data.IORef (IORef,newIORef,readIORef,modifyIORef')
+import qualified Data.IntSet as IntSet
+import Data.IORef (IORef,newIORef,readIORef,modifyIORef',atomicModifyIORef')
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Ref ( C )
 import Data.Set (Set)
+import Data.Text (Text)
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import qualified Data.Vector as V
 import Numeric.Natural (Natural)
 import Prelude hiding (mapM, maximum)
+import Text.URI
 
 import Verifier.SAW.Cache
 import Verifier.SAW.Change
@@ -251,9 +280,10 @@ import Verifier.SAW.Prelude.Constants
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Term.Functor
 import Verifier.SAW.Term.CtxTerm
---import Verifier.SAW.Term.Pretty
+import Verifier.SAW.Term.Pretty
 import Verifier.SAW.TypedAST
 import Verifier.SAW.Unique
+import Verifier.SAW.Utils
 
 #if !MIN_VERSION_base(4,8,0)
 countTrailingZeros :: (FiniteBits b) => b -> Int
@@ -299,32 +329,152 @@ insertTFM tf x tfm =
 ----------------------------------------------------------------------
 -- SharedContext: a high-level interface for building Terms.
 
+data SAWNamingEnv = SAWNamingEnv
+  { resolvedNames :: !(Map VarIndex NameInfo)
+  , absoluteNames :: !(Map URI VarIndex)
+  , aliasNames    :: !(Map Text (Set VarIndex))
+  }
+
 data SharedContext = SharedContext
   { scModuleMap      :: IORef ModuleMap
   , scTermF          :: TermF Term -> IO Term
+  , scNamingEnv      :: IORef SAWNamingEnv
   , scFreshGlobalVar :: IO VarIndex
   }
 
+-- | Create a new term from a lower-level 'FlatTermF' term.
 scFlatTermF :: SharedContext -> FlatTermF Term -> IO Term
 scFlatTermF sc ftf = scTermF sc (FTermF ftf)
 
+-- | Create a 'Term' from an 'ExtCns'.
+scExtCns :: SharedContext -> ExtCns Term -> IO Term
+scExtCns sc ec = scFlatTermF sc (ExtCns ec)
+
+scFreshNameURI :: Text -> VarIndex -> URI
+scFreshNameURI nm i = fromMaybe (panic "scFreshNameURI" ["Failed to constructed name URI", show nm, show i]) $
+  do sch <- mkScheme "fresh"
+     nm' <- mkPathPiece (if Text.null nm then "_" else nm)
+     i'  <- mkFragment (Text.pack (show i))
+     pure URI
+       { uriScheme = Just sch
+       , uriAuthority = Left False -- relative path
+       , uriPath   = Just (False, (nm' :| []))
+       , uriQuery  = []
+       , uriFragment = Just i'
+       }
+
+moduleIdentToURI :: Ident -> URI
+moduleIdentToURI ident = fromMaybe (panic "moduleIdentToURI" ["Failed to constructed ident URI", show ident]) $
+  do sch  <- mkScheme "sawcore"
+     path <- mapM mkPathPiece (identPieces ident)
+     pure URI
+       { uriScheme = Just sch
+       , uriAuthority = Left True -- absolute path
+       , uriPath   = Just (False, path)
+       , uriQuery  = []
+       , uriFragment = Nothing
+       }
+
+data DuplicateNameException = DuplicateNameException URI
+instance Exception DuplicateNameException
+instance Show DuplicateNameException where
+  show (DuplicateNameException uri) =
+      "Attempted to register the following name twice: " ++ Text.unpack (render uri)
+
+scRegisterName :: SharedContext -> VarIndex -> NameInfo -> IO ()
+scRegisterName sc i nmi = atomicModifyIORef' (scNamingEnv sc) (\env -> (f env, ()))
+  where
+    uri = case nmi of
+            ImportedName x _ -> x
+            ModuleIdentifier x -> moduleIdentToURI x
+
+    aliases = case nmi of
+                ImportedName x xs -> render x : xs
+                ModuleIdentifier x  -> [identBaseName x, identText x, render uri]
+
+    insertAlias :: Text -> Map Text (Set VarIndex) -> Map Text (Set VarIndex)
+    insertAlias x m = Map.alter (Just . maybe (Set.singleton i) (Set.insert i)) x m
+
+    f env =
+      case Map.lookup uri (absoluteNames env) of
+        Just _ -> throw (DuplicateNameException uri)
+        Nothing ->
+            SAWNamingEnv
+            { resolvedNames = Map.insert i nmi (resolvedNames env)
+            , absoluteNames = Map.insert uri i (absoluteNames env)
+            , aliasNames    = foldr insertAlias (aliasNames env) aliases
+            }
+
+scResolveUnambiguous :: SharedContext -> Text -> IO (VarIndex, NameInfo)
+scResolveUnambiguous sc nm =
+  scResolveName sc nm >>= \case
+     []  -> fail ("Could not resolve name: " ++ show nm)
+     [x] -> pure x
+     xs  ->
+       do nms <- mapM (scFindBestName sc . snd) xs
+          fail $ unlines (("Ambiguous name " ++ show nm ++ " might refer to any of the following:") : map show nms)
+
+scFindBestName :: SharedContext -> NameInfo -> IO Text
+scFindBestName _sc (ModuleIdentifier nm) = pure (identText nm)
+scFindBestName sc (ImportedName uri as) = go as
+  where
+  go [] = pure (render uri)
+  go (x:xs) =
+    do vs <- scResolveName sc x
+       case vs of
+         [_] -> return x
+         _   -> go xs
+
+scResolveNameByURI :: SharedContext -> URI -> IO (Maybe VarIndex)
+scResolveNameByURI sc uri =
+  do env <- readIORef (scNamingEnv sc)
+     pure $! Map.lookup uri (absoluteNames env)
+
+scResolveName :: SharedContext -> Text -> IO [(VarIndex, NameInfo)]
+scResolveName sc nm =
+  do env <- readIORef (scNamingEnv sc)
+     case Map.lookup nm (aliasNames env) of
+       Nothing -> pure []
+       Just vs -> pure [ (v, fndName v (resolvedNames env)) | v <- Set.toList vs ]
+ where
+ fndName v m =
+   case Map.lookup v m of
+     Just nmi -> nmi
+     Nothing -> panic "scResolveName" ["Unbound VarIndex when resolving name", show nm, show v]
+
+-- | Create a global variable with the given identifier (which may be "_") and type.
+scFreshEC :: SharedContext -> String -> Term -> IO (ExtCns Term)
+scFreshEC sc x tp = do
+  i   <- scFreshGlobalVar sc
+  let x' = Text.pack x
+  let uri = scFreshNameURI x' i
+  let nmi = ImportedName uri [x',Text.pack (x <> "#" <>  show i)]
+  scRegisterName sc i nmi
+  pure (EC i nmi tp)
+
 -- | Create a global variable with the given identifier (which may be "_") and type.
 scFreshGlobal :: SharedContext -> String -> Term -> IO Term
-scFreshGlobal sc sym tp = do
-  i <- scFreshGlobalVar sc
-  scFlatTermF sc (ExtCns (EC i sym tp))
+scFreshGlobal sc x tp = scExtCns sc =<< scFreshEC sc x tp
 
 -- | Returns shared term associated with ident.
 -- Does not check module namespace.
 scGlobalDef :: SharedContext -> Ident -> IO Term
 scGlobalDef sc ident = scFlatTermF sc (GlobalDef ident)
 
-scApply :: SharedContext -> Term -> Term -> IO Term
+-- | Create a function application term.
+scApply :: SharedContext
+        -> Term -- ^ The function to apply
+        -> Term -- ^ The argument to apply to
+        -> IO Term
 scApply sc f = scTermF sc . App f
 
 -- | Applies the constructor with the given name to the list of parameters and
 -- arguments. This version does no checking against the module.
-scDataTypeAppParams :: SharedContext -> Ident -> [Term] -> [Term] -> IO Term
+scDataTypeAppParams :: SharedContext
+                    -> Ident  -- ^ The constructor name
+                    -> [Term] -- ^ The parameters
+                    -> [Term] -- ^ The arguments
+                    -> IO Term
 scDataTypeAppParams sc ident params args =
   scFlatTermF sc (DataTypeApp ident params args)
 
@@ -338,7 +488,11 @@ scDataTypeApp sc d_id args =
 
 -- | Applies the constructor with the given name to the list of parameters and
 -- arguments. This version does no checking against the module.
-scCtorAppParams :: SharedContext -> Ident -> [Term] -> [Term] -> IO Term
+scCtorAppParams :: SharedContext
+                -> Ident  -- ^ The constructor name
+                -> [Term] -- ^ The parameters
+                -> [Term] -- ^ The arguments
+                -> IO Term
 scCtorAppParams sc ident params args =
   scFlatTermF sc (CtorApp ident params args)
 
@@ -637,6 +791,7 @@ scWhnf sc t0 =
         p_ret cs_fs _ : xs)   (asCtorOrNat ->
                                Just (c, _, args))               = (scReduceRecursor sc d ps
                                                                    p_ret cs_fs c args) >>= go xs
+
     go xs                     (asGlobalDef -> Just c)           = scRequireDef sc c >>= tryDef c xs
     go xs                     (asRecursorApp ->
                                Just (d, params, p_ret, cs_fs, ixs,
@@ -745,14 +900,17 @@ reducePi sc t arg = do
     _ ->
       fail $ unlines ["reducePi: not a Pi term", showTerm t']
 
+-- | Compute the type of a global variable.
 scTypeOfGlobal :: SharedContext -> Ident -> IO Term
 scTypeOfGlobal sc ident =
   defType <$> scRequireDef sc ident
 
+-- | Compute the type of a datatype given its name as an 'Ident'.
 scTypeOfDataType :: SharedContext -> Ident -> IO Term
 scTypeOfDataType sc ident =
   dtType <$> scRequireDataType sc ident
 
+-- | Compute the type of a data constructor given its name as an 'Ident'.
 scTypeOfCtor :: SharedContext -> Ident -> IO Term
 scTypeOfCtor sc ident =
   ctorType <$> scRequireCtor sc ident
@@ -1024,6 +1182,7 @@ instantiateVarList sc k ts t =
 --------------------------------------------------------------------------------
 -- Beta Normalization
 
+-- | Beta-reduce a term to normal form.
 betaNormalize :: SharedContext -> Term -> IO Term
 betaNormalize sc t0 =
   do cache <- newCache
@@ -1058,10 +1217,11 @@ betaNormalize sc t0 =
 --------------------------------------------------------------------------------
 -- Building shared terms
 
+-- | Apply a function 'Term' to zero or more argument 'Term's.
 scApplyAll :: SharedContext -> Term -> [Term] -> IO Term
 scApplyAll sc = foldlM (scApply sc)
 
--- | Returns the defined constant with the given name. Fails if no
+-- | Returns the defined constant with the given 'Ident'. Fails if no
 -- such constant exists in the module.
 scLookupDef :: SharedContext -> Ident -> IO Term
 scLookupDef sc ident = scGlobalDef sc ident --FIXME: implement module check.
@@ -1077,62 +1237,96 @@ scDefTerm sc d = scGlobalDef sc (defIdent d)
 scApplyCtor :: SharedContext -> Ctor -> [Term] -> IO Term
 scApplyCtor sc c args = scCtorApp sc (ctorName c) args
 
+-- | Create a term from a 'Sort'.
 scSort :: SharedContext -> Sort -> IO Term
 scSort sc s = scFlatTermF sc (Sort s)
 
+-- | Create a literal term from a 'Natural'.
 scNat :: SharedContext -> Natural -> IO Term
 scNat sc n = scFlatTermF sc (NatLit n)
 
+-- | Create a literal term (of saw-core type @String@) from a 'String'.
 scString :: SharedContext -> String -> IO Term
 scString sc s = scFlatTermF sc (StringLit s)
 
+-- | Create a term representing the primitive saw-core type @String@.
 scStringType :: SharedContext -> IO Term
 scStringType sc = scFlatTermF sc preludeStringType
 
+-- | Create a vector term from a type (as a 'Term') and a list of 'Term's of
+-- that type.
 scVector :: SharedContext -> Term -> [Term] -> IO Term
 scVector sc e xs = scFlatTermF sc (ArrayValue e (V.fromList xs))
 
+-- | Create a record term from a 'Map' from 'FieldName's to 'Term's.
 scRecord :: SharedContext -> Map FieldName Term -> IO Term
 scRecord sc m = scFlatTermF sc (RecordValue $ Map.assocs m)
 
+-- | Create a record field access term from a 'Term' representing a record and
+-- a 'FieldName'.
 scRecordSelect :: SharedContext -> Term -> FieldName -> IO Term
 scRecordSelect sc t fname = scFlatTermF sc (RecordProj t fname)
 
+-- | Create a term representing the type of a record from a list associating
+-- field names (as 'String's) and types (as 'Term's). Note that the order of
+-- the given list is irrelevant, as record fields are not ordered.
 scRecordType :: SharedContext -> [(String,Term)] -> IO Term
 scRecordType sc elem_tps = scFlatTermF sc (RecordType elem_tps)
 
+-- | Create a unit-valued term.
 scUnitValue :: SharedContext -> IO Term
 scUnitValue sc = scFlatTermF sc UnitValue
 
+-- | Create a term representing the unit type.
 scUnitType :: SharedContext -> IO Term
 scUnitType sc = scFlatTermF sc UnitType
 
-scPairValue :: SharedContext -> Term -> Term -> IO Term
+-- | Create a pair term from two terms.
+scPairValue :: SharedContext
+            -> Term -- ^ The left projection
+            -> Term -- ^ The right projection
+            -> IO Term
 scPairValue sc x y = scFlatTermF sc (PairValue x y)
 
-scPairType :: SharedContext -> Term -> Term -> IO Term
+-- | Create a term representing a pair type from two other terms, each
+-- representing a type.
+scPairType :: SharedContext
+           -> Term -- ^ Left projection type
+           -> Term -- ^ Right projection type
+           -> IO Term
 scPairType sc x y = scFlatTermF sc (PairType x y)
 
+-- | Create an n-place tuple from a list (of length n) of 'Term's.
+-- Note that tuples are nested pairs, associating to the right e.g.
+-- @(a, (b, (c, d)))@.
 scTuple :: SharedContext -> [Term] -> IO Term
 scTuple sc [] = scUnitValue sc
 scTuple _ [t] = return t
 scTuple sc (t : ts) = scPairValue sc t =<< scTuple sc ts
 
+-- | Create a term representing the type of an n-place tuple, from a list
+-- (of length n) of 'Term's, each representing a type.
 scTupleType :: SharedContext -> [Term] -> IO Term
 scTupleType sc [] = scUnitType sc
 scTupleType _ [t] = return t
 scTupleType sc (t : ts) = scPairType sc t =<< scTupleType sc ts
 
+-- | Create a term giving the left projection of a 'Term' representing a pair.
 scPairLeft :: SharedContext -> Term -> IO Term
 scPairLeft sc t = scFlatTermF sc (PairLeft t)
 
+-- | Create a term giving the right projection of a 'Term' representing a pair.
 scPairRight :: SharedContext -> Term -> IO Term
 scPairRight sc t = scFlatTermF sc (PairRight t)
 
+-- | Create a term representing either the left or right projection of the
+-- given 'Term', depending on the given 'Bool': left if @False@, right if @True@.
 scPairSelector :: SharedContext -> Term -> Bool -> IO Term
 scPairSelector sc t False = scPairLeft sc t
 scPairSelector sc t True = scPairRight sc t
 
+-- | @scTupleSelector sc t i n@ returns a term selecting the @i@th component of
+-- an @n@-place tuple 'Term', @t@.
 scTupleSelector ::
   SharedContext -> Term ->
   Int {- ^ 1-based index -} ->
@@ -1145,45 +1339,67 @@ scTupleSelector sc t i n
                    scTupleSelector sc t' (i - 1) (n - 1)
   | otherwise = fail "scTupleSelector: non-positive index"
 
-scFun :: SharedContext -> Term -> Term -> IO Term
+-- | Create a term representing the type of a non-dependent function, given a
+-- parameter and result type (as 'Term's).
+scFun :: SharedContext
+      -> Term -- ^ The parameter type
+      -> Term -- ^ The result type
+      -> IO Term
 scFun sc a b = do b' <- incVars sc 0 1 b
                   scTermF sc (Pi "_" a b')
 
+-- | Create a term representing the type of a non-dependent n-ary function,
+-- given a list of parameter types and a result type (as terms).
 scFunAll :: SharedContext
-         -> [Term]
-         -> Term
+         -> [Term] -- ^ The parameter types
+         -> Term   -- ^ The result type
          -> IO Term
 scFunAll sc argTypes resultType = foldrM (scFun sc) resultType argTypes
 
+-- | Create a lambda term from a parameter name (as a 'String'), parameter type
+-- (as a 'Term'), and a body. Regarding deBruijn indices, in the body of the
+-- function, an index of 0 refers to the bound parameter.
 scLambda :: SharedContext
-         -> String
-         -> Term
-         -> Term
+         -> String -- ^ The parameter name
+         -> Term   -- ^ The parameter type
+         -> Term   -- ^ The body
          -> IO Term
 scLambda sc varname ty body = scTermF sc (Lambda varname ty body)
 
+-- | Create a lambda term of multiple arguments (curried) from a list
+-- associating parameter names to types (as 'Term's) and a body. As for
+-- 'scLambda', there is a convention for deBruijn indices: 0 refers to the last
+-- parameter in the list, and n-1 (where n is the list length) refers to the
+-- first.
 scLambdaList :: SharedContext
-             -> [(String, Term)]
-             -> Term
+             -> [(String, Term)] -- ^ List of parameter / parameter type pairs
+             -> Term -- ^ The body
              -> IO Term
 scLambdaList _ [] rhs = return rhs
 scLambdaList sc ((nm,tp):r) rhs =
   scLambda sc nm tp =<< scLambdaList sc r rhs
 
+-- | Create a (possibly dependent) function given a parameter name, parameter
+-- type (as a 'Term'), and a body. This function follows the same deBruijn
+-- index convention as 'scLambda'.
 scPi :: SharedContext
-     -> String
-     -> Term
-     -> Term
+     -> String -- ^ The parameter name
+     -> Term   -- ^ The parameter type
+     -> Term   -- ^ The body
      -> IO Term
 scPi sc nm tp body = scTermF sc (Pi nm tp body)
 
+-- | Create a (possibly dependent) function of multiple arguments (curried)
+-- from a list associating parameter names to types (as 'Term's) and a body.
+-- This function follows the same deBruijn index convention as 'scLambdaList'.
 scPiList :: SharedContext
-             -> [(String, Term)]
-             -> Term
-             -> IO Term
+         -> [(String, Term)] -- ^ List of parameter / parameter type pairs
+         -> Term -- ^ The body
+         -> IO Term
 scPiList _ [] rhs = return rhs
 scPiList sc ((nm,tp):r) rhs = scPi sc nm tp =<< scPiList sc r rhs
 
+-- | Create a local variable term from a 'DeBruijnIndex'.
 scLocalVar :: SharedContext
            -> DeBruijnIndex
            -> IO Term
@@ -1193,18 +1409,48 @@ scLocalVar sc i = scTermF sc (LocalVar i)
 -- type. The term for the body must not have any loose de Bruijn
 -- indices. If the body contains any ExtCns variables, they will be
 -- abstracted over and reapplied to the resulting constant.
-scConstant :: SharedContext -> String -> Term -> Term -> IO Term
+scConstant :: SharedContext
+           -> String -- ^ The name
+           -> Term   -- ^ The body
+           -> Term   -- ^ The type
+           -> IO Term
 scConstant sc name rhs ty =
   do unless (looseVars rhs == emptyBitSet) $
        fail "scConstant: term contains loose variables"
      let ecs = getAllExts rhs
      rhs' <- scAbstractExts sc ecs rhs
      ty' <- scFunAll sc (map ecType ecs) ty
-     i <- scFreshGlobalVar sc
-     t <- scTermF sc (Constant (EC i name ty') rhs')
+     ec <- scFreshEC sc name ty'
+     t <- scTermF sc (Constant ec rhs')
      args <- mapM (scFlatTermF sc . ExtCns) ecs
      scApplyAll sc t args
 
+
+-- | Create an abstract constant with the specified name, body, and
+-- type. The term for the body must not have any loose de Bruijn
+-- indices. If the body contains any ExtCns variables, they will be
+-- abstracted over and reapplied to the resulting constant.
+scConstant' :: SharedContext
+           -> NameInfo -- ^ The name
+           -> Term   -- ^ The body
+           -> Term   -- ^ The type
+           -> IO Term
+scConstant' sc nmi rhs ty =
+  do unless (looseVars rhs == emptyBitSet) $
+       fail "scConstant: term contains loose variables"
+     let ecs = getAllExts rhs
+     rhs' <- scAbstractExts sc ecs rhs
+     ty' <- scFunAll sc (map ecType ecs) ty
+     i <- scFreshGlobalVar sc
+     scRegisterName sc i nmi
+     let ec = EC i nmi ty'
+     t <- scTermF sc (Constant ec rhs')
+     args <- mapM (scFlatTermF sc . ExtCns) ecs
+     scApplyAll sc t args
+
+
+-- | Create a function application term from a global identifier and a list of
+-- arguments (as 'Term's).
 scGlobalApply :: SharedContext -> Ident -> [Term] -> IO Term
 scGlobalApply sc i ts =
     do c <- scGlobalDef sc i
@@ -1254,329 +1500,652 @@ scVectorReduced sc ety xs
 ------------------------------------------------------------
 -- Building terms using prelude functions
 
+-- | Create a term applying @Prelude.EqTrue@ to the given term.
+--
+-- > EqTrue : Bool -> sort 1;
 scEqTrue :: SharedContext -> Term -> IO Term
 scEqTrue sc t = scGlobalApply sc "Prelude.EqTrue" [t]
 
+-- | Create a @Prelude.Bool@-typed term from the given Boolean: @Prelude.True@
+-- for @True@, @Prelude.False@ for @False@.
 scBool :: SharedContext -> Bool -> IO Term
 scBool sc True  = scGlobalDef sc "Prelude.True"
 scBool sc False = scGlobalDef sc "Prelude.False"
 
+-- | Create a term representing the prelude Boolean type, @Prelude.Bool@.
 scBoolType :: SharedContext -> IO Term
 scBoolType sc = scGlobalDef sc "Prelude.Bool"
 
+-- | Create a term representing the prelude Natural type.
 scNatType :: SharedContext -> IO Term
 scNatType sc = scFlatTermF sc preludeNatType
 
-scVecType :: SharedContext -> Term -> Term -> IO Term
+-- | Create a term representing a vector type, from a term giving the length
+-- and a term giving the element type.
+scVecType :: SharedContext
+          -> Term -- ^ The length of the vector
+          -> Term -- ^ The element type
+          -> IO Term
 scVecType sc n e =
   do vec_f <- scFlatTermF sc preludeVecTypeFun
      scApplyAll sc vec_f [n, e]
 
+-- | Create a term applying @Prelude.not@ to the given term.
+--
+-- > not : Bool -> Bool;
 scNot :: SharedContext -> Term -> IO Term
 scNot sc t = scGlobalApply sc "Prelude.not" [t]
 
+-- | Create a term applying @Prelude.and@ to the two given terms.
+--
+-- > and : Bool -> Bool -> Bool;
 scAnd :: SharedContext -> Term -> Term -> IO Term
 scAnd sc x y = scGlobalApply sc "Prelude.and" [x,y]
 
+-- | Create a term applying @Prelude.or@ to the two given terms.
+--
+-- > or : Bool -> Bool -> Bool;
 scOr :: SharedContext -> Term -> Term -> IO Term
 scOr sc x y = scGlobalApply sc "Prelude.or" [x,y]
 
+-- | Create a term applying @Prelude.implies@ to the two given terms.
+--
+-- > implies : Bool -> Bool -> Bool;
 scImplies :: SharedContext -> Term -> Term
           -> IO Term
 scImplies sc x y = scGlobalApply sc "Prelude.implies" [x,y]
 
+-- | Create a term applying @Prelude.xor@ to the two given terms.
+--
+-- > xor : Bool -> Bool -> Bool;
 scXor :: SharedContext -> Term -> Term -> IO Term
 scXor sc x y = scGlobalApply sc "Prelude.xor" [x,y]
 
+-- | Create a term applying @Prelude.boolEq@ to the two given terms.
+--
+-- > boolEq : Bool -> Bool -> Bool;
 scBoolEq :: SharedContext -> Term -> Term -> IO Term
 scBoolEq sc x y = scGlobalApply sc "Prelude.boolEq" [x,y]
 
+-- | Create a universally quantified bitvector term.
+--
+-- > bvForall : (n : Nat) -> (Vec n Bool -> Bool) -> Bool;
 scBvForall :: SharedContext -> Term -> Term -> IO Term
 scBvForall sc w f = scGlobalApply sc "Prelude.bvForall" [w, f]
 
--- ite :: (a :: sort 1) -> Bool -> a -> a -> a;
+-- | Create a non-dependent if-then-else term.
+--
+-- > ite : (a : sort 1) -> Bool -> a -> a -> a;
 scIte :: SharedContext -> Term -> Term ->
          Term -> Term -> IO Term
 scIte sc t b x y = scGlobalApply sc "Prelude.ite" [t, b, x, y]
 
--- append :: (m n :: Nat) -> (e :: sort 0) -> Vec m e -> Vec n e -> Vec (addNat m n) e;
+-- | Create a term applying @Prelude.append@ to two vectors.
+--
+-- > append : (m n : Nat) -> (e : sort 0) -> Vec m e -> Vec n e -> Vec (addNat m n) e;
 scAppend :: SharedContext -> Term -> Term -> Term ->
             Term -> Term -> IO Term
 scAppend sc t m n x y = scGlobalApply sc "Prelude.append" [m, n, t, x, y]
 
--- | join  : (m n : Nat) -> (a : sort 0) -> Vec m (Vec n a) -> Vec (mulNat m n) a;
+-- | Create a term applying @Prelude.join@ to a vector of vectors.
+--
+-- > join  : (m n : Nat) -> (a : sort 0) -> Vec m (Vec n a) -> Vec (mulNat m n) a;
 scJoin :: SharedContext -> Term -> Term -> Term -> Term -> IO Term
 scJoin sc m n a v = scGlobalApply sc "Prelude.join" [m, n, a, v]
 
--- | split : (m n : Nat) -> (a : sort 0) -> Vec (mulNat m n) a -> Vec m (Vec n a);
+-- | Create a term splitting a vector with @Prelude.split@.
+--
+-- > split : (m n : Nat) -> (a : sort 0) -> Vec (mulNat m n) a -> Vec m (Vec n a);
 scSplit :: SharedContext -> Term -> Term -> Term -> Term -> IO Term
 scSplit sc m n a v = scGlobalApply sc "Prelude.split" [m, n, a, v]
 
--- | slice :: (e :: sort 1) -> (i n o :: Nat) -> Vec (addNat (addNat i n) o) e -> Vec n e;
+-- | Create a term selecting a range of values from a vector with @Prelude.slice@.
+--
+-- > slice : (e : sort 1) -> (i n o : Nat) -> Vec (addNat (addNat i n) o) e -> Vec n e;
 scSlice :: SharedContext -> Term -> Term ->
            Term -> Term -> Term -> IO Term
 scSlice sc e i n o a = scGlobalApply sc "Prelude.slice" [e, i, n, o, a]
 
--- | get :: (n :: Nat) -> (e :: sort 0) -> Vec n e -> Fin n -> e;
+-- | Create a term accessing a particular element of a vector with @get@.
+--
+-- > get : (n : Nat) -> (e : sort 0) -> Vec n e -> Fin n -> e;
 scGet :: SharedContext -> Term -> Term ->
          Term -> Term -> IO Term
 scGet sc n e v i = scGlobalApply sc (mkIdent preludeName "get") [n, e, v, i]
 
--- | bvAt :: (n :: Nat) -> (a :: sort 0) -> (i :: Nat) -> Vec n a -> bitvector i -> a;
+-- | Create a term accessing a particular element of a vector with @bvAt@,
+-- which uses a bitvector for indexing.
+--
+-- > bvAt : (n : Nat) -> (a : sort 0) -> (w : Nat) -> Vec n a -> Vec w Bool -> a;
 scBvAt :: SharedContext -> Term -> Term ->
          Term -> Term -> Term -> IO Term
 scBvAt sc n a i xs idx = scGlobalApply sc (mkIdent preludeName "bvAt") [n, a, i, xs, idx]
 
--- | atWithDefault :: (n :: Nat) -> (a :: sort 0) -> a -> Vec n a -> Nat -> a;
+-- | Create a term accessing a particular element of a vector, with a default
+-- to return if the index is out of bounds.
+--
+-- > atWithDefault : (n : Nat) -> (a : sort 0) -> a -> Vec n a -> Nat -> a;
 scAtWithDefault :: SharedContext -> Term -> Term -> Term -> Term -> Term -> IO Term
 scAtWithDefault sc n a v xs idx = scGlobalApply sc (mkIdent preludeName "atWithDefault") [n, a, v, xs, idx]
 
--- | at :: (n :: Nat) -> (a :: sort 0) -> Vec n a -> Nat -> a;
+-- | Create a term accessing a particular element of a vector, failing if the
+-- index is out of bounds.
+--
+-- > at : (n : Nat) -> (a : sort 0) -> Vec n a -> Nat -> a;
 scAt :: SharedContext -> Term -> Term ->
         Term -> Term -> IO Term
 scAt sc n a xs idx = scGlobalApply sc (mkIdent preludeName "at") [n, a, xs, idx]
 
--- | single :: (e :: sort 1) -> e -> Vec 1 e;
--- single e x = generate 1 e (\(i :: Fin 1) -> x);
+-- | Create a term evaluating to a vector containing a single element.
+--
+-- > single : (e : sort 1) -> e -> Vec 1 e;
 scSingle :: SharedContext -> Term -> Term -> IO Term
 scSingle sc e x = scGlobalApply sc (mkIdent preludeName "single") [e, x]
 
+-- | Create a term computing the least significant bit of a bitvector, given a
+-- length and bitvector.
+--
+-- > lsb : (n : Nat) -> Vec (Succ n) Bool -> Bool;
 scLsb :: SharedContext -> Term -> Term -> IO Term
 scLsb sc n x = scGlobalApply sc (mkIdent preludeName "lsb") [n, x]
 
+-- | Create a term computing the most significant bit of a bitvector, given a
+-- length and bitvector.
+--
+-- > msb : (n : Nat) -> Vec (Succ n) Bool -> Bool;
 scMsb :: SharedContext -> Term -> Term -> IO Term
 scMsb sc n x = scGlobalApply sc (mkIdent preludeName "lsb") [n, x]
 
 -- Primitive operations on nats
 
+-- | Create a term computing the sum of the two given (natural number) terms.
+--
+-- > addNat : Nat -> Nat -> Nat;
 scAddNat :: SharedContext -> Term -> Term -> IO Term
 scAddNat sc x y = scGlobalApply sc "Prelude.addNat" [x,y]
 
+-- | Create a term computing the difference between the two given
+-- (natural number) terms.
+--
+-- > subNat : Nat -> Nat -> Nat
 scSubNat :: SharedContext -> Term -> Term -> IO Term
 scSubNat sc x y = scGlobalApply sc "Prelude.subNat" [x,y]
 
+-- | Create a term computing the product of the two given (natural number)
+-- terms.
+--
+-- > mulNat : Nat -> Nat -> Nat;
 scMulNat :: SharedContext -> Term -> Term -> IO Term
 scMulNat sc x y = scGlobalApply sc "Prelude.mulNat" [x,y]
 
--- divNat :: Nat -> Nat -> Nat;
+-- | Create a term computing the quotient of the two given (natural number)
+-- terms.
+--
+-- > divNat : Nat -> Nat -> Nat;
 scDivNat :: SharedContext -> Term -> Term -> IO Term
 scDivNat sc x y = scGlobalApply sc "Prelude.divNat" [x,y]
 
--- modNat :: Nat -> Nat -> Nat;
+-- | Create a term computing the remainder upon division of the two given
+-- (natural number) terms.
+--
+-- > modNat : Nat -> Nat -> Nat;
 scModNat :: SharedContext -> Term -> Term -> IO Term
 scModNat sc x y = scGlobalApply sc "Prelude.modNat" [x,y]
 
--- divModNat :: Nat -> Nat -> #(Nat, Nat);
+-- | Create a term computing the quotient and remainder upon division of the
+-- two given (natural number) terms, giving the result as a pair.
+--
+-- > divModNat : Nat -> Nat -> Nat * Nat;
 scDivModNat :: SharedContext -> Term -> Term -> IO Term
 scDivModNat sc x y = scGlobalApply sc "Prelude.divModNat" [x,y]
 
+-- | Create a term computing whether the two given (natural number) terms are
+-- equal.
+--
+-- > equalNat : Nat -> Nat -> Bool;
 scEqualNat :: SharedContext -> Term -> Term -> IO Term
 scEqualNat sc x y = scGlobalApply sc "Prelude.equalNat" [x,y]
 
+-- | Create a term computing whether the first term (a natural number) is less
+-- than the second term (also a natural number).
+--
+-- > ltNat : Nat -> Nat -> Bool;
 scLtNat :: SharedContext -> Term -> Term -> IO Term
 scLtNat sc x y = scGlobalApply sc "Prelude.ltNat" [x,y]
 
+-- | Create a term computing the minimum of the two given (natural number)
+-- terms.
+--
+-- > minNat : Nat -> Nat -> Nat
 scMinNat :: SharedContext -> Term -> Term -> IO Term
 scMinNat sc x y = scGlobalApply sc "Prelude.minNat" [x,y]
 
+-- | Create a term computing the maximum of the two given (natural number)
+-- terms.
+--
+-- > maxNat : Nat -> Nat -> Nat;
 scMaxNat :: SharedContext -> Term -> Term -> IO Term
 scMaxNat sc x y = scGlobalApply sc "Prelude.maxNat" [x,y]
 
 -- Primitive operations on Integer
 
+-- | Create a term representing the prelude Integer type.
 scIntegerType :: SharedContext -> IO Term
 scIntegerType sc = scFlatTermF sc preludeIntegerType
 
+-- | Create an integer constant term from an 'Integer'.
 scIntegerConst :: SharedContext -> Integer -> IO Term
 scIntegerConst sc i
   | i >= 0    = scNatToInt sc =<< scNat sc (fromInteger i)
   | otherwise = scIntNeg sc =<< scNatToInt sc =<< scNat sc (fromInteger (- i))
 
--- primitive intAdd/intSub/intMul/intDiv/intMod :: Integer -> Integer -> Integer;
-scIntAdd, scIntSub, scIntMul, scIntDiv, scIntMod, scIntMax, scIntMin
-   :: SharedContext -> Term -> Term -> IO Term
+-- | Create a term applying the integer addition primitive.
+--
+-- > intAdd : Integer -> Integer -> Integer
+scIntAdd :: SharedContext -> Term -> Term -> IO Term
 scIntAdd sc x y = scGlobalApply sc "Prelude.intAdd" [x, y]
+
+-- | Create a term applying the integer subtraction primitive.
+--
+-- > intSub : Integer -> Integer -> Integer
+scIntSub :: SharedContext -> Term -> Term -> IO Term
 scIntSub sc x y = scGlobalApply sc "Prelude.intSub" [x, y]
+
+-- | Create a term applying the integer multiplication primitive.
+--
+-- > intMul : Integer -> Integer -> Integer
+scIntMul :: SharedContext -> Term -> Term -> IO Term
 scIntMul sc x y = scGlobalApply sc "Prelude.intMul" [x, y]
+
+-- | Create a term applying the integer division primitive.
+--
+-- > intDiv : Integer -> Integer -> Integer
+scIntDiv :: SharedContext -> Term -> Term -> IO Term
 scIntDiv sc x y = scGlobalApply sc "Prelude.intDiv" [x, y]
+
+-- | Create a term applying the integer modulus primitive.
+--
+-- > intMod : Integer -> Integer -> Integer
+scIntMod :: SharedContext -> Term -> Term -> IO Term
 scIntMod sc x y = scGlobalApply sc "Prelude.intMod" [x, y]
+
+-- | Create a term applying the integer min primitive.
+--
+-- > intMin : Integer -> Integer -> Integer
+scIntMin :: SharedContext -> Term -> Term -> IO Term
 scIntMin sc x y = scGlobalApply sc "Prelude.intMin" [x, y]
+
+-- | Create a term applying the integer max primitive.
+--
+-- > intMax : Integer -> Integer -> Integer
+scIntMax :: SharedContext -> Term -> Term -> IO Term
 scIntMax sc x y = scGlobalApply sc "Prelude.intMax" [x, y]
 
--- primitive intNeg/intAbs :: Integer -> Integer;
-scIntNeg, scIntAbs
-   :: SharedContext -> Term -> IO Term
+-- | Create a term applying the negation integer primitive.
+--
+-- > intNeg : Integer -> Integer;
+scIntNeg :: SharedContext -> Term -> IO Term
 scIntNeg sc x = scGlobalApply sc "Prelude.intNeg" [x]
+
+-- | Create a term applying the absolute value integer primitive.
+--
+-- > intAbs : Integer -> Integer;
+scIntAbs :: SharedContext -> Term -> IO Term
 scIntAbs sc x = scGlobalApply sc "Prelude.intAbs" [x]
 
--- primitive intEq/intLe/intLt  :: Integer -> Integer -> Bool;
-scIntEq, scIntLe, scIntLt
-   :: SharedContext -> Term -> Term -> IO Term
+-- | Create a term applying the integer equality testing primitive.
+--
+-- > intEq : Integer -> Integer -> Bool;
+scIntEq :: SharedContext -> Term -> Term -> IO Term
 scIntEq sc x y = scGlobalApply sc "Prelude.intEq" [x, y]
+
+-- | Create a term applying the integer less-than-or-equal primitive.
+--
+-- > intLe : Integer -> Integer -> Bool;
+scIntLe :: SharedContext -> Term -> Term -> IO Term
 scIntLe sc x y = scGlobalApply sc "Prelude.intLe" [x, y]
+
+-- | Create a term applying the integer less-than primitive.
+--
+-- > intLt : Integer -> Integer -> Bool;
+scIntLt :: SharedContext -> Term -> Term -> IO Term
 scIntLt sc x y = scGlobalApply sc "Prelude.intLt" [x, y]
 
--- primitive intToNat :: Integer -> Nat;
+-- | Create a term computing a @Nat@ from an @Integer@, if possible.
+--
+-- > intToNat : Integer -> Nat;
 scIntToNat
    :: SharedContext -> Term -> IO Term
 scIntToNat sc x = scGlobalApply sc "Prelude.intToNat" [x]
 
--- primitive natToInt :: Nat -> Integer;
+-- | Create a term computing an @Integer@ from a @Nat@.
+--
+-- > natToInt : Nat -> Integer;
 scNatToInt
    :: SharedContext -> Term -> IO Term
 scNatToInt sc x = scGlobalApply sc "Prelude.natToInt" [x]
 
--- primitive intToBv :: (n::Nat) -> Integer -> bitvector n;
+-- | Create a term computing a bitvector of length n from an @Integer@, if
+-- possible.
+--
+-- > intToBv : (n::Nat) -> Integer -> Vec n Bool;
 scIntToBv
    :: SharedContext -> Term -> Term -> IO Term
 scIntToBv sc n x = scGlobalApply sc "Prelude.intToBv" [n,x]
 
--- primitive bvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- | Create a term computing an @Integer@ from a bitvector of length n.
+-- This produces the unsigned value of the bitvector.
+--
+-- > bvToInt : (n : Nat) -> Vec n Bool -> Integer;
 scBvToInt
    :: SharedContext -> Term -> Term -> IO Term
 scBvToInt sc n x = scGlobalApply sc "Prelude.bvToInt" [n,x]
 
--- primitive sbvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- | Create a term computing an @Integer@ from a bitvector of length n.
+-- This produces the 2's complement signed value of the bitvector.
+--
+-- > sbvToInt : (n : Nat) -> Vec n Bool -> Integer;
 scSbvToInt
    :: SharedContext -> Term -> Term -> IO Term
 scSbvToInt sc n x = scGlobalApply sc "Prelude.sbvToInt" [n,x]
 
 
+-- Primitive operations on IntMod
+
+-- | Create a term representing the prelude @IntMod@ type.
+--
+-- > IntMod : Nat -> sort 0;
+scIntModType :: SharedContext -> Term -> IO Term
+scIntModType sc n = scGlobalApply sc "Prelude.IntMod" [n]
+
+-- | Convert an integer to an integer mod n.
+--
+-- > toIntMod : (n : Nat) -> Integer -> IntMod n;
+scToIntMod :: SharedContext -> Term -> Term -> IO Term
+scToIntMod sc n x = scGlobalApply sc "Prelude.toIntMod" [n, x]
+
+
 -- Primitive operations on bitvectors
 
--- | bitvector :: (n : Nat) -> sort 1
--- bitvector n = Vec n Bool
+-- | Create a term computing the type of a length-n bitvector.
+--
+-- > bitvector : (n : Nat) -> sort 1
 scBitvector :: SharedContext -> Natural -> IO Term
-scBitvector sc size = do
-  c <- scGlobalDef sc "Prelude.bitvector"
-  s <- scNat sc size
-  scApply sc c s
+scBitvector sc size =
+  do s <- scNat sc size
+     t <- scBoolType sc
+     scVecType sc s t
 
--- | bvNat :: (x :: Nat) -> Nat -> bitvector x;
+-- | Create a term computing a bitvector of length x from a @Nat@, if possible.
+--
+-- > bvNat : (n : Nat) -> Nat -> Vec n Bool;
 scBvNat :: SharedContext -> Term -> Term -> IO Term
 scBvNat sc x y = scGlobalApply sc "Prelude.bvNat" [x, y]
 
--- bvToNat :: (n :: Nat) -> bitvector n -> Nat;
+-- | Create a term computing a @Nat@ from a bitvector of length n.
+--
+-- > bvToNat : (n : Nat) -> Vec n Bool -> Nat;
 scBvToNat :: SharedContext -> Natural -> Term -> IO Term
 scBvToNat sc n x = do
     n' <- scNat sc n
     scGlobalApply sc "Prelude.bvToNat" [n',x]
 
--- | Returns constant bitvector.
+-- | Create a term computing a bitvector of the given length representing the
+-- given 'Integer' value (if possible).
 scBvConst :: SharedContext -> Natural -> Integer -> IO Term
 scBvConst sc w v = assert (w <= fromIntegral (maxBound :: Int)) $ do
   x <- scNat sc w
   y <- scNat sc $ fromInteger $ v .&. (1 `shiftL` fromIntegral w - 1)
   scGlobalApply sc "Prelude.bvNat" [x, y]
 
+-- TODO: This doesn't appear to be used anywhere, and "FinVal" doesn't appear
+-- in Prelude.sawcore... can this be deleted?
 -- | FinVal :: (x r :: Nat) -> Fin (Succ (addNat r x));
 scFinVal :: SharedContext -> Term -> Term -> IO Term
 scFinVal sc a b = scCtorApp sc "Prelude.FinVal" [a, b]
 
--- | bvBool :: (n :: Nat) -> Bool -> bitvector n;
+-- | Create a term computing the bitvector of given length representing 0 if
+-- the other given term evaluates to @False@ and representing 1 if the other
+-- given term evaluates to @True@.
+--
+-- > bvBool : (n : Nat) -> Bool -> Vec n Bool;
 scBvBool :: SharedContext -> Term -> Term -> IO Term
 scBvBool sc n x = scGlobalApply sc "Prelude.bvBool" [n, x]
 
--- | bvNonzero :: (n :: Nat) -> bitvector n -> Bool;
+-- | Create a term returning true if and only if the given bitvector represents
+-- a nonzero value.
+--
+-- > bvNonzero : (n : Nat) -> Vec n Bool -> Bool;
 scBvNonzero :: SharedContext -> Term -> Term -> IO Term
 scBvNonzero sc n x = scGlobalApply sc "Prelude.bvNonzero" [n, x]
 
--- | bvNeg :: (x::Nat) -> bitvector x -> bitvector x;
+-- | Create a term computing the 2's complement negation of the given
+-- bitvector.
+-- > bvNeg : (n : Nat) -> Vec n Bool -> Vec n Bool;
 scBvNeg :: SharedContext -> Term -> Term -> IO Term
 scBvNeg sc n x = scGlobalApply sc "Prelude.bvNeg" [n, x]
 
--- | bvAdd/Sub/Mul :: (x :: Nat) -> bitvector x -> bitvector x -> bitvector x;
-scBvAdd, scBvSub, scBvMul, scBvURem, scBvUDiv, scBvSRem, scBvSDiv
-    :: SharedContext -> Term -> Term -> Term -> IO Term
+-- | Create a term applying the bitvector addition primitive.
+--
+-- > bvAdd : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+scBvAdd :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvAdd sc n x y = scGlobalApply sc "Prelude.bvAdd" [n, x, y]
+
+-- | Create a term applying the bitvector subtraction primitive.
+--
+-- > bvSub : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+scBvSub :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvSub sc n x y = scGlobalApply sc "Prelude.bvSub" [n, x, y]
+
+-- | Create a term applying the bitvector multiplication primitive.
+--
+-- > bvMul : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+scBvMul :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvMul sc n x y = scGlobalApply sc "Prelude.bvMul" [n, x, y]
+
+-- | Create a term applying the bitvector (unsigned) modulus primitive.
+--
+-- > bvURem : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+scBvURem :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvURem sc n x y = scGlobalApply sc "Prelude.bvURem" [n, x, y]
+
+-- | Create a term applying the bitvector (unsigned) division primitive.
+--
+-- > bvUDiv : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+scBvUDiv :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvUDiv sc n x y = scGlobalApply sc "Prelude.bvUDiv" [n, x, y]
+
+-- | Create a term applying the bitvector (signed) modulus primitive.
+--
+-- > bvSRem : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+scBvSRem :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvSRem sc n x y = scGlobalApply sc "Prelude.bvSRem" [n, x, y]
+
+-- | Create a term applying the bitvector (signed) division primitive.
+--
+-- > bvSDiv : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+scBvSDiv :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvSDiv sc n x y = scGlobalApply sc "Prelude.bvSDiv" [n, x, y]
 
--- | bvPopcount/bvCountLeadingZeros/bvCountTrailingZeros :: (x :: Nat) -> bitvector n -> bitvector n;
-scBvPopcount, scBvCountLeadingZeros, scBvCountTrailingZeros
-    :: SharedContext -> Term -> Term -> IO Term
+-- | Create a term applying the population count bitvector primitive.
+--
+-- > bvPopcount : (n : Nat) -> Vec n Bool -> Vec n Bool;
+scBvPopcount :: SharedContext -> Term -> Term -> IO Term
 scBvPopcount sc n x = scGlobalApply sc "Prelude.bvPopcount" [n, x]
+
+-- | Create a term applying the leading zero counting bitvector primitive.
+--
+-- > bvCountLeadingZeros : (n : Nat) -> Vec n Bool -> Vec n Bool;
+scBvCountLeadingZeros :: SharedContext -> Term -> Term -> IO Term
 scBvCountLeadingZeros sc n x = scGlobalApply sc "Prelude.bvCountLeadingZeros" [n, x]
+
+-- | Create a term applying the trailing zero counting bitvector primitive.
+--
+-- > bvCountTrailingZeros : (n : Nat) -> Vec n Bool -> Vec n Bool;
+scBvCountTrailingZeros :: SharedContext -> Term -> Term -> IO Term
 scBvCountTrailingZeros sc n x = scGlobalApply sc "Prelude.bvCountTrailingZeros" [n, x]
 
--- | bvOr/And/Xor :: (n :: Nat) -> bitvector n -> bitvector n -> bitvector n;
-scBvOr, scBvAnd, scBvXor
-    :: SharedContext -> Term -> Term -> Term -> IO Term
+-- | Create a term applying the bit-wise and primitive.
+--
+-- > bvAnd : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+scBvAnd :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvAnd sc n x y = scGlobalApply sc "Prelude.bvAnd" [n, x, y]
+
+-- | Create a term applying the bit-wise xor primitive.
+--
+-- > bvXor : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+scBvXor :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvXor sc n x y = scGlobalApply sc "Prelude.bvXor" [n, x, y]
+
+-- | Create a term applying the bit-wise or primitive.
+--
+-- > bvOr : (n : Nat) -> Vec n Bool -> Vec n Bool -> Vec n Bool;
+scBvOr :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvOr  sc n x y = scGlobalApply sc "Prelude.bvOr"  [n, x, y]
 
--- | bvNot :: (n :: Nat) -> bitvector n -> bitvector n;
+-- | Create a term applying the bit-wise negation primitive.
+--
+-- > bvNot : (n : Nat) -> Vec n Bool -> Vec n Bool;
 scBvNot :: SharedContext -> Term -> Term -> IO Term
 scBvNot sc n x = scGlobalApply sc "Prelude.bvNot" [n, x]
 
--- | bvEq :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
-scBvEq, scBvUGe, scBvUGt, scBvULe, scBvULt
-    :: SharedContext -> Term -> Term -> Term -> IO Term
+-- | Create a term computing whether the two given bitvectors (of equal length)
+-- are equal.
+--
+-- > bvEq : (n : Nat) -> Vec n Bool -> Vec n Bool -> Bool;
+scBvEq :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvEq  sc n x y = scGlobalApply sc "Prelude.bvEq"  [n, x, y]
+
+-- | Create a term applying the bitvector (unsigned) greater-than-or-equal
+-- primitive.
+--
+-- > bvuge : (n : Nat) -> Vec n Bool -> Vec n Bool -> Bool;
+scBvUGe :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvUGe sc n x y = scGlobalApply sc "Prelude.bvuge" [n, x, y]
+
+-- | Create a term applying the bitvector (unsigned) less-than-or-equal
+-- primitive.
+--
+-- > bvule : (n : Nat) -> Vec n Bool -> Vec n Bool -> Bool;
+scBvULe :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvULe sc n x y = scGlobalApply sc "Prelude.bvule" [n, x, y]
+
+-- | Create a term applying the bitvector (unsigned) greater-than primitive.
+--
+-- > bvugt : (n : Nat) -> Vec n Bool -> Vec n Bool -> Bool;
+scBvUGt :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvUGt sc n x y = scGlobalApply sc "Prelude.bvugt" [n, x, y]
+
+-- | Create a term applying the bitvector (unsigned) less-than primitive.
+--
+-- > bvult : (n : Nat) -> Vec n Bool -> Vec n Bool -> Bool;
+scBvULt :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvULt sc n x y = scGlobalApply sc "Prelude.bvult" [n, x, y]
 
-
--- | bvsgt/bvsge/bvslt/bvsle :: (n :: Nat) -> bitvector n -> bitvector n -> Bool;
-scBvSGt, scBvSGe, scBvSLt, scBvSLe
-    :: SharedContext -> Term -> Term -> Term -> IO Term
+-- | Create a term applying the bitvector (signed) greater-than-or-equal
+-- primitive.
+--
+-- > bvsge : (n : Nat) -> Vec n Bool -> Vec n Bool -> Bool;
+scBvSGe :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvSGe sc n x y = scGlobalApply sc "Prelude.bvsge" [n, x, y]
+
+-- | Create a term applying the bitvector (signed) less-than-or-equal
+-- primitive.
+--
+-- > bvsle : (n : Nat) -> Vec n Bool -> Vec n Bool -> Bool;
+scBvSLe :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvSLe sc n x y = scGlobalApply sc "Prelude.bvsle" [n, x, y]
+
+-- | Create a term applying the bitvector (signed) greater-than primitive.
+--
+-- > bvsgt : (n : Nat) -> Vec n Bool -> Vec n Bool -> Bool;
+scBvSGt :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvSGt sc n x y = scGlobalApply sc "Prelude.bvsgt" [n, x, y]
+
+-- | Create a term applying the bitvector (signed) less-than primitive.
+--
+-- > bvslt : (n : Nat) -> Vec n Bool -> Vec n Bool -> Bool;
+scBvSLt :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvSLt sc n x y = scGlobalApply sc "Prelude.bvslt" [n, x, y]
 
--- | bvShl, bvShr :: (n :: Nat) -> bitvector n -> Nat -> bitvector n;
-scBvShl, scBvShr
-    :: SharedContext -> Term -> Term -> Term -> IO Term
+-- | Create a term applying the left-shift primitive.
+--
+-- > bvShl : (n : Nat) -> Vec n Bool -> Nat -> Vec n Bool;
+scBvShl :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvShl sc n x y = scGlobalApply sc "Prelude.bvShl" [n, x, y]
+
+-- | Create a term applying the logical right-shift primitive.
+--
+-- > bvShr : (n : Nat) -> Vec n Bool -> Nat -> Vec n Bool;
+scBvShr :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvShr sc n x y = scGlobalApply sc "Prelude.bvShr" [n, x, y]
 
--- | bvSShr :: (w :: Nat) -> bitvector (Succ w) -> Nat -> bitvector (Succ w);
+-- | Create a term applying the arithmetic/signed right-shift primitive.
+--
+-- > bvSShr : (w : Nat) -> Vec (Succ w) Bool -> Nat -> Vec (Succ w) Bool;
 scBvSShr :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvSShr sc n x y = scGlobalApply sc "Prelude.bvSShr" [n, x, y]
 
--- | bvUExt :: (x y :: Nat) -> bitvector y -> bitvector (addNat x y);
+-- | Create a term applying the unsigned bitvector extension primitive.
+--
+-- > bvUExt : (m n : Nat) -> Vec n Bool -> Vec (addNat m n) Bool;
 scBvUExt :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvUExt sc n m x = scGlobalApply sc "Prelude.bvUExt" [n,m,x]
 
--- | bvSExt :: (x y :: Nat) -> bitvector (Succ y) -> bitvector (addNat x (Succ y));
+-- | Create a term applying the signed bitvector extension primitive.
+--
+-- > bvSExt : (m n : Nat) -> Vec (Succ n) Bool -> Vec (addNat m (Succ n)) Bool;
 scBvSExt :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvSExt sc n m x = scGlobalApply sc "Prelude.bvSExt" [n,m,x]
 
--- | bvTrunc :: (x y :: Nat) -> bitvector (addNat x y) -> bitvector y;
+-- | Create a term applying the bitvector truncation primitive. Note that this
+-- truncates starting from the most significant bit.
+--
+-- > bvTrunc : (m n : Nat) -> Vec (addNat m n) Bool -> Vec n Bool;
 scBvTrunc :: SharedContext -> Term -> Term -> Term -> IO Term
 scBvTrunc sc n m x = scGlobalApply sc "Prelude.bvTrunc" [n,m,x]
 
--- | updNatFun :: (a::sort 0) -> (Nat -> a) -> Nat -> a -> (Nat -> a);
+-- | Create a term applying the @updNatFun@ primitive, which satisfies the
+-- following laws:
+--
+-- > updNatFun : (a : sort 0) -> (Nat -> a) -> Nat -> a -> (Nat -> a);
+-- > updNatFun a _ i v i == v
+-- > updNatFun a f i v x == f x, when i != x
 scUpdNatFun :: SharedContext -> Term -> Term
             -> Term -> Term -> IO Term
 scUpdNatFun sc a f i v = scGlobalApply sc "Prelude.updNatFun" [a, f, i, v]
 
--- | updBvFun :: (n::Nat) -> (a::sort 0) -> (bitvector n -> a) -> bitvector n -> a -> (bitvector n -> a);
+-- | Create a term applying the @updBvFun@ primitive, which has the same
+-- behavior as @updNatFun@ but acts on bitvectors.
+--
+-- > updBvFun : (n : Nat) -> (a : sort 0) -> (Vec n Bool -> a) -> Vec n Bool -> a -> (Vec n Bool -> a);
 scUpdBvFun :: SharedContext -> Term -> Term
            -> Term -> Term -> Term -> IO Term
 scUpdBvFun sc n a f i v = scGlobalApply sc "Prelude.updBvFun" [n, a, f, i, v]
 
--- | Array :: sort 0 -> sort 0 -> sort 0
+-- | Create a term representing the type of arrays, given an index type and
+-- element type (as 'Term's).
+--
+-- > Array : sort 0 -> sort 0 -> sort 0
 scArrayType :: SharedContext -> Term -> Term -> IO Term
 scArrayType sc a b = scGlobalApply sc "Prelude.Array" [a, b]
 
--- arrayConstant :: (a b :: sort 0) -> b -> (Array a b);
+-- Create a term computing a constant array, given an index type, element type,
+-- and element (all as 'Term's).
+--
+-- > arrayConstant : (a b : sort 0) -> b -> (Array a b);
 scArrayConstant :: SharedContext -> Term -> Term -> Term -> IO Term
 scArrayConstant sc a b e = scGlobalApply sc "Prelude.arrayConstant" [a, b, e]
 
--- | arrayLookup :: (a b :: sort 0) -> (Array a b) -> a -> b;
+-- Create a term computing the value at a particular index of an array.
+--
+-- > arrayLookup : (a b : sort 0) -> (Array a b) -> a -> b;
 scArrayLookup :: SharedContext -> Term -> Term -> Term -> Term -> IO Term
 scArrayLookup sc a b f i = scGlobalApply sc "Prelude.arrayLookup" [a, b, f, i]
 
--- | arrayUpdate :: (a b :: sort 0) -> (Array a b) -> a -> b -> (Array a b);
+-- Create a term computing an array updated at a particular index.
+--
+-- > arrayUpdate : (a b : sort 0) -> (Array a b) -> a -> b -> (Array a b);
 scArrayUpdate :: SharedContext -> Term -> Term -> Term -> Term -> Term -> IO Term
 scArrayUpdate sc a b f i e = scGlobalApply sc "Prelude.arrayUpdate" [a, b, f, i, e]
 
@@ -1588,10 +2157,12 @@ mkSharedContext = do
   cr <- newMVar emptyAppCache
   let freshGlobalVar = modifyMVar vr (\i -> return (i+1, i))
   mod_map_ref <- newIORef HMap.empty
+  envRef <- newIORef (SAWNamingEnv mempty mempty mempty)
   return SharedContext {
              scModuleMap = mod_map_ref
            , scTermF = getTerm cr
            , scFreshGlobalVar = freshGlobalVar
+           , scNamingEnv = envRef
            }
 
 useChangeCache :: C m => Cache m k (Change v) -> k -> ChangeT m v -> ChangeT m v
@@ -1614,30 +2185,30 @@ getAllExts t = Set.toList (getAllExtSet t)
 -- | Return a set of all ExtCns subterms in the given term.
 --   Does not traverse the unfoldings of @Constant@ terms.
 getAllExtSet :: Term -> Set.Set (ExtCns Term)
-getAllExtSet t = snd $ getExtCns (Set.empty, Set.empty) t
-    where getExtCns acc@(is, _) (STApp{ stAppIndex = idx }) | Set.member idx is = acc
+getAllExtSet t = snd $ getExtCns (IntSet.empty, Set.empty) t
+    where getExtCns acc@(is, _) (STApp{ stAppIndex = idx }) | IntSet.member idx is = acc
           getExtCns (is, a) (STApp{ stAppIndex = idx, stAppTermF = (FTermF (ExtCns ec)) }) =
-            (Set.insert idx is, Set.insert ec a)
+            (IntSet.insert idx is, Set.insert ec a)
           getExtCns (is, a) (Unshared (FTermF (ExtCns ec))) =
             (is, Set.insert ec a)
           getExtCns acc (STApp{ stAppTermF = Constant {} }) = acc
           getExtCns acc (Unshared (Constant {})) = acc
           getExtCns (is, a) (STApp{ stAppIndex = idx, stAppTermF = tf'}) =
-            foldl' getExtCns (Set.insert idx is, a) tf'
+            foldl' getExtCns (IntSet.insert idx is, a) tf'
           getExtCns acc (Unshared tf') =
             foldl' getExtCns acc tf'
 
-getConstantSet :: Term -> Map String (Term, Term)
-getConstantSet t = snd $ go (Set.empty, Map.empty) t
+getConstantSet :: Term -> Map VarIndex (NameInfo, Term, Term)
+getConstantSet t = snd $ go (IntSet.empty, Map.empty) t
   where
     go acc@(idxs, names) (STApp{ stAppIndex = i, stAppTermF = tf})
-      | Set.member i idxs = acc
-      | otherwise         = termf (Set.insert i idxs, names) tf
+      | IntSet.member i idxs = acc
+      | otherwise = termf (IntSet.insert i idxs, names) tf
     go acc (Unshared tf) = termf acc tf
 
     termf acc@(idxs, names) tf =
       case tf of
-        Constant (EC _ n ty) body -> (idxs, Map.insert n (ty, body) names)
+        Constant (EC vidx n ty) body -> (idxs, Map.insert vidx (n, ty, body) names)
         _ -> foldl' go acc tf
 
 -- | Instantiate some of the external constants
@@ -1703,7 +2274,7 @@ scExtsToLocals sc exts x = instantiateVars sc fn 0 x
 scAbstractExts :: SharedContext -> [ExtCns Term] -> Term -> IO Term
 scAbstractExts _ [] x = return x
 scAbstractExts sc exts x =
-   do let lams = [ (ecName ec, ecType ec) | ec <- exts ]
+   do let lams = [ (Text.unpack (toShortName (ecName ec)), ecType ec) | ec <- exts ]
       scLambdaList sc lams =<< scExtsToLocals sc exts x
 
 -- | Generalize over the given list of external constants by wrapping
@@ -1712,19 +2283,19 @@ scAbstractExts sc exts x =
 scGeneralizeExts :: SharedContext -> [ExtCns Term] -> Term -> IO Term
 scGeneralizeExts _ [] x = return x
 scGeneralizeExts sc exts x =
-  do let pis = [ (ecName ec, ecType ec) | ec <- exts ]
+  do let pis = [ (Text.unpack (toShortName (ecName ec)), ecType ec) | ec <- exts ]
      scPiList sc pis =<< scExtsToLocals sc exts x
 
-scUnfoldConstants :: SharedContext -> [String] -> Term -> IO Term
+scUnfoldConstants :: SharedContext -> [VarIndex] -> Term -> IO Term
 scUnfoldConstants sc names t0 = scUnfoldConstantSet sc True (Set.fromList names) t0
 
 -- | TODO: test whether this version is slower or faster.
-scUnfoldConstants' :: SharedContext -> [String] -> Term -> IO Term
+scUnfoldConstants' :: SharedContext -> [VarIndex] -> Term -> IO Term
 scUnfoldConstants' sc names t0 = scUnfoldConstantSet' sc True (Set.fromList names) t0
 
 scUnfoldConstantSet :: SharedContext
                     -> Bool  -- ^ True: unfold constants in set. False: unfold constants NOT in set
-                    -> Set String -- ^ Set of constant names
+                    -> Set VarIndex -- ^ Set of constant names
                     -> Term
                     -> IO Term
 scUnfoldConstantSet sc b names t0 = do
@@ -1732,15 +2303,15 @@ scUnfoldConstantSet sc b names t0 = do
   let go :: Term -> IO Term
       go t@(Unshared tf) =
         case tf of
-          Constant (EC _ name _) rhs
-            | Set.member name names == b -> go rhs
-            | otherwise                  -> return t
+          Constant (EC idx _ _) rhs
+            | Set.member idx names == b -> go rhs
+            | otherwise                 -> return t
           _ -> Unshared <$> traverse go tf
       go t@(STApp{ stAppIndex = idx, stAppTermF = tf }) = useCache cache idx $
         case tf of
-          Constant (EC _ name _) rhs
-            | Set.member name names == b -> go rhs
-            | otherwise         -> return t
+          Constant (EC ecidx _ _) rhs
+            | Set.member ecidx names == b -> go rhs
+            | otherwise                   -> return t
           _ -> scTermF sc =<< traverse go tf
   go t0
 
@@ -1748,7 +2319,7 @@ scUnfoldConstantSet sc b names t0 = do
 -- | TODO: test whether this version is slower or faster.
 scUnfoldConstantSet' :: SharedContext
                     -> Bool  -- ^ True: unfold constants in set. False: unfold constants NOT in set
-                    -> Set String -- ^ Set of constant names
+                    -> Set VarIndex -- ^ Set of constant names
                     -> Term
                     -> IO Term
 scUnfoldConstantSet' sc b names t0 = do
@@ -1756,15 +2327,15 @@ scUnfoldConstantSet' sc b names t0 = do
   let go :: Term -> ChangeT IO Term
       go t@(Unshared tf) =
         case tf of
-          Constant (EC _ name _) rhs
-            | Set.member name names == b -> taint (go rhs)
-            | otherwise                  -> pure t
+          Constant (EC idx _ _) rhs
+            | Set.member idx names == b -> taint (go rhs)
+            | otherwise                 -> pure t
           _ -> whenModified t (return . Unshared) (traverse go tf)
       go t@(STApp{ stAppIndex = idx, stAppTermF = tf }) =
         case tf of
-          Constant (EC _ name _) rhs
-            | Set.member name names == b -> taint (go rhs)
-            | otherwise                  -> pure t
+          Constant (EC ecidx _ _) rhs
+            | Set.member ecidx names == b -> taint (go rhs)
+            | otherwise                   -> pure t
           _ -> useChangeCache tcache idx $
                  whenModified t (scTermF sc) (traverse go tf)
   commitChangeT (go t0)
@@ -1804,8 +2375,7 @@ scOpenTerm :: SharedContext
          -> Term
          -> IO (ExtCns Term, Term)
 scOpenTerm sc nm tp idx body = do
-    v <- scFreshGlobalVar sc
-    let ec = EC v nm tp
+    ec <- scFreshEC sc nm tp
     ec_term <- scFlatTermF sc (ExtCns ec)
     body' <- instantiateVar sc idx ec_term body
     return (ec, body')
@@ -1821,4 +2391,4 @@ scCloseTerm :: (SharedContext -> String -> Term -> Term -> IO Term)
 scCloseTerm close sc ec body = do
     lv <- scLocalVar sc 0
     body' <- scInstantiateExt sc (Map.insert (ecVarIndex ec) lv Map.empty) =<< incVars sc 0 1 body
-    close sc (ecName ec) (ecType ec) body'
+    close sc (Text.unpack (toShortName (ecName ec))) (ecType ec) body'

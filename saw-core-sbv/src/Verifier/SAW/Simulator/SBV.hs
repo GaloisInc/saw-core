@@ -47,7 +47,9 @@ import Data.Bits
 import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -65,7 +67,7 @@ import qualified Verifier.SAW.Simulator as Sim
 import qualified Verifier.SAW.Simulator.Prims as Prims
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.Simulator.Value
-import Verifier.SAW.TypedAST (FieldName, ModuleMap, identName)
+import Verifier.SAW.TypedAST (FieldName, identName, toShortName)
 import Verifier.SAW.FiniteValue (FirstOrderType(..), asFirstOrderType)
 
 data SBV
@@ -80,7 +82,7 @@ type SValue = Value SBV
 --type SThunk = Thunk SBV
 
 data SbvExtra =
-  SStream (Integer -> IO SValue) (IORef (Map Integer SValue))
+  SStream (Natural -> IO SValue) (IORef (Map Natural SValue))
 
 instance Show SbvExtra where
   show (SStream _ _) = "<SStream>"
@@ -196,8 +198,7 @@ constMap =
   , ("Prelude.bvToInt" , bvToIntOp)
   , ("Prelude.sbvToInt", sbvToIntOp)
   -- Integers mod n
-  , ("Prelude.IntMod"    , constFun VIntType)
-  , ("Prelude.toIntMod"  , constFun (VFun force))
+  , ("Prelude.toIntMod"  , toIntModOp)
   , ("Prelude.fromIntMod", fromIntModOp)
   , ("Prelude.intModEq"  , intModEqOp)
   , ("Prelude.intModAdd" , intModBinOp svPlus)
@@ -243,29 +244,35 @@ toMaybeWord _ = return Nothing
 -- either a symbolic word or a symbolic boolean. If the SValue
 -- contains any values built from data constructors, then return them
 -- encoded as a String.
-flattenSValue :: SValue -> IO ([SVal], String)
-flattenSValue v = do
+flattenSValue :: String -> SValue -> IO ([SVal], String)
+flattenSValue nm v = do
   mw <- toMaybeWord v
   case mw of
     Just w -> return ([w], "")
     Nothing ->
       case v of
         VUnit                     -> return ([], "")
-        VPair x y                 -> do (xs, sx) <- flattenSValue =<< force x
-                                        (ys, sy) <- flattenSValue =<< force y
+        VPair x y                 -> do (xs, sx) <- flattenSValue nm =<< force x
+                                        (ys, sy) <- flattenSValue nm =<< force y
                                         return (xs ++ ys, sx ++ sy)
         VRecordValue elems        -> do (xss, sxs) <-
                                           unzip <$>
-                                          mapM (flattenSValue <=< force . snd) elems
+                                          mapM (flattenSValue nm <=< force . snd) elems
                                         return (concat xss, concat sxs)
-        VVector (V.toList -> ts)  -> do (xss, ss) <- unzip <$> traverse (force >=> flattenSValue) ts
+        VVector (V.toList -> ts)  -> do (xss, ss) <- unzip <$> traverse (force >=> flattenSValue nm) ts
                                         return (concat xss, concat ss)
         VBool sb                  -> return ([sb], "")
+        VInt si                   -> return ([si], "")
+        VIntMod 0 si              -> return ([si], "")
+        VIntMod n si              -> return ([svRem si (svInteger KUnbounded (toInteger n))], "")
         VWord sw                  -> return (if intSizeOf sw > 0 then [sw] else [], "")
-        VCtorApp i (V.toList->ts) -> do (xss, ss) <- unzip <$> traverse (force >=> flattenSValue) ts
+        VCtorApp i (V.toList->ts) -> do (xss, ss) <- unzip <$> traverse (force >=> flattenSValue nm) ts
                                         return (concat xss, "_" ++ identName i ++ concat ss)
         VNat n                    -> return ([], "_" ++ show n)
-        _ -> fail $ "Could not create sbv argument for " ++ show v
+        TValue (suffixTValue -> Just s)
+                                  -> return ([], s)
+        VFun _ -> fail $ "Cannot create uninterpreted higher-order function " ++ show nm
+        _ -> fail $ "Cannot create uninterpreted function " ++ show nm ++ " with argument " ++ show v
 
 vWord :: SWord -> SValue
 vWord lv = VWord lv
@@ -298,10 +305,12 @@ lazyMux muxFn c tm fm =
 
 -- selectV merger maxValue valueFn index returns valueFn v when index has value v
 -- if index is greater than maxValue, it returns valueFn maxValue. Use the ite op from merger.
-selectV :: (Ord a, Num a, Bits a) => (SBool -> b -> b -> b) -> a -> (a -> b) -> SWord -> b
+selectV :: (SBool -> b -> b -> b) -> Natural -> (Natural -> b) -> SWord -> b
 selectV merger maxValue valueFn vx =
   case svAsInteger vx of
-    Just i  -> valueFn (fromIntegral i)
+    Just i
+      | i >= 0    -> valueFn (fromInteger i)
+      | otherwise -> Prims.panic "selectV" ["expected nonnegative integer", show i]
     Nothing -> impl (intSizeOf vx) 0
   where
     impl _ x | x > maxValue || x < 0 = valueFn maxValue
@@ -329,27 +338,27 @@ svSlice i j x = svExtract (w - i - 1) (w - i - j) x
 ----------------------------------------
 -- Shift operations
 
--- | op :: (n :: Nat) -> bitvector n -> Nat -> bitvector n
+-- | op : (n : Nat) -> Vec n Bool -> Nat -> Vec n Bool
 bvShiftOp :: (SWord -> SWord -> SWord) -> (SWord -> Int -> SWord) -> SValue
 bvShiftOp bvOp natOp =
   constFun $
   wordFun $ \x -> return $
   strictFun $ \y ->
     case y of
-      VNat i   -> return (vWord (natOp x j))
-        where j = fromInteger (i `min` toInteger (intSizeOf x))
+      VNat i | j < toInteger (maxBound :: Int) -> return (vWord (natOp x (fromInteger j)))
+        where j = toInteger i `min` toInteger (intSizeOf x)
       VToNat v -> fmap (vWord . bvOp x) (toWord v)
       _        -> error $ unwords ["Verifier.SAW.Simulator.SBV.bvShiftOp", show y]
 
--- bvShl :: (w :: Nat) -> bitvector w -> Nat -> bitvector w;
+-- bvShl : (w : Nat) -> Vec w Bool -> Nat -> Vec w Bool;
 bvShLOp :: SValue
 bvShLOp = bvShiftOp svShiftLeft svShl
 
--- bvShR :: (w :: Nat) -> bitvector w -> Nat -> bitvector w;
+-- bvShR : (w : Nat) -> Vec w Bool -> Nat -> Vec w Bool;
 bvShROp :: SValue
 bvShROp = bvShiftOp svShiftRight svShr
 
--- bvSShR :: (w :: Nat) -> bitvector w -> Nat -> bitvector w;
+-- bvSShR : (w : Nat) -> Vec w Bool -> Nat -> Vec w Bool;
 bvSShROp :: SValue
 bvSShROp = bvShiftOp bvOp natOp
   where
@@ -366,7 +375,7 @@ intToNatOp =
   Prims.intFun "intToNat" $ \i ->
     case svAsInteger i of
       Just i'
-        | 0 <= i'   -> pure (VNat i')
+        | 0 <= i'   -> pure (VNat (fromInteger i'))
         | otherwise -> pure (VNat 0)
       Nothing ->
         let z  = svInteger KUnbounded 0
@@ -379,21 +388,21 @@ natToIntOp =
   Prims.natFun' "natToInt" $ \n -> return $
     VInt (literalSInteger (toInteger n))
 
--- primitive bvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- primitive bvToInt : (n : Nat) -> Vec n Bool -> Integer;
 bvToIntOp :: SValue
 bvToIntOp = constFun $ wordFun $ \v ->
    case svAsInteger v of
       Just i -> return $ VInt (literalSInteger i)
       Nothing -> return $ VInt (svFromIntegral KUnbounded v)
 
--- primitive sbvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- primitive sbvToInt : (n : Nat) -> Vec n Bool -> Integer;
 sbvToIntOp :: SValue
 sbvToIntOp = constFun $ wordFun $ \v ->
    case svAsInteger (svSign v) of
       Just i -> return $ VInt (literalSInteger i)
       Nothing -> return $ VInt (svFromIntegral KUnbounded (svSign v))
 
--- primitive intToBv :: (n::Nat) -> Integer -> bitvector n;
+-- primitive intToBv : (n : Nat) -> Integer -> Vec n Bool;
 intToBvOp :: SValue
 intToBvOp =
   Prims.natFun' "intToBv n" $ \n -> return $
@@ -428,6 +437,12 @@ svShiftR b x i = svIte b (svNot (svShiftRight (svNot x) i)) (svShiftRight x i)
 ------------------------------------------------------------
 -- Integers mod n
 
+toIntModOp :: SValue
+toIntModOp =
+  Prims.natFun' "toIntMod" $ \n -> pure $
+  Prims.intFun "toIntMod" $ \x -> pure $
+  VIntMod n x
+
 fromIntModOp :: SValue
 fromIntModOp =
   Prims.natFun $ \n -> return $
@@ -437,23 +452,23 @@ fromIntModOp =
 intModEqOp :: SValue
 intModEqOp =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModEqOp" $ \x -> return $
-  Prims.intFun "intModEqOp" $ \y -> return $
+  Prims.intModFun "intModEqOp" $ \x -> return $
+  Prims.intModFun "intModEqOp" $ \y -> return $
   let modulus = literalSInteger (toInteger n)
   in VBool (svEqual (svRem (svMinus x y) modulus) (literalSInteger 0))
 
 intModBinOp :: (SInteger -> SInteger -> SInteger) -> SValue
 intModBinOp f =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModBinOp x" $ \x -> return $
-  Prims.intFun "intModBinOp y" $ \y -> return $
-  VInt (normalizeIntMod n (f x y))
+  Prims.intModFun "intModBinOp x" $ \x -> return $
+  Prims.intModFun "intModBinOp y" $ \y -> return $
+  VIntMod n (normalizeIntMod n (f x y))
 
 intModUnOp :: (SInteger -> SInteger) -> SValue
 intModUnOp f =
   Prims.natFun $ \n -> return $
   Prims.intFun "intModUnOp" $ \x -> return $
-  VInt (normalizeIntMod n (f x))
+  VIntMod n (normalizeIntMod n (f x))
 
 normalizeIntMod :: Natural -> SInteger -> SInteger
 normalizeIntMod n x =
@@ -478,18 +493,18 @@ streamGetOp =
   constFun $
   strictFun $ \xs -> return $
   strictFun $ \case
-    VNat n -> lookupSStream xs (toInteger n)
+    VNat n -> lookupSStream xs n
     VToNat w ->
       do ilv <- toWord w
          selectV (lazyMux muxBVal) ((2 ^ intSizeOf ilv) - 1) (lookupSStream xs) ilv
     v -> Prims.panic "SBV.streamGetOp" ["Expected Nat value", show v]
 
 
-lookupSStream :: SValue -> Integer -> IO SValue
+lookupSStream :: SValue -> Natural -> IO SValue
 lookupSStream (VExtra s) n = lookupSbvExtra s n
 lookupSStream _ _ = fail "expected Stream"
 
-lookupSbvExtra :: SbvExtra -> Integer -> IO SValue
+lookupSbvExtra :: SbvExtra -> Natural -> IO SValue
 lookupSbvExtra (SStream f r) n =
   do m <- readIORef r
      case Map.lookup n m of
@@ -552,23 +567,24 @@ muxSbvExtra c x y =
 
 -- | Abstract constants with names in the list 'unints' are kept as
 -- uninterpreted constants; all others are unfolded.
-sbvSolveBasic :: ModuleMap -> Map Ident SValue -> [String] -> Term -> IO SValue
-sbvSolveBasic m addlPrims unints t = do
-  let unintSet = Set.fromList unints
-  let extcns (EC ix nm ty) = parseUninterpreted [] (nm ++ "#" ++ show ix) ty
+sbvSolveBasic :: SharedContext -> Map Ident SValue -> Set VarIndex -> Term -> IO SValue
+sbvSolveBasic sc addlPrims unintSet t = do
+  m <- scGetModuleMap sc
+
+  let extcns (EC ix nm ty) = parseUninterpreted [] (Text.unpack (toShortName nm) ++ "#" ++ show ix) ty
   let uninterpreted ec
-        | Set.member (ecName ec) unintSet = Just (extcns ec)
-        | otherwise                       = Nothing
+        | Set.member (ecVarIndex ec) unintSet = Just (extcns ec)
+        | otherwise                           = Nothing
   cfg <- Sim.evalGlobal m (Map.union constMap addlPrims) extcns uninterpreted
   Sim.evalSharedTerm cfg t
 
-parseUninterpreted :: [SVal] -> String -> SValue -> IO SValue
+parseUninterpreted :: [SVal] -> String -> TValue SBV -> IO SValue
 parseUninterpreted cws nm ty =
   case ty of
     (VPiType _ f)
       -> return $
          strictFun $ \x -> do
-           (cws', suffix) <- flattenSValue x
+           (cws', suffix) <- flattenSValue nm x
            t2 <- f (ready x)
            parseUninterpreted (cws ++ cws') (nm ++ suffix) t2
 
@@ -578,10 +594,13 @@ parseUninterpreted cws nm ty =
     VIntType
       -> return $ vInteger $ mkUninterpreted KUnbounded cws nm
 
-    (VVecType (VNat n) VBoolType)
+    VIntModType n
+      -> return $ VIntMod n $ mkUninterpreted KUnbounded cws nm
+
+    (VVecType n VBoolType)
       -> return $ vWord $ mkUninterpreted (KBounded False (fromIntegral n)) cws nm
 
-    (VVecType (VNat n) ety)
+    (VVecType n ety)
       -> do xs <- sequence $
                   [ parseUninterpreted cws (nm ++ "@" ++ show i) ety
                   | i <- [0 .. n-1] ]
@@ -607,7 +626,7 @@ mkUninterpreted :: Kind -> [SVal] -> String -> SVal
 mkUninterpreted k args nm = svUninterpreted k nm' Nothing args
   where nm' = "|" ++ nm ++ "|" -- enclose name to allow primes and other non-alphanum chars
 
-asPredType :: SValue -> IO [SValue]
+asPredType :: TValue SBV -> IO [TValue SBV]
 asPredType v =
   case v of
     VBoolType -> return []
@@ -617,15 +636,17 @@ asPredType v =
          return (v1 : vs)
     _ -> fail $ "non-boolean result type: " ++ show v
 
-vAsFirstOrderType :: SValue -> Maybe FirstOrderType
+vAsFirstOrderType :: TValue SBV -> Maybe FirstOrderType
 vAsFirstOrderType v =
   case v of
     VBoolType
       -> return FOTBit
     VIntType
       -> return FOTInt
-    VVecType (VNat n) v2
-      -> FOTVec (fromInteger n) <$> vAsFirstOrderType v2
+    VIntModType n
+      -> return (FOTIntMod n)
+    VVecType n v2
+      -> FOTVec n <$> vAsFirstOrderType v2
     VUnitType
       -> return (FOTTuple [])
     VPairType v1 v2
@@ -642,17 +663,16 @@ vAsFirstOrderType v =
 
 sbvSolve :: SharedContext
          -> Map Ident SValue
-         -> [String]
+         -> Set VarIndex
          -> Term
          -> IO ([Maybe Labeler], Symbolic SBool)
-sbvSolve sc addlPrims unints t = do
-  modmap <- scGetModuleMap sc
-  let eval = sbvSolveBasic modmap addlPrims unints
+sbvSolve sc addlPrims unintSet t = do
+  let eval = sbvSolveBasic sc addlPrims unintSet
   ty <- eval =<< scTypeOf sc t
   let lamNames = map fst (fst (R.asLambdaList t))
   let varNames = [ "var" ++ show (i :: Integer) | i <- [0 ..] ]
   let argNames = zipWith (++) varNames (map ("_" ++) lamNames ++ repeat "")
-  argTs <- asPredType ty
+  argTs <- asPredType (toTValue ty)
   (labels, vars) <-
     flip evalStateT 0 $ unzip <$>
     sequence (zipWith newVarsForType argTs argNames)
@@ -682,7 +702,7 @@ nextId = ST.get >>= (\s-> modify (+1) >> return ("x" ++ show s))
 myfun ::(Map String (Labeler, Symbolic SValue)) -> (Map String Labeler, Map String (Symbolic SValue))
 myfun = fmap fst A.&&& fmap snd
 
-newVarsForType :: SValue -> String -> StateT Int IO (Maybe Labeler, Symbolic SValue)
+newVarsForType :: TValue SBV -> String -> StateT Int IO (Maybe Labeler, Symbolic SValue)
 newVarsForType v nm =
   case vAsFirstOrderType v of
     Just fot ->
@@ -695,6 +715,7 @@ newVarsForType v nm =
 newVars :: FirstOrderType -> StateT Int IO (Labeler, Symbolic SValue)
 newVars FOTBit = nextId <&> \s-> (BoolLabel s, vBool <$> existsSBool s)
 newVars FOTInt = nextId <&> \s-> (IntegerLabel s, vInteger <$> existsSInteger s)
+newVars (FOTIntMod n) = nextId <&> \s-> (IntegerLabel s, VIntMod n <$> existsSInteger s)
 newVars (FOTVec n FOTBit) =
   if n == 0
     then nextId <&> \s-> (WordLabel s, return (vWord (literalSWord 0 0)))
@@ -716,6 +737,7 @@ newVars (FOTRec tm) = do
 newCodeGenVars :: (Natural -> Bool) -> FirstOrderType -> StateT Int IO (SBVCodeGen SValue)
 newCodeGenVars _checkSz FOTBit = nextId <&> \s -> (vBool <$> svCgInput KBool s)
 newCodeGenVars _checkSz FOTInt = nextId <&> \s -> (vInteger <$> svCgInput KUnbounded s)
+newCodeGenVars _checkSz (FOTIntMod _) = nextId <&> \s -> (vInteger <$> svCgInput KUnbounded s)
 newCodeGenVars checkSz (FOTVec n FOTBit)
   | n == 0    = nextId <&> \_ -> return (vWord (literalSWord 0 0))
   | checkSz n = nextId <&> \s -> vWord <$> cgInputSWord s (fromIntegral n)
@@ -753,17 +775,16 @@ argTypes sc t = do
 sbvCodeGen_definition
   :: SharedContext
   -> Map Ident SValue
-  -> [String]
+  -> Set VarIndex
   -> Term
   -> (Natural -> Bool) -- ^ Allowed word sizes
   -> IO (SBVCodeGen (), [FirstOrderType], FirstOrderType)
-sbvCodeGen_definition sc addlPrims unints t checkSz = do
+sbvCodeGen_definition sc addlPrims unintSet t checkSz = do
   ty <- scTypeOf sc t
   (argTs,resTy) <- argTypes sc ty
   shapes <- traverse (asFirstOrderType sc) argTs
   resultShape <- asFirstOrderType sc resTy
-  modmap <- scGetModuleMap sc
-  bval <- sbvSolveBasic modmap addlPrims unints t
+  bval <- sbvSolveBasic sc addlPrims unintSet t
   vars <- evalStateT (traverse (newCodeGenVars checkSz) shapes) 0
   let codegen = do
         args <- traverse (fmap ready) vars
@@ -842,14 +863,14 @@ sbvSetOutput _checkSz _ft _v _i = do
 
 sbvCodeGen :: SharedContext
            -> Map Ident SValue
-           -> [String]
+           -> Set VarIndex
            -> Maybe FilePath
            -> String
            -> Term
            -> IO ()
-sbvCodeGen sc addlPrims unints path fname t = do
+sbvCodeGen sc addlPrims unintSet path fname t = do
   -- The SBV C code generator expects only these word sizes
   let checkSz n = n `elem` [8,16,32,64]
 
-  (codegen,_,_) <- sbvCodeGen_definition sc addlPrims unints t checkSz
+  (codegen,_,_) <- sbvCodeGen_definition sc addlPrims unintSet t checkSz
   compileToC path fname codegen

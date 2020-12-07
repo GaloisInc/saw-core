@@ -16,7 +16,7 @@ Portability : non-portable (language extensions)
 
 module Verifier.SAW.Simulator.Concrete
        ( evalSharedTerm
-       , CValue, Value(..)
+       , CValue, Concrete, Value(..), TValue(..), toTValue
        , CExtra(..)
        , toBool
        , toWord
@@ -55,7 +55,7 @@ evalSharedTerm m addlPrims t =
            extcns (const Nothing)
     Sim.evalSharedTerm cfg t
   where
-    extcns ec = return $ Prim.userError $ "Unimplemented: external constant " ++ ecName ec
+    extcns ec = return $ Prim.userError $ "Unimplemented: external constant " ++ show (ecName ec)
 
 ------------------------------------------------------------
 -- Values
@@ -123,14 +123,14 @@ flattenBValue _ = error $ unwords ["Verifier.SAW.Simulator.Concrete.flattenBValu
 wordFun :: (BitVector -> CValue) -> CValue
 wordFun f = pureFun (\x -> f (toWord x))
 
--- | op :: (n :: Nat) -> bitvector n -> Nat -> bitvector n
+-- | op : (n : Nat) -> Vec n Bool -> Nat -> Vec n Bool
 bvShiftOp :: (BitVector -> Int -> BitVector) -> CValue
 bvShiftOp natOp =
   constFun $
   wordFun $ \x ->
   pureFun $ \y ->
     case y of
-      VNat n -> vWord (natOp x (fromInteger n))
+      VNat n | toInteger n < toInteger (maxBound :: Int) -> vWord (natOp x (fromIntegral n))
       _      -> error $ unwords ["Verifier.SAW.Simulator.Concrete.shiftOp", show y]
 
 ------------------------------------------------------------
@@ -253,9 +253,8 @@ constMap =
   , ("Prelude.bvToInt" , bvToIntOp)
   , ("Prelude.sbvToInt", sbvToIntOp)
   -- Integers mod n
-  , ("Prelude.IntMod"    , constFun VIntType)
   , ("Prelude.toIntMod"  , toIntModOp)
-  , ("Prelude.fromIntMod", constFun (VFun force))
+  , ("Prelude.fromIntMod", fromIntModOp)
   , ("Prelude.intModEq"  , intModEqOp)
   , ("Prelude.intModAdd" , intModBinOp (+))
   , ("Prelude.intModSub" , intModBinOp (-))
@@ -271,19 +270,19 @@ constMap =
 
 ------------------------------------------------------------
 
--- primitive bvToNat :: (n::Nat) -> bitvector n -> Nat;
+-- primitive bvToNat : (n : Nat) -> Vec n Bool -> Nat;
 bvToNatOp :: CValue
-bvToNatOp = constFun $ wordFun $ VNat . unsigned
+bvToNatOp = constFun $ wordFun $ VNat . fromInteger . unsigned
 
--- primitive bvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- primitive bvToInt : (n : Nat) -> Vec n Bool -> Integer;
 bvToIntOp :: CValue
 bvToIntOp = constFun $ wordFun $ VInt . unsigned
 
--- primitive sbvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- primitive sbvToInt : (n : Nat) -> Vec n Bool -> Integer;
 sbvToIntOp :: CValue
 sbvToIntOp = constFun $ wordFun $ VInt . signed
 
--- primitive intToBv :: (n::Nat) -> Integer -> bitvector n;
+-- primitive intToBv : (n : Nat) -> Integer -> Vec n Bool;
 intToBvOp :: CValue
 intToBvOp =
   Prims.natFun' "intToBv n" $ \n -> return $
@@ -319,27 +318,33 @@ toIntModOp :: CValue
 toIntModOp =
   Prims.natFun $ \n -> return $
   Prims.intFun "toIntModOp" $ \x -> return $
-  VInt (x `mod` toInteger n)
+  VIntMod n (x `mod` toInteger n)
+
+fromIntModOp :: CValue
+fromIntModOp =
+  constFun $
+  Prims.intModFun "fromIntModOp" $ \x -> pure $
+  VInt x
 
 intModEqOp :: CValue
 intModEqOp =
   constFun $
-  Prims.intFun "intModEqOp" $ \x -> return $
-  Prims.intFun "intModEqOp" $ \y -> return $
+  Prims.intModFun "intModEqOp" $ \x -> return $
+  Prims.intModFun "intModEqOp" $ \y -> return $
   VBool (x == y)
 
 intModBinOp :: (Integer -> Integer -> Integer) -> CValue
 intModBinOp f =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModBinOp x" $ \x -> return $
-  Prims.intFun "intModBinOp y" $ \y -> return $
-  VInt (f x y `mod` toInteger n)
+  Prims.intModFun "intModBinOp x" $ \x -> return $
+  Prims.intModFun "intModBinOp y" $ \y -> return $
+  VIntMod n (f x y `mod` toInteger n)
 
 intModUnOp :: (Integer -> Integer) -> CValue
 intModUnOp f =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModUnOp" $ \x -> return $
-  VInt (f x `mod` toInteger n)
+  Prims.intModFun "intModUnOp" $ \x -> return $
+  VIntMod n (f x `mod` toInteger n)
 
 ------------------------------------------------------------
 

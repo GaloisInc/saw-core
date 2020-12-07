@@ -30,6 +30,7 @@ import Control.Monad ((<=<))
 import Data.IORef
 import Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Text as Text
 import qualified Data.Vector as V
 import Numeric.Natural (Natural)
 
@@ -98,7 +99,7 @@ type BValue l = Value (BitBlast l)
 type BThunk l = Thunk (BitBlast l)
 
 data BExtra l
-  = BStream (Integer -> IO (BValue l)) (IORef (Map Integer (BValue l)))
+  = BStream (Natural -> IO (BValue l)) (IORef (Map Natural (BValue l)))
 
 instance Show (BExtra l) where
   show (BStream _ _) = "BStream"
@@ -138,7 +139,7 @@ wordFun f = strictFun (\x -> toWord x >>= f)
 
 ------------------------------------------------------------
 
--- | op :: (n :: Nat) -> bitvector n -> Nat -> bitvector n
+-- | op : (n : Nat) -> Vec n Bool -> Nat -> Vec n Bool
 bvShiftOp :: (LitVector l -> LitVector l -> IO (LitVector l))
           -> (LitVector l -> Natural -> LitVector l)
           -> BValue l
@@ -147,7 +148,7 @@ bvShiftOp bvOp natOp =
   wordFun $ \x -> return $
   strictFun $ \y ->
     case y of
-      VNat n   -> return (vWord (natOp x (fromInteger n)))
+      VNat n   -> return (vWord (natOp x n))
       VToNat v -> fmap vWord (bvOp x =<< toWord v)
       _        -> error $ unwords ["Verifier.SAW.Simulator.BitBlast.shiftOp", show y]
 
@@ -269,9 +270,8 @@ beConstMap be =
   , ("Prelude.bvToInt" , bvToIntOp be)
   , ("Prelude.sbvToInt", sbvToIntOp be)
   -- Integers mod n
-  , ("Prelude.IntMod"    , constFun VIntType)
   , ("Prelude.toIntMod"  , toIntModOp)
-  , ("Prelude.fromIntMod", constFun (VFun force))
+  , ("Prelude.fromIntMod", fromIntModOp)
   , ("Prelude.intModEq"  , intModEqOp be)
   , ("Prelude.intModAdd" , intModBinOp (+))
   , ("Prelude.intModSub" , intModBinOp (-))
@@ -324,21 +324,21 @@ bitblastLogBase2 g x = do
 -----------------------------------------
 -- Integer/bitvector conversions
 
--- primitive bvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- primitive bvToInt : (n : Nat) -> Vec n Bool -> Integer;
 bvToIntOp :: AIG.IsAIG l g => g s -> BValue (l s)
 bvToIntOp g = constFun $ wordFun $ \v ->
    case AIG.asUnsigned g v of
       Just i -> return $ VInt i
       Nothing -> fail "Cannot convert symbolic bitvector to integer"
 
--- primitive sbvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- primitive sbvToInt : (n : Nat) -> Vec n Bool -> Integer;
 sbvToIntOp :: AIG.IsAIG l g => g s -> BValue (l s)
 sbvToIntOp g = constFun $ wordFun $ \v ->
    case AIG.asSigned g v of
       Just i -> return $ VInt i
       Nothing -> fail "Cannot convert symbolic bitvector to integer"
 
--- primitive intToBv :: (n::Nat) -> Integer -> bitvector n;
+-- primitive intToBv : (n : Nat) -> Integer -> Vec n Bool;
 intToBvOp :: AIG.IsAIG l g => g s -> BValue (l s)
 intToBvOp g =
   Prims.natFun' "intToBv n" $ \n -> return $
@@ -353,27 +353,33 @@ toIntModOp :: BValue l
 toIntModOp =
   Prims.natFun $ \n -> return $
   Prims.intFun "toIntModOp" $ \x -> return $
-  VInt (x `mod` toInteger n)
+  VIntMod n (x `mod` toInteger n)
+
+fromIntModOp :: BValue l
+fromIntModOp =
+  constFun $
+  Prims.intModFun "fromIntModOp" $ \x -> return $
+  VInt x
 
 intModEqOp :: AIG.IsAIG l g => g s -> BValue (l s)
 intModEqOp be =
   constFun $
-  Prims.intFun "intModEqOp" $ \x -> return $
-  Prims.intFun "intModEqOp" $ \y -> return $
+  Prims.intModFun "intModEqOp" $ \x -> return $
+  Prims.intModFun "intModEqOp" $ \y -> return $
   VBool (AIG.constant be (x == y))
 
 intModBinOp :: (Integer -> Integer -> Integer) -> BValue l
 intModBinOp f =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModBinOp x" $ \x -> return $
-  Prims.intFun "intModBinOp y" $ \y -> return $
-  VInt (f x y `mod` toInteger n)
+  Prims.intModFun "intModBinOp x" $ \x -> return $
+  Prims.intModFun "intModBinOp y" $ \y -> return $
+  VIntMod n (f x y `mod` toInteger n)
 
 intModUnOp :: (Integer -> Integer) -> BValue l
 intModUnOp f =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModUnOp" $ \x -> return $
-  VInt (f x `mod` toInteger n)
+  Prims.intModFun "intModUnOp" $ \x -> return $
+  VIntMod n (f x `mod` toInteger n)
 
 ----------------------------------------
 
@@ -391,14 +397,14 @@ streamGetOp be =
   constFun $
   strictFun $ \xs -> return $
   strictFun $ \case
-    VNat n -> lookupBStream xs (toInteger n)
+    VNat n -> lookupBStream xs n
     VToNat w ->
        do bs <- toWord w
           AIG.muxInteger (lazyMux be (muxBVal be)) ((2 ^ AIG.length bs) - 1) bs (lookupBStream xs)
     v -> fail (unlines ["Verifier.SAW.Simulator.BitBlast.streamGetOp", "Expected Nat value", show v])
 
 
-lookupBStream :: BValue l -> Integer -> IO (BValue l)
+lookupBStream :: BValue l -> Natural -> IO (BValue l)
 lookupBStream (VExtra (BStream f r)) n = do
    m <- readIORef r
    case Map.lookup n m of
@@ -444,7 +450,7 @@ bitBlastBasic be m addlPrims ecMap t = do
   Sim.evalSharedTerm cfg t
 
 bitBlastExtCns ::
-  Map VarIndex (BValue (l s)) -> ExtCns (BValue (l s)) ->
+  Map VarIndex (BValue (l s)) -> ExtCns (TValue (BitBlast (l s))) ->
   IO (BValue (l s))
 bitBlastExtCns ecMap (EC idx name _v) =
   case Map.lookup idx ecMap of
@@ -484,7 +490,7 @@ bitBlastTerm be sc addlPrims t = do
   modmap <- scGetModuleMap sc
   bval <- bitBlastBasic be modmap addlPrims ecMap t
   bval' <- applyAll bval argVars
-  let names =  map fst args ++ map ecName ecs
+  let names =  map fst args ++ map (Text.unpack . toShortName . ecName) ecs
       shapes = argShapes ++ ecShapes
   return (bval', zip names shapes)
 

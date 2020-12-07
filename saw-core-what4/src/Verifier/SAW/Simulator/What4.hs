@@ -49,6 +49,10 @@ module Verifier.SAW.Simulator.What4
   , w4Eval
   , w4EvalAny
   , w4EvalBasic
+  , getLabelValues
+
+  , w4SimulatorEval
+  , NeutralTermException(..)
   ) where
 
 
@@ -57,9 +61,12 @@ import qualified Control.Arrow as A
 
 import Data.Bits
 import Data.IORef
+import Data.List (genericTake)
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
@@ -67,6 +74,7 @@ import Data.Traversable as T
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
 #endif
+import qualified Control.Exception as X
 import Control.Monad.State as ST
 import Numeric.Natural (Natural)
 
@@ -78,14 +86,18 @@ import qualified Verifier.SAW.Simulator as Sim
 import qualified Verifier.SAW.Simulator.Prims as Prims
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.Simulator.Value
-import Verifier.SAW.TypedAST (FieldName, ModuleMap, identName)
-import Verifier.SAW.FiniteValue (FirstOrderType(..))
+import Verifier.SAW.FiniteValue (FirstOrderType(..), FirstOrderValue(..))
+import Verifier.SAW.TypedAST (FieldName, ModuleMap, identName, toShortName)
 
 -- what4
+import qualified What4.Expr.Builder as B
+import           What4.Expr.GroundEval
 import           What4.Interface(SymExpr,Pred,SymInteger, IsExpr,
                                  IsExprBuilder,IsSymExprBuilder)
 import qualified What4.Interface as W
 import           What4.BaseTypes
+import qualified What4.SWord as SW
+import           What4.SWord (SWord(..))
 
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
@@ -98,7 +110,6 @@ import Data.Parameterized.Some
 import qualified Lang.Crucible.Backend.SAWCore as CS
 
 -- saw-core-what4
-import Verifier.SAW.Simulator.What4.SWord
 import Verifier.SAW.Simulator.What4.PosNat
 import Verifier.SAW.Simulator.What4.FirstOrder
 import Verifier.SAW.Simulator.What4.Panic
@@ -135,7 +146,7 @@ type Sym sym = (Given sym, IsSymExprBuilder sym)
 ---------------------------------------------------------------------
 
 data What4Extra sym =
-  SStream (Integer -> IO (SValue sym)) (IORef (Map Integer (SValue sym)))
+  SStream (Natural -> IO (SValue sym)) (IORef (Map Natural (SValue sym)))
 
 instance Show (What4Extra sym) where
   show (SStream _ _) = "<SStream>"
@@ -152,16 +163,16 @@ prims =
   Prims.BasePrims
   { Prims.bpAsBool  = W.asConstantPred
     -- Bitvectors
-  , Prims.bpUnpack  = bvUnpack sym
-  , Prims.bpPack    = bvPack   sym
-  , Prims.bpBvAt    = bvAt     sym
-  , Prims.bpBvLit   = bvLit    sym
-  , Prims.bpBvSize  = intSizeOf
-  , Prims.bpBvJoin  = bvJoin   sym
-  , Prims.bpBvSlice = bvSlice  sym
+  , Prims.bpUnpack  = SW.bvUnpackBE sym
+  , Prims.bpPack    = SW.bvPackBE sym
+  , Prims.bpBvAt    = \w i -> SW.bvAtBE sym w (toInteger i)
+  , Prims.bpBvLit   = \l x -> SW.bvLit sym (toInteger l) x
+  , Prims.bpBvSize  = swBvWidth
+  , Prims.bpBvJoin  = SW.bvJoin   sym
+  , Prims.bpBvSlice = \ a b -> SW.bvSliceBE sym (toInteger a) (toInteger b)
     -- Conditionals
   , Prims.bpMuxBool  = W.itePred sym
-  , Prims.bpMuxWord  = bvIte     sym
+  , Prims.bpMuxWord  = SW.bvIte  sym
   , Prims.bpMuxInt   = W.intIte  sym
   , Prims.bpMuxExtra = muxWhat4Extra
     -- Booleans
@@ -173,43 +184,43 @@ prims =
   , Prims.bpXor    = W.xorPred   sym
   , Prims.bpBoolEq = W.isEq      sym
     -- Bitvector logical
-  , Prims.bpBvNot  = bvNot  sym
-  , Prims.bpBvAnd  = bvAnd  sym
-  , Prims.bpBvOr   = bvOr   sym
-  , Prims.bpBvXor  = bvXor  sym
+  , Prims.bpBvNot  = SW.bvNot  sym
+  , Prims.bpBvAnd  = SW.bvAnd  sym
+  , Prims.bpBvOr   = SW.bvOr   sym
+  , Prims.bpBvXor  = SW.bvXor  sym
     -- Bitvector arithmetic
-  , Prims.bpBvNeg  = bvNeg  sym
-  , Prims.bpBvAdd  = bvAdd  sym
-  , Prims.bpBvSub  = bvSub  sym
-  , Prims.bpBvMul  = bvMul  sym
-  , Prims.bpBvUDiv = bvUDiv sym
-  , Prims.bpBvURem = bvURem sym
-  , Prims.bpBvSDiv = bvSDiv sym
-  , Prims.bpBvSRem = bvSRem sym
-  , Prims.bpBvLg2  = bvLg2  sym
+  , Prims.bpBvNeg  = SW.bvNeg  sym
+  , Prims.bpBvAdd  = SW.bvAdd  sym
+  , Prims.bpBvSub  = SW.bvSub  sym
+  , Prims.bpBvMul  = SW.bvMul  sym
+  , Prims.bpBvUDiv = SW.bvUDiv sym
+  , Prims.bpBvURem = SW.bvURem sym
+  , Prims.bpBvSDiv = SW.bvSDiv sym
+  , Prims.bpBvSRem = SW.bvSRem sym
+  , Prims.bpBvLg2  = SW.bvLg2  sym
     -- Bitvector comparisons
-  , Prims.bpBvEq   = bvEq  sym
-  , Prims.bpBvsle  = bvsle sym
-  , Prims.bpBvslt  = bvslt sym
-  , Prims.bpBvule  = bvule sym
-  , Prims.bpBvult  = bvult sym
-  , Prims.bpBvsge  = bvsge sym
-  , Prims.bpBvsgt  = bvsgt sym
-  , Prims.bpBvuge  = bvuge sym
-  , Prims.bpBvugt  = bvugt sym
+  , Prims.bpBvEq   = SW.bvEq  sym
+  , Prims.bpBvsle  = SW.bvsle sym
+  , Prims.bpBvslt  = SW.bvslt sym
+  , Prims.bpBvule  = SW.bvule sym
+  , Prims.bpBvult  = SW.bvult sym
+  , Prims.bpBvsge  = SW.bvsge sym
+  , Prims.bpBvsgt  = SW.bvsgt sym
+  , Prims.bpBvuge  = SW.bvuge sym
+  , Prims.bpBvugt  = SW.bvugt sym
     -- Bitvector shift/rotate
-  , Prims.bpBvRolInt = bvRolInt sym
-  , Prims.bpBvRorInt = bvRorInt sym
-  , Prims.bpBvShlInt = bvShlInt sym
-  , Prims.bpBvShrInt = bvShrInt sym
-  , Prims.bpBvRol    = bvRol sym
-  , Prims.bpBvRor    = bvRor sym
+  , Prims.bpBvRolInt = liftRotate sym (SW.bvRol sym)
+  , Prims.bpBvRorInt = liftRotate sym (SW.bvRor sym)
+  , Prims.bpBvShlInt = \z -> liftShift sym (bvShl sym z)
+  , Prims.bpBvShrInt = \z -> liftShift sym (bvShr sym z)
+  , Prims.bpBvRol    = SW.bvRol sym
+  , Prims.bpBvRor    = SW.bvRor sym
   , Prims.bpBvShl    = bvShl sym
   , Prims.bpBvShr    = bvShr sym
     -- Bitvector misc
-  , Prims.bpBvPopcount = bvPopcount sym
-  , Prims.bpBvCountLeadingZeros = bvCountLeadingZeros sym
-  , Prims.bpBvCountTrailingZeros = bvCountTrailingZeros sym
+  , Prims.bpBvPopcount = SW.bvPopcount sym
+  , Prims.bpBvCountLeadingZeros = SW.bvCountLeadingZeros sym
+  , Prims.bpBvCountTrailingZeros = SW.bvCountTrailingZeros sym
   , Prims.bpBvForall = bvForall sym
     -- Integer operations
   , Prims.bpIntAbs = W.intAbs sym
@@ -248,8 +259,7 @@ constMap =
   , ("Prelude.bvToInt" , bvToIntOp)
   , ("Prelude.sbvToInt", sbvToIntOp)
   -- Integers mod n
-  , ("Prelude.IntMod"    , constFun VIntType)
-  , ("Prelude.toIntMod"  , constFun (VFun force))
+  , ("Prelude.toIntMod"  , toIntModOp)
   , ("Prelude.fromIntMod", fromIntModOp sym)
   , ("Prelude.intModEq"  , intModEqOp sym)
   , ("Prelude.intModAdd" , intModBinOp sym W.intAdd)
@@ -267,6 +277,12 @@ constMap =
 -----------------------------------------------------------------------
 -- Implementation of constMap primitives
 
+swBvWidth :: SWord sym -> Int
+swBvWidth x
+  | w <= toInteger (maxBound :: Int) = fromInteger w
+  | otherwise = panic "swBvWidth" ["bitvector too long", show w]
+ where w = SW.bvWidth x
+
 toBool :: SValue sym -> IO (SBool sym)
 toBool (VBool b) = return b
 toBool x         = fail $ unwords ["Verifier.SAW.Simulator.What4.toBool", show x]
@@ -278,7 +294,7 @@ toWord (VVector vv) = do
   -- vec :: Vector (SBool sym))
   vec1 <- T.traverse force vv
   vec2 <- T.traverse toBool vec1
-  bvPack (given :: sym) vec2
+  SW.bvPackBE (given :: sym) vec2
 toWord x            = fail $ unwords ["Verifier.SAW.Simulator.What4.toWord", show x]
 
 wordFun :: (Sym sym) =>
@@ -316,7 +332,7 @@ intToNatOp =
   Prims.intFun "intToNat" $ \i ->
     case W.asInteger i of
       Just i'
-        | 0 <= i'   -> pure (VNat i')
+        | 0 <= i'   -> pure (VNat (fromInteger i'))
         | otherwise -> pure (VNat 0)
       Nothing ->
         do z <- W.intLit (given :: sym) 0
@@ -331,30 +347,61 @@ natToIntOp =
     VInt <$> W.intLit (given :: sym) (toInteger n)
 
 -- interpret bitvector as unsigned integer
--- primitive bvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- primitive bvToInt : (n : Nat) -> Vec n Bool -> Integer;
 bvToIntOp :: forall sym. (Sym sym) => SValue sym
 bvToIntOp = constFun $ wordFun $ \(v :: SWord sym) -> do
-  VInt <$> bvToInteger (given :: sym) v
+  VInt <$> SW.bvToInteger (given :: sym) v
 
 -- interpret bitvector as signed integer
--- primitive sbvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- primitive sbvToInt : (n : Nat) -> Vec n Bool -> Integer;
 sbvToIntOp :: forall sym. (Sym sym) => SValue sym
 sbvToIntOp = constFun $ wordFun $ \v -> do
-   VInt <$> sbvToInteger (given :: sym) v
+   VInt <$> SW.sbvToInteger (given :: sym) v
 
--- primitive intToBv :: (n::Nat) -> Integer -> bitvector n;
+-- primitive intToBv : (n : Nat) -> Integer -> Vec n Bool;
 intToBvOp :: forall sym. (Sym sym) => SValue sym
 intToBvOp =
   Prims.natFun' "intToBv n" $ \n -> return $
   Prims.intFun "intToBv x" $ \(x :: SymInteger sym) ->
-    VWord <$> integerToBV (given :: sym) x n
+    VWord <$> SW.integerToBV (given :: sym) x n
 
 
 --
 -- Shifts
 --
 
--- | op :: (n :: Nat) -> bitvector n -> Nat -> bitvector n
+-- | Shift left, shifting in copies of the given bit
+bvShl :: IsExprBuilder sym => sym -> Pred sym -> SWord sym -> SWord sym -> IO (SWord sym)
+bvShl sym z w i =
+  W.iteM SW.bvIte sym z
+    (do w' <- SW.bvNot sym w
+        SW.bvNot sym =<< SW.bvShl sym w' i)
+    (SW.bvShl sym w i)
+
+-- | Shift right, shifting in copies of the given bit
+bvShr :: IsExprBuilder sym => sym -> Pred sym -> SWord sym -> SWord sym -> IO (SWord sym)
+bvShr sym z w i =
+  W.iteM SW.bvIte sym z
+    (do w' <- SW.bvNot sym w
+        SW.bvNot sym =<< SW.bvLshr sym w' i)
+    (SW.bvLshr sym w i)
+
+liftShift :: IsExprBuilder sym =>
+  sym ->
+  (SWord sym -> SWord sym -> IO (SWord sym)) ->
+  SWord sym -> Integer -> IO (SWord sym)
+liftShift sym f w i =
+  f w =<< SW.bvLit sym (SW.bvWidth w) (i `min` SW.bvWidth w)
+
+liftRotate :: IsExprBuilder sym =>
+  sym ->
+  (SWord sym -> SWord sym -> IO (SWord sym)) ->
+  SWord sym -> Integer -> IO (SWord sym)
+liftRotate sym f w i =
+  f w =<< SW.bvLit sym (SW.bvWidth w) (i `mod` SW.bvWidth w)
+
+
+-- | op : (n : Nat) -> Vec n Bool -> Nat -> Vec n Bool
 bvShiftOp :: (Sym sym) =>
              (SWord sym -> SWord sym -> IO (SWord sym)) ->
              (SWord sym -> Integer   -> IO (SWord sym)) -> SValue sym
@@ -365,26 +412,37 @@ bvShiftOp bvOp natOp =
   strictFun $ \y ->            -- amount to shift as a nat
     case y of
       VNat i   -> VWord <$> natOp x j
-        where j = i `min` toInteger (intSizeOf x)
+        where j = toInteger i `min` SW.bvWidth x
       VToNat v -> VWord <$> (bvOp x =<< toWord v)
       _        -> error $ unwords ["Verifier.SAW.Simulator.What4.bvShiftOp", show y]
 
--- bvShl :: (w :: Nat) -> bitvector w -> Nat -> bitvector w;
+-- bvShl : (w : Nat) -> Vec w Bool -> Nat -> Vec w Bool;
 bvShLOp :: forall sym. (Sym sym) => SValue sym
-bvShLOp = bvShiftOp (bvShl    given (W.falsePred @sym given))
-                    (bvShlInt given (W.falsePred @sym given))
+bvShLOp = bvShiftOp (SW.bvShl given)
+                    (liftShift given (SW.bvShl given))
 
--- bvShR :: (w :: Nat) -> bitvector w -> Nat -> bitvector w;
+-- bvShR : (w : Nat) -> Vec w Bool -> Nat -> Vec w Bool;
 bvShROp :: forall sym. (Sym sym) => SValue sym
-bvShROp = bvShiftOp (bvShr    given (W.falsePred @sym given))
-                    (bvShrInt given (W.falsePred @sym given))
+bvShROp = bvShiftOp (SW.bvLshr given)
+                    (liftShift given (SW.bvLshr given))
 
-
--- bvShR :: (w :: Nat) -> bitvector w -> Nat -> bitvector w;
+-- bvSShR : (w : Nat) -> Vec w Bool -> Nat -> Vec w Bool;
 bvSShROp :: forall sym. (Sym sym) => SValue sym
-bvSShROp = bvShiftOp (bvSShr    given (W.falsePred @sym given))
-                     (bvSShrInt given (W.falsePred @sym given))
+bvSShROp = bvShiftOp (SW.bvAshr given)
+                     (liftShift given (SW.bvAshr given))
 
+bvForall :: W.IsSymExprBuilder sym =>
+  sym -> Natural -> (SWord sym -> IO (Pred sym)) -> IO (Pred sym)
+bvForall sym n f =
+  do let indexSymbol = W.safeSymbol "i"
+     case mkNatRepr n of
+        Some w
+          | Just LeqProof <- testLeq (knownNat @1) w ->
+            withKnownNat w $ do
+              i <- W.freshBoundVar sym indexSymbol $ W.BaseBVRepr w
+              body <- f . DBV $ W.varExpr sym i
+              W.forallPred sym i body
+          | otherwise -> f ZBV
 
 --
 -- missing integer operations
@@ -403,17 +461,23 @@ intMax sym i1 i2 = do
 ------------------------------------------------------------
 -- Integers mod n
 
+toIntModOp :: SValue sym
+toIntModOp =
+  Prims.natFun' "toIntMod" $ \n -> pure $
+  Prims.intFun "toIntMod" $ \x -> pure $
+  VIntMod n x
+
 fromIntModOp :: IsExprBuilder sym => sym -> SValue sym
 fromIntModOp sym =
   Prims.natFun $ \n -> return $
   Prims.intFun "fromIntModOp" $ \x ->
-  VInt <$> (W.intMod sym x =<< W.intLit sym (toInteger n))
+  VIntMod n <$> (W.intMod sym x =<< W.intLit sym (toInteger n))
 
 intModEqOp :: IsExprBuilder sym => sym -> SValue sym
 intModEqOp sym =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModEqOp" $ \x -> return $
-  Prims.intFun "intModEqOp" $ \y ->
+  Prims.intModFun "intModEqOp" $ \x -> return $
+  Prims.intModFun "intModEqOp" $ \y ->
   do modulus <- W.intLit sym (toInteger n)
      d <- W.intSub sym x y
      r <- W.intMod sym d modulus
@@ -425,17 +489,17 @@ intModBinOp ::
   (sym -> SInt sym -> SInt sym -> IO (SInt sym)) -> SValue sym
 intModBinOp sym f =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModBinOp x" $ \x -> return $
-  Prims.intFun "intModBinOp y" $ \y ->
-  VInt <$> (normalizeIntMod sym n =<< f sym x y)
+  Prims.intModFun "intModBinOp x" $ \x -> return $
+  Prims.intModFun "intModBinOp y" $ \y ->
+  VIntMod n <$> (normalizeIntMod sym n =<< f sym x y)
 
 intModUnOp ::
   IsExprBuilder sym => sym ->
   (sym -> SInt sym -> IO (SInt sym)) -> SValue sym
 intModUnOp sym f =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModUnOp" $ \x ->
-  VInt <$> (normalizeIntMod sym n =<< f sym x)
+  Prims.intModFun "intModUnOp" $ \x ->
+  VIntMod n <$> (normalizeIntMod sym n =<< f sym x)
 
 normalizeIntMod :: IsExprBuilder sym => sym -> Natural -> SInt sym -> IO (SInt sym)
 normalizeIntMod sym n x =
@@ -460,13 +524,13 @@ streamGetOp =
   constFun $
   strictFun $ \xs -> return $
   strictFun $ \case
-    VNat n -> lookupSStream xs (toInteger n)
+    VNat n -> lookupSStream xs n
     VToNat w ->
       do ilv <- toWord w
-         selectV (lazyMux @sym muxBVal) ((2 ^ intSizeOf ilv) - 1) (lookupSStream xs) ilv
+         selectV (lazyMux @sym muxBVal) ((2 ^ SW.bvWidth ilv) - 1) (lookupSStream xs) ilv
     v -> Prims.panic "streamGetOp" ["Expected Nat value", show v]
 
-lookupSStream :: SValue sym -> Integer -> IO (SValue sym)
+lookupSStream :: SValue sym -> Natural -> IO (SValue sym)
 lookupSStream (VExtra (SStream f r)) n = do
    m <- readIORef r
    case Map.lookup n m of
@@ -506,18 +570,18 @@ lazyMux muxFn c tm fm =
 
 -- selectV merger maxValue valueFn index returns valueFn v when index has value v
 -- if index is greater than maxValue, it returns valueFn maxValue. Use the ite op from merger.
-selectV :: forall sym a b. (Sym sym, Ord a, Num a, Bits a) =>
-  (SBool sym -> IO b -> IO b -> IO b) -> a -> (a -> IO b) -> SWord sym -> IO b
+selectV :: forall sym b. Sym sym =>
+  (SBool sym -> IO b -> IO b -> IO b) -> Natural -> (Natural -> IO b) -> SWord sym -> IO b
 selectV merger maxValue valueFn vx =
-  case bvAsUnsignedInteger vx of
-    Just i  -> valueFn (fromIntegral i)
-    Nothing -> impl (intSizeOf vx) 0
+  case SW.bvAsUnsignedInteger vx of
+    Just i  -> valueFn (fromInteger i :: Natural)
+    Nothing -> impl (swBvWidth vx) 0
   where
-    impl :: Int -> a -> IO b
+    impl :: Int -> Natural -> IO b
     impl _ x | x > maxValue || x < 0 = valueFn maxValue
     impl 0 y = valueFn y
     impl i y = do
-      p <- bvAt (given :: sym) vx j
+      p <- SW.bvAtBE (given :: sym) vx (toInteger j)
       merger p (impl j (y `setBit` j)) (impl j y) where j = i - 1
 
 instance Show (SArray sym) where
@@ -526,7 +590,7 @@ instance Show (SArray sym) where
 arrayConstant ::
   W.IsSymExprBuilder sym =>
   sym ->
-  SValue sym ->
+  TValue (What4 sym) ->
   SValue sym ->
   IO (SArray sym)
 arrayConstant sym ity elm
@@ -596,19 +660,20 @@ arrayEq sym lhs_arr rhs_arr
 
 w4SolveBasic ::
   forall sym. (Given sym, IsSymExprBuilder sym) =>
-  ModuleMap ->
+  SharedContext ->
   Map Ident (SValue sym) {- ^ additional primitives -} ->
   IORef (SymFnCache sym) {- ^ cache for uninterpreted function symbols -} ->
-  [String] {- ^ 'unints' Constants in this list are kept uninterpreted -} ->
+  Set VarIndex {- ^ 'unints' Constants in this list are kept uninterpreted -} ->
   Term {- ^ term to simulate -} ->
   IO (SValue sym)
-w4SolveBasic m addlPrims ref unints t =
-  do let unintSet = Set.fromList unints
+w4SolveBasic sc addlPrims ref unintSet t =
+  do m <- scGetModuleMap sc
      let sym = given :: sym
-     let extcns (EC ix nm ty) = parseUninterpreted sym ref (mkUnintApp (nm ++ "_" ++ show ix)) ty
+     let extcns (EC ix nm ty) =
+             parseUninterpreted sym ref (mkUnintApp (Text.unpack (toShortName nm) ++ "_" ++ show ix)) ty
      let uninterpreted ec
-           | Set.member (ecName ec) unintSet = Just (extcns ec)
-           | otherwise                       = Nothing
+           | Set.member (ecVarIndex ec) unintSet = Just (extcns ec)
+           | otherwise                           = Nothing
      cfg <- Sim.evalGlobal m (constMap `Map.union` addlPrims) extcns uninterpreted
      Sim.evalSharedTerm cfg t
 
@@ -643,16 +708,14 @@ mkSymFn ::
   String -> Assignment BaseTypeRepr args -> BaseTypeRepr ret ->
   IO (W.SymFn sym args ret)
 mkSymFn sym ref nm args ret =
-  case W.userSymbol nm of
-    Left err -> fail $ show err ++ ": Cannot create uninterpreted constant " ++ nm
-    Right s  ->
-      do cache <- readIORef ref
-         case lookupSymFn s args ret cache of
-           Just fn -> return fn
-           Nothing ->
-             do fn <- W.freshTotalUninterpFn sym s args ret
-                writeIORef ref (insertSymFn s args ret fn cache)
-                return fn
+  do let s = W.safeSymbol nm
+     cache <- readIORef ref
+     case lookupSymFn s args ret cache of
+       Just fn -> return fn
+       Nothing ->
+         do fn <- W.freshTotalUninterpFn sym s args ret
+            writeIORef ref (insertSymFn s args ret fn cache)
+            return fn
 
 ----------------------------------------------------------------------
 -- Given a constant nm of (saw-core) type ty, construct an uninterpreted
@@ -665,13 +728,13 @@ parseUninterpreted ::
   (IsSymExprBuilder sym) =>
   sym -> IORef (SymFnCache sym) ->
   UnintApp (SymExpr sym) ->
-  SValue sym -> IO (SValue sym)
+  TValue (What4 sym) -> IO (SValue sym)
 parseUninterpreted sym ref app ty =
   case ty of
     VPiType _ f
       -> return $
          strictFun $ \x -> do
-           app' <- applyUnintApp app x
+           app' <- applyUnintApp sym app x
            t2 <- f (ready x)
            parseUninterpreted sym ref app' t2
 
@@ -681,15 +744,18 @@ parseUninterpreted sym ref app ty =
     VIntType
       -> VInt  <$> mkUninterpreted sym ref app BaseIntegerRepr
 
+    VIntModType n
+      -> VIntMod n <$> mkUninterpreted sym ref app BaseIntegerRepr
+
     -- 0 width bitvector is a constant
-    VVecType (VNat 0) VBoolType
+    VVecType 0 VBoolType
       -> return $ VWord ZBV
 
-    VVecType (VNat n) VBoolType
+    VVecType n VBoolType
       | Just (Some (PosNat w)) <- somePosNat n
       -> (VWord . DBV) <$> mkUninterpreted sym ref app (BaseBVRepr w)
 
-    VVecType (VNat n) ety
+    VVecType n ety
       ->  do xs <- sequence $
                   [ parseUninterpreted sym ref (suffixUnintApp ("_a" ++ show i) app) ety
                   | i <- [0 .. n-1] ]
@@ -735,6 +801,10 @@ mkUninterpreted sym ref (UnintApp nm args tys) ret =
 data UnintApp f =
   forall args. UnintApp String (Assignment f args) (Assignment BaseTypeRepr args)
 
+-- | Extract the string from an 'UnintApp'.
+stringOfUnintApp :: UnintApp f -> String
+stringOfUnintApp (UnintApp s _ _) = s
+
 -- | Make an 'UnintApp' with the given name and no arguments.
 mkUnintApp :: String -> UnintApp f
 mkUnintApp nm = UnintApp nm Ctx.empty Ctx.empty
@@ -755,37 +825,53 @@ extendUnintApp (UnintApp nm xs tys) x ty =
 -- encode them as suffixes on the function name of the 'UnintApp'.
 applyUnintApp ::
   forall sym.
+  (W.IsExprBuilder sym) =>
+  sym ->
   UnintApp (SymExpr sym) ->
   SValue sym ->
   IO (UnintApp (SymExpr sym))
-applyUnintApp app0 v =
+applyUnintApp sym app0 v =
   case v of
     VUnit                     -> return app0
-    VPair x y                 -> do app1 <- applyUnintApp app0 =<< force x
-                                    app2 <- applyUnintApp app1 =<< force y
+    VPair x y                 -> do app1 <- applyUnintApp sym app0 =<< force x
+                                    app2 <- applyUnintApp sym app1 =<< force y
                                     return app2
-    VRecordValue elems        -> foldM applyUnintApp app0 =<< traverse (force . snd) elems
-    VVector xv                -> foldM applyUnintApp app0 =<< traverse force xv
+    VRecordValue elems        -> foldM (applyUnintApp sym) app0 =<< traverse (force . snd) elems
+    VVector xv                -> foldM (applyUnintApp sym) app0 =<< traverse force xv
     VBool sb                  -> return (extendUnintApp app0 sb BaseBoolRepr)
     VInt si                   -> return (extendUnintApp app0 si BaseIntegerRepr)
+    VIntMod 0 si              -> return (extendUnintApp app0 si BaseIntegerRepr)
+    VIntMod n si              -> do n' <- W.intLit sym (toInteger n)
+                                    si' <- W.intMod sym si n'
+                                    return (extendUnintApp app0 si' BaseIntegerRepr)
     VWord (DBV sw)            -> return (extendUnintApp app0 sw (W.exprType sw))
     VArray (SArray sa)        -> return (extendUnintApp app0 sa (W.exprType sa))
     VWord ZBV                 -> return app0
-    VCtorApp i xv             -> foldM applyUnintApp app' =<< traverse force xv
+    VCtorApp i xv             -> foldM (applyUnintApp sym) app' =<< traverse force xv
                                    where app' = suffixUnintApp ("_" ++ identName i) app0
     VNat n                    -> return (suffixUnintApp ("_" ++ show n) app0)
-    _ -> fail $ "Could not create argument for " ++ show v
+    TValue (suffixTValue -> Just s)
+                              -> return (suffixUnintApp s app0)
+    VFun _ ->
+      fail $
+      "Cannot create uninterpreted higher-order function " ++
+      show (stringOfUnintApp app0)
+    _ ->
+      fail $
+      "Cannot create uninterpreted function " ++
+      show (stringOfUnintApp app0) ++
+      " with argument " ++ show v
+
 
 ------------------------------------------------------------
 
 w4SolveAny ::
   forall sym. (IsSymExprBuilder sym) =>
-  sym -> SharedContext -> Map Ident (SValue sym) -> [String] -> Term ->
+  sym -> SharedContext -> Map Ident (SValue sym) -> Set VarIndex -> Term ->
   IO ([String], ([Maybe (Labeler sym)], SValue sym))
-w4SolveAny sym sc ps unints t = give sym $ do
-  modmap <- scGetModuleMap sc
+w4SolveAny sym sc ps unintSet t = give sym $ do
   ref <- newIORef Map.empty
-  let eval = w4SolveBasic modmap ps ref unints
+  let eval = w4SolveBasic sc ps ref unintSet
   ty <- eval =<< scTypeOf sc t
 
   -- get the names of the arguments to the function
@@ -793,7 +879,7 @@ w4SolveAny sym sc ps unints t = give sym $ do
   let moreNames = [ "var" ++ show (i :: Integer) | i <- [0 ..] ]
 
   -- and their types
-  argTs <- argTypes ty
+  argTs <- argTypes (toTValue ty)
 
   -- construct symbolic expressions for the variables
   vars' <-
@@ -812,10 +898,10 @@ w4SolveAny sym sc ps unints t = give sym $ do
 
 w4Solve ::
   forall sym. (IsSymExprBuilder sym) =>
-  sym -> SharedContext -> Map Ident (SValue sym) -> [String] -> Term ->
+  sym -> SharedContext -> Map Ident (SValue sym) -> Set VarIndex -> Term ->
   IO ([String], ([Maybe (Labeler sym)], SBool sym))
-w4Solve sym sc ps unints t =
-  do (argNames, (bvs, bval)) <- w4SolveAny sym sc ps unints t
+w4Solve sym sc ps unintSet t =
+  do (argNames, (bvs, bval)) <- w4SolveAny sym sc ps unintSet t
      case bval of
        VBool b -> return (argNames, (bvs, b))
        _ -> fail $ "w4Solve: non-boolean result type. " ++ show bval
@@ -824,11 +910,12 @@ w4Solve sym sc ps unints t =
 --
 -- Pull out argument types until bottoming out at a non-Pi type
 --
-argTypes :: IsSymExprBuilder sv => SValue sv -> IO [SValue sv]
+argTypes :: IsSymExprBuilder sym => TValue (What4 sym) -> IO [TValue (What4 sym)]
 argTypes v =
   case v of
     VPiType v1 f ->
-      do v2 <- f (error "argTypes: unsupported dependent SAW-Core type")
+      do x <- delay (fail "argTypes: unsupported dependent SAW-Core type")
+         v2 <- f x
          vs <- argTypes v2
          return (v1 : vs)
     _ -> return []
@@ -836,15 +923,17 @@ argTypes v =
 --
 -- Convert a saw-core type expression to a FirstOrder type expression
 --
-vAsFirstOrderType :: forall sv. IsSymExprBuilder sv => SValue sv -> Maybe FirstOrderType
+vAsFirstOrderType :: forall sym. IsSymExprBuilder sym => TValue (What4 sym) -> Maybe FirstOrderType
 vAsFirstOrderType v =
   case v of
     VBoolType
       -> return FOTBit
     VIntType
       -> return FOTInt
-    VVecType (VNat n) v2
-      -> FOTVec (fromInteger n) <$> vAsFirstOrderType v2
+    VIntModType n
+      -> return (FOTIntMod n)
+    VVecType n v2
+      -> FOTVec n <$> vAsFirstOrderType v2
     VArrayType iv ev
       -> FOTArray <$> vAsFirstOrderType iv <*> vAsFirstOrderType ev
     VUnitType
@@ -860,7 +949,7 @@ vAsFirstOrderType v =
           mapM (\(f,tp) -> (f,) <$> vAsFirstOrderType tp) tps)
     _ -> Nothing
 
-valueAsBaseType :: IsSymExprBuilder sym => SValue sym -> Maybe (Some W.BaseTypeRepr)
+valueAsBaseType :: IsSymExprBuilder sym => TValue (What4 sym) -> Maybe (Some W.BaseTypeRepr)
 valueAsBaseType v = fmap fotToBaseType $ vAsFirstOrderType v
 
 ------------------------------------------------------------------------------
@@ -872,17 +961,20 @@ data TypedExpr sym where
   TypedExpr :: BaseTypeRepr ty -> SymExpr sym ty -> TypedExpr sym
 
 
+-- | Create a fresh constant with the given name and type.
+mkConstant ::
+  forall sym ty.
+  (IsSymExprBuilder sym) =>
+  sym -> String -> BaseTypeRepr ty -> IO (SymExpr sym ty)
+mkConstant sym name ty = W.freshConstant sym (W.safeSymbol name) ty
+
 -- | Generate a new variable from a given BaseType
 
 freshVar :: forall sym ty. (IsSymExprBuilder sym, Given sym) =>
   BaseTypeRepr ty -> String -> IO (TypedExpr sym)
 freshVar ty str =
-  case W.userSymbol str of
-    Right solverSymbol -> do
-      c <- W.freshConstant (given :: sym) solverSymbol ty
-      return (TypedExpr ty c)
-    Left _ ->
-      fail $ "Cannot create solver symbol " ++ str
+  do c <- mkConstant (given :: sym) str ty
+     return (TypedExpr ty c)
 
 nextId :: StateT Int IO String
 nextId = ST.get >>= (\s-> modify (+1) >> return ("x" ++ show s))
@@ -890,7 +982,7 @@ nextId = ST.get >>= (\s-> modify (+1) >> return ("x" ++ show s))
 
 newVarsForType :: forall sym. (Given sym, IsSymExprBuilder sym) =>
   IORef (SymFnCache sym) ->
-  SValue sym -> String -> StateT Int IO (Maybe (Labeler sym), SValue sym)
+  TValue (What4 sym) -> String -> StateT Int IO (Maybe (Labeler sym), SValue sym)
 newVarsForType ref v nm =
   case vAsFirstOrderType v of
     Just fot -> do
@@ -906,10 +998,11 @@ myfun ::(Map String (Labeler sym, SValue sym)) -> (Map String (Labeler sym), Map
 myfun = fmap fst A.&&& fmap snd
 
 data Labeler sym
-   = BaseLabel  (TypedExpr sym)
-   | VecLabel   (Vector (Labeler sym))
-   | TupleLabel (Vector (Labeler sym))
-   | RecLabel   (Map FieldName (Labeler sym))
+  = BaseLabel (TypedExpr sym)
+  | IntModLabel Natural (SymInteger sym)
+  | VecLabel (Vector (Labeler sym))
+  | TupleLabel (Vector (Labeler sym))
+  | RecLabel (Map FieldName (Labeler sym))
 
 
 newVarFOT :: forall sym. (IsSymExprBuilder sym, Given sym) =>
@@ -931,6 +1024,12 @@ newVarFOT (FOTRec tm)
        args <- traverse (return . ready) (vals :: (Map String (SValue sym)))
        return (RecLabel labels, vRecord args)
 
+newVarFOT (FOTIntMod n)
+  = do nm <- nextId
+       let r = BaseIntegerRepr
+       si <- lift $ mkConstant (given :: sym) nm r
+       return (IntModLabel n si, VIntMod n si)
+
 newVarFOT fot
   | Some r <- fotToBaseType fot
   = do nm <- nextId
@@ -944,6 +1043,27 @@ typedToSValue :: (IsExpr (SymExpr sym)) => TypedExpr sym -> IO (SValue sym)
 typedToSValue (TypedExpr ty expr) =
   maybe (fail "Cannot handle") return $ symExprToValue ty expr
 
+getLabelValues ::
+  forall sym t.
+  (SymExpr sym ~ B.Expr t) =>
+  GroundEvalFn t -> Labeler sym -> IO FirstOrderValue
+getLabelValues f =
+  \case
+    TupleLabel labels ->
+      FOVTuple <$> traverse (getLabelValues f) (V.toList labels)
+    VecLabel labels ->
+      FOVVec vty <$> traverse (getLabelValues f) (V.toList labels)
+      where vty = error "TODO: compute vector type, or just store it"
+    RecLabel labels ->
+      FOVRec <$> traverse (getLabelValues f) labels
+    IntModLabel n x ->
+      FOVIntMod n <$> groundEval f x
+    BaseLabel (TypedExpr ty bv) ->
+      do gv <- groundEval f bv
+         case (groundToFOV ty gv) of
+           Left err  -> fail err
+           Right fov -> pure fov
+
 ----------------------------------------------------------------------
 -- Evaluation through crucible-saw backend
 
@@ -953,12 +1073,12 @@ typedToSValue (TypedExpr ty expr) =
 w4EvalAny ::
   forall n solver fs.
   CS.SAWCoreBackend n solver fs -> SharedContext ->
-  Map Ident (SValue (CS.SAWCoreBackend n solver fs)) -> [String] -> Term ->
+  Map Ident (SValue (CS.SAWCoreBackend n solver fs)) -> Set VarIndex -> Term ->
   IO ([String], ([Maybe (Labeler (CS.SAWCoreBackend n solver fs))], SValue (CS.SAWCoreBackend n solver fs)))
-w4EvalAny sym sc ps unints t =
+w4EvalAny sym sc ps unintSet t =
   do modmap <- scGetModuleMap sc
      ref <- newIORef Map.empty
-     let eval = w4EvalBasic sym sc modmap ps ref unints
+     let eval = w4EvalBasic sym sc modmap ps ref unintSet
      ty <- eval =<< scTypeOf sc t
 
      -- get the names of the arguments to the function
@@ -967,7 +1087,7 @@ w4EvalAny sym sc ps unints t =
      let argNames = zipWith (++) varNames (map ("_" ++) lamNames ++ repeat "")
 
      -- and their types
-     argTs <- argTypes ty
+     argTs <- argTypes (toTValue ty)
 
      -- construct symbolic expressions for the variables
      vars' <-
@@ -988,10 +1108,10 @@ w4EvalAny sym sc ps unints t =
 w4Eval ::
   forall n solver fs.
   CS.SAWCoreBackend n solver fs -> SharedContext ->
-  Map Ident (SValue (CS.SAWCoreBackend n solver fs)) -> [String] -> Term ->
+  Map Ident (SValue (CS.SAWCoreBackend n solver fs)) -> Set VarIndex -> Term ->
   IO ([String], ([Maybe (Labeler (CS.SAWCoreBackend n solver fs))], SBool (CS.SAWCoreBackend n solver fs)))
-w4Eval sym sc ps uints t =
-  do (argNames, (bvs, bval)) <- w4EvalAny sym sc ps uints t
+w4Eval sym sc ps uintSet t =
+  do (argNames, (bvs, bval)) <- w4EvalAny sym sc ps uintSet t
      case bval of
        VBool b -> return (argNames, (bvs, b))
        _ -> fail $ "w4Eval: non-boolean result type. " ++ show bval
@@ -1005,19 +1125,52 @@ w4EvalBasic ::
   ModuleMap ->
   Map Ident (SValue (CS.SAWCoreBackend n solver fs)) {- ^ additional primitives -} ->
   IORef (SymFnCache (CS.SAWCoreBackend n solver fs)) {- ^ cache for uninterpreted function symbols -} ->
-  [String] {- ^ 'unints' Constants in this list are kept uninterpreted -} ->
+  Set VarIndex {- ^ 'unints' Constants in this list are kept uninterpreted -} ->
   Term {- ^ term to simulate -} ->
   IO (SValue (CS.SAWCoreBackend n solver fs))
-w4EvalBasic sym sc m addlPrims ref unints t =
-  do let unintSet = Set.fromList unints
-     let extcns tf (EC ix nm ty) =
+w4EvalBasic sym sc m addlPrims ref unintSet t =
+  do let extcns tf (EC ix nm ty) =
            do trm <- ArgTermConst <$> scTermF sc tf
-              parseUninterpretedSAW sym sc ref trm (mkUnintApp (nm ++ "_" ++ show ix)) ty
+              parseUninterpretedSAW sym sc ref trm
+                 (mkUnintApp (Text.unpack (toShortName nm) ++ "_" ++ show ix)) ty
      let uninterpreted tf ec
-           | Set.member (ecName ec) unintSet = Just (extcns tf ec)
-           | otherwise                       = Nothing
+           | Set.member (ecVarIndex ec) unintSet = Just (extcns tf ec)
+           | otherwise                           = Nothing
      cfg <- Sim.evalGlobal' m (give sym constMap `Map.union` addlPrims) extcns uninterpreted
      Sim.evalSharedTerm cfg t
+
+
+-- | Evaluate a saw-core term to a What4 value for the purposes of
+--   using it as an input for symbolic simulation.  This will evaluate
+--   primitives, but will cancel evaluation and return the associated
+--   'NameInfo' if it encounters a constant value with an 'ExtCns'
+--   that is not accepted by the filter.
+w4SimulatorEval ::
+  forall n solver fs.
+  CS.SAWCoreBackend n solver fs ->
+  SharedContext ->
+  ModuleMap ->
+  Map Ident (SValue (CS.SAWCoreBackend n solver fs)) {- ^ additional primitives -} ->
+  IORef (SymFnCache (CS.SAWCoreBackend n solver fs)) {- ^ cache for uninterpreted function symbols -} ->
+  (ExtCns (TValue (What4 (CS.SAWCoreBackend n solver fs))) -> Bool)
+    {- ^ Filter for constant values.  True means unfold, false means halt evaluation. -} ->
+  Term {- ^ term to simulate -} ->
+  IO (Either NameInfo (SValue (CS.SAWCoreBackend n solver fs)))
+w4SimulatorEval sym sc m addlPrims ref constantFilter t =
+  do let extcns tf (EC ix nm ty) =
+           do trm <- ArgTermConst <$> scTermF sc tf
+              parseUninterpretedSAW sym sc ref trm (mkUnintApp (Text.unpack (toShortName nm) ++ "_" ++ show ix)) ty
+     let uninterpreted _tf ec =
+          if constantFilter ec then Nothing else Just (X.throwIO (NeutralTermEx (ecName ec)))
+     res <- X.try $ do
+              cfg <- Sim.evalGlobal' m (give sym constMap `Map.union` addlPrims) extcns uninterpreted
+              Sim.evalSharedTerm cfg t
+     case res of
+       Left (NeutralTermEx nmi) -> pure (Left nmi)
+       Right x -> pure (Right x)
+
+data NeutralTermException = NeutralTermEx NameInfo deriving Show
+instance X.Exception NeutralTermException
 
 -- | Given a constant nm of (saw-core) type ty, construct an
 -- uninterpreted constant with that type. The 'Term' argument should
@@ -1026,18 +1179,19 @@ w4EvalBasic sym sc m addlPrims ref unints t =
 -- 'Assignment'.
 parseUninterpretedSAW ::
   forall n solver fs.
-  CS.SAWCoreBackend n solver fs -> SharedContext ->
+  CS.SAWCoreBackend n solver fs ->
+  SharedContext ->
   IORef (SymFnCache (CS.SAWCoreBackend n solver fs)) ->
   ArgTerm {- ^ representation of function applied to arguments -} ->
   UnintApp (SymExpr (CS.SAWCoreBackend n solver fs)) ->
-  SValue (CS.SAWCoreBackend n solver fs) {- ^ return type -} ->
+  TValue (What4 (CS.SAWCoreBackend n solver fs)) {- ^ return type -} ->
   IO (SValue (CS.SAWCoreBackend n solver fs))
 parseUninterpretedSAW sym sc ref trm app ty =
   case ty of
     VPiType t1 f
       -> return $
          strictFun $ \x -> do
-           app' <- applyUnintApp app x
+           app' <- applyUnintApp sym app x
            arg <- mkArgTerm sc t1 x
            let trm' = ArgTermApply trm arg
            t2 <- f (ready x)
@@ -1050,20 +1204,20 @@ parseUninterpretedSAW sym sc ref trm app ty =
       -> VInt  <$> mkUninterpretedSAW sym ref trm app BaseIntegerRepr
 
     -- 0 width bitvector is a constant
-    VVecType (VNat 0) VBoolType
+    VVecType 0 VBoolType
       -> return $ VWord ZBV
 
-    VVecType (VNat n) VBoolType
+    VVecType n VBoolType
       | Just (Some (PosNat w)) <- somePosNat n
       -> (VWord . DBV) <$> mkUninterpretedSAW sym ref trm app (BaseBVRepr w)
 
-    VVecType (VNat n) ety
-      ->  do ety' <- termOfSValue sc ety
+    VVecType n ety | n >= 0
+      ->  do ety' <- termOfTValue sc ety
              let mkElem i =
                    do let trm' = ArgTermAt n ety' trm i
                       let app' = suffixUnintApp ("_a" ++ show i) app
                       parseUninterpretedSAW sym sc ref trm' app' ety
-             xs <- traverse mkElem [0 .. n-1]
+             xs <- traverse mkElem (genericTake n [0 ..])
              return (VVector (V.fromList (map ready xs)))
 
     VArrayType ity ety
@@ -1107,7 +1261,7 @@ data ArgTerm
   | ArgTermRecord [(String, ArgTerm)]
   | ArgTermConst Term
   | ArgTermApply ArgTerm ArgTerm
-  | ArgTermAt Integer Term ArgTerm Integer
+  | ArgTermAt Natural Term ArgTerm Natural
     -- ^ length, element type, list, index
   | ArgTermPairLeft ArgTerm
   | ArgTermPairRight ArgTerm
@@ -1157,9 +1311,9 @@ reconstructArgTerm atrm sc ts =
              x <- scApply sc x1 x2
              return (x, ts2)
         ArgTermAt n ty at1 i ->
-          do n' <- scNat sc (fromInteger n)
+          do n' <- scNat sc n
              (x1, ts1) <- parse at1 ts0
-             i' <- scNat sc (fromInteger i)
+             i' <- scNat sc i
              x <- scAt sc n' ty x1 i'
              return (x, ts1)
         ArgTermPairLeft at1 ->
@@ -1182,7 +1336,7 @@ reconstructArgTerm atrm sc ts =
 -- 'ArgTerm' that builds a term of that type from local variables with
 -- base types. The number of 'ArgTermVar' constructors should match
 -- the number of arguments appended by 'applyUnintApp'.
-mkArgTerm :: SharedContext -> SValue sym -> SValue sym -> IO ArgTerm
+mkArgTerm :: SharedContext -> TValue (What4 sym) -> SValue sym -> IO ArgTerm
 mkArgTerm sc ty val =
   case (ty, val) of
     (VBoolType, VBool _) -> return ArgTermVar
@@ -1194,7 +1348,7 @@ mkArgTerm sc ty val =
     (VVecType _ ety, VVector vv) ->
       do vs <- traverse force (V.toList vv)
          xs <- traverse (mkArgTerm sc ety) vs
-         ety' <- termOfSValue sc ety
+         ety' <- termOfTValue sc ety
          return (ArgTermVector ety' xs)
 
     (VPairType ty1 ty2, VPair v1 v2) ->
@@ -1215,24 +1369,30 @@ mkArgTerm sc ty val =
 
     _ -> fail $ "could not create uninterpreted function argument of type " ++ show ty
 
+termOfTValue :: SharedContext -> TValue (What4 sym) -> IO Term
+termOfTValue sc val =
+  case val of
+    VBoolType -> scBoolType sc
+    VIntType -> scIntegerType sc
+    VUnitType -> scUnitType sc
+    VVecType n a ->
+      do n' <- scNat sc n
+         a' <- termOfTValue sc a
+         scVecType sc n' a'
+    VPairType a b
+      -> do a' <- termOfTValue sc a
+            b' <- termOfTValue sc b
+            scPairType sc a' b'
+    VRecordType flds
+      -> do flds' <- traverse (traverse (termOfTValue sc)) flds
+            scRecordType sc flds'
+    _ -> fail $ "termOfTValue: " ++ show val
+
 termOfSValue :: SharedContext -> SValue sym -> IO Term
 termOfSValue sc val =
   case val of
     VUnit -> scUnitValue sc
-    VBoolType -> scBoolType sc
-    VIntType -> scIntegerType sc
-    VUnitType -> scUnitType sc
-    VVecType (VNat n) a ->
-      do n' <- scNat sc (fromInteger n)
-         a' <- termOfSValue sc a
-         scVecType sc n' a'
-    VPairType a b
-      -> do a' <- termOfSValue sc a
-            b' <- termOfSValue sc b
-            scPairType sc a' b'
-    VRecordType flds
-      -> do flds' <- traverse (traverse (termOfSValue sc)) flds
-            scRecordType sc flds'
     VNat n
-      -> scNat sc (fromInteger n)
+      -> scNat sc n
+    TValue tv -> termOfTValue sc tv
     _ -> fail $ "termOfSValue: " ++ show val

@@ -38,7 +38,8 @@ prelude_bveq_sameL_test =
     let sc = rewritingSharedContext sc0 ss
     natType <- scMkTerm sc (mkDataType "Prelude.Nat" [] [])
     n <- scFreshGlobal sc "n" natType
-    bvType <- scMkTerm sc (mkGlobalDef "Prelude.bitvector" `mkApp` return n)
+    let boolType = mkDataType "Prelude.Bool" [] []
+    bvType <- scMkTerm sc (mkDataType "Prelude.Vec" [] [pure n, boolType])
     x <- scFreshGlobal sc "x" bvType
     z <- scFreshGlobal sc "z" bvType
     let lhs =

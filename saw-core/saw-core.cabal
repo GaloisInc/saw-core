@@ -25,7 +25,6 @@ library
 
   build-depends:
     base == 4.*,
-    ansi-wl-pprint,
     array,
     bytestring,
     containers,
@@ -35,12 +34,16 @@ library
     filepath,
     hashable >= 1.2,
     lens >= 3.8,
+    modern-uri >= 0.3.2 && < 0.4,
     MonadRandom,
     mtl,
     panic,
     parameterized-utils,
     pretty,
+    prettyprinter >= 1.7.0,
+    prettyprinter-ansi-terminal >= 1.1.2,
     random,
+    rme,
     template-haskell,
     text,
     th-lift-instances,
@@ -74,8 +77,6 @@ library
      Verifier.SAW.Simulator.MonadLazy
      Verifier.SAW.Simulator.Prims
      Verifier.SAW.Simulator.RME
-     Verifier.SAW.Simulator.RME.Base
-     Verifier.SAW.Simulator.RME.Vector
      Verifier.SAW.Simulator.Value
      Verifier.SAW.SharedTerm
      Verifier.SAW.Term.Functor
@@ -119,7 +120,6 @@ test-suite test-sawcore
     , time
     , unordered-containers
     , vector
-    , ansi-wl-pprint
     , QuickCheck >= 2.7
     , tasty
     , tasty-ant-xml >= 1.1.0

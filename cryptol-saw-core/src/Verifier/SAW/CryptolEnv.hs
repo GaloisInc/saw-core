@@ -30,6 +30,7 @@ module Verifier.SAW.CryptolEnv
   , getAllIfaceDecls
   , InputText(..)
   , lookupIn
+  , resolveIdentifier
   )
   where
 
@@ -39,7 +40,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe (fromMaybe)
-import Data.Text (Text, pack)
+import Data.Text (Text, pack, splitOn)
 import Control.Monad(when)
 
 #if !MIN_VERSION_base(4,8,0)
@@ -61,6 +62,7 @@ import qualified Cryptol.Parser.AST as P
 import qualified Cryptol.Parser.Position as P
 import qualified Cryptol.TypeCheck as T
 import qualified Cryptol.TypeCheck.AST as T
+import qualified Cryptol.TypeCheck.Error as TE
 import qualified Cryptol.TypeCheck.Infer as TI
 import qualified Cryptol.TypeCheck.Kind as TK
 import qualified Cryptol.TypeCheck.Monad as TM
@@ -76,9 +78,13 @@ import qualified Cryptol.ModuleSystem.NamingEnv as MN
 import qualified Cryptol.ModuleSystem.Name as MN
 import qualified Cryptol.ModuleSystem.Renamer as MR
 
+import qualified Cryptol.Utils.Ident as C
+
 import Cryptol.Utils.PP
-import Cryptol.Utils.Ident (Ident, preludeName, packIdent, interactiveName
-                           , packModName, textToModName, modNameChunks)
+import Cryptol.Utils.Ident (Ident, preludeName, preludeReferenceName
+                           , packIdent, interactiveName, identText
+                           , packModName, textToModName, modNameChunks
+                           , prelPrim)
 import Cryptol.Utils.Logger (quietLogger)
 
 --import SAWScript.REPL.Monad (REPLException(..))
@@ -168,15 +174,30 @@ initCryptolEnv sc = do
                            (instDir </> "lib") : ME.meSearchPath modEnv0 }
 
   -- Load Cryptol prelude
-  (_, modEnv) <-
+  (_, modEnv2) <-
     liftModuleM modEnv1 $
-      MB.loadModuleFrom (MM.FromModule preludeName)
+      MB.loadModuleFrom False (MM.FromModule preludeName)
+
+  -- Load Cryptol reference implementations
+  ((_,refMod), modEnv) <-
+    liftModuleM modEnv2 $
+      MB.loadModuleFrom False (MM.FromModule preludeReferenceName)
+
+  -- Set up reference implementation redirections
+  let refDecls = T.mDecls refMod
+  let nms = fst <$> Map.toList (M.ifDecls (M.ifPublic (M.genIface refMod)))
+  let refPrims = Map.fromList
+                  [ (prelPrim (identText (MN.nameIdent nm)), T.EWhere (T.EVar nm) refDecls)
+                  | nm <- nms ]
+  let cryEnv0 = C.emptyEnv{ C.envRefPrims = refPrims }
 
   -- Generate SAWCore translations for all values in scope
-  termEnv <- genTermEnv sc modEnv
+  termEnv <- genTermEnv sc modEnv cryEnv0
 
   return CryptolEnv
-    { eImports    = [P.Import preludeName Nothing Nothing]
+    { eImports    = [P.Import preludeName Nothing Nothing
+                    ,P.Import preludeReferenceName (Just preludeReferenceName) Nothing
+                    ]
     , eModuleEnv  = modEnv
     , eExtraNames = mempty
     , eExtraTypes = Map.empty
@@ -229,15 +250,15 @@ runInferOutput :: TM.InferOutput a -> MM.ModuleM a
 runInferOutput out =
   case out of
 
-    TM.InferOK warns seeds supply o ->
+    TM.InferOK nm warns seeds supply o ->
       do MM.setNameSeeds seeds
          MM.setSupply supply
-         MM.typeCheckWarnings warns
+         MM.typeCheckWarnings nm warns
          return o
 
-    TM.InferFailed warns errs ->
-      do MM.typeCheckWarnings warns
-         MM.typeCheckingFailed errs
+    TM.InferFailed nm warns errs ->
+      do MM.typeCheckWarnings nm warns
+         MM.typeCheckingFailed nm errs
 
 -- Translate -------------------------------------------------------------------
 
@@ -287,12 +308,12 @@ translateDeclGroups sc env dgs =
            }
 
 -- | Translate all declarations in all loaded modules to SAWCore terms
-genTermEnv :: SharedContext -> ME.ModuleEnv -> IO (Map T.Name Term)
-genTermEnv sc modEnv = do
+genTermEnv :: SharedContext -> ME.ModuleEnv -> C.Env -> IO (Map T.Name Term)
+genTermEnv sc modEnv cryEnv0 = do
   let declGroups = concatMap T.mDecls
                  $ filter (not . T.isParametrizedModule)
                  $ ME.loadedModules modEnv
-  cryEnv <- C.importTopLevelDeclGroups sc C.emptyEnv declGroups
+  cryEnv <- C.importTopLevelDeclGroups sc cryEnv0 declGroups
   traverse (\(t, j) -> incVars sc 0 j t) (C.envE cryEnv)
 
 --------------------------------------------------------------------------------
@@ -371,7 +392,7 @@ importModule sc env src as imps = do
     liftModuleM modEnv $
     case src of
       Left path -> MB.loadModuleByPath path
-      Right mn -> snd <$> MB.loadModuleFrom (MM.FromModule mn)
+      Right mn -> snd <$> MB.loadModuleFrom True (MM.FromModule mn)
   checkNotParameterized m
 
   -- Regenerate SharedTerm environment.
@@ -429,6 +450,27 @@ bindInteger (ident, n) env =
     tysyn = T.TySyn name [] [] (T.tNum n) Nothing
 
 --------------------------------------------------------------------------------
+
+resolveIdentifier ::
+  (?fileReader :: FilePath -> IO ByteString) =>
+  CryptolEnv -> Text -> IO (Maybe T.Name)
+resolveIdentifier env nm =
+  case splitOn (pack "::") nm of
+    []  -> pure Nothing
+    [i] -> doResolve (P.UnQual (C.mkIdent i))
+    xs  -> let (qs,i) = (init xs, last xs)
+            in doResolve (P.Qual (C.packModName qs) (C.mkIdent i))
+ where
+ modEnv = eModuleEnv env
+ nameEnv = getNamingEnv env
+
+ doResolve pnm =
+    do (res, _ws) <- MM.runModuleM (defaultEvalOpts, ?fileReader, modEnv) $
+          MM.interactive (MB.rename interactiveName nameEnv (MR.renameVar pnm))
+       case res of
+         Left _ -> pure Nothing
+         Right (x,_) -> pure (Just x)
+
 
 parseTypedTerm ::
   (?fileReader :: FilePath -> IO ByteString) =>
@@ -592,7 +634,17 @@ defaultEvalOpts = E.EvalOpts quietLogger E.defaultPPOpts
 
 moduleCmdResult :: M.ModuleRes a -> IO (a, ME.ModuleEnv)
 moduleCmdResult (res, ws) = do
-  mapM_ (print . pp) ws
+  mapM_ (print . pp) (map suppressDefaulting ws)
   case res of
     Right (a, me) -> return (a, me)
     Left err      -> fail $ "Cryptol error:\n" ++ show (pp err) -- X.throwIO (ModuleSystemError err)
+  where
+    suppressDefaulting :: MM.ModuleWarning -> MM.ModuleWarning
+    suppressDefaulting w =
+      case w of
+        MM.TypeCheckWarnings nm xs -> MM.TypeCheckWarnings nm (filter (notDefaulting . snd) xs)
+        MM.RenamerWarnings xs -> MM.RenamerWarnings xs
+
+    notDefaulting :: TE.Warning -> Bool
+    notDefaulting (TE.DefaultingTo {}) = False
+    notDefaulting _ = True

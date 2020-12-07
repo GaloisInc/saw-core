@@ -59,6 +59,7 @@ module Verifier.SAW.Recognizer
   , asBool
   , asBoolType
   , asIntegerType
+  , asIntModType
   , asBitvectorType
   , asVectorType
   , asVecType
@@ -343,6 +344,9 @@ asBoolType = isGlobalDef "Prelude.Bool"
 asIntegerType :: Recognizer Term ()
 asIntegerType = isGlobalDef "Prelude.Integer"
 
+asIntModType :: Recognizer Term Natural
+asIntModType = isGlobalDef "Prelude.IntMod" @> asNat
+
 asVectorType :: Recognizer Term (Term, Term)
 asVectorType = helper ((isGlobalDef "Prelude.Vec" @> return) <@> return) where
   helper r t =
@@ -356,9 +360,7 @@ asVecType :: Recognizer Term (Natural :*: Term)
 asVecType = isVecType return
 
 asBitvectorType :: Recognizer Term Natural
-asBitvectorType =
-  (isGlobalDef "Prelude.bitvector" @> asNat)
-  `orElse` ((isGlobalDef "Prelude.Vec" @> asNat) <@ asBoolType)
+asBitvectorType = (isGlobalDef "Prelude.Vec" @> asNat) <@ asBoolType
 
 asMux :: Recognizer Term (Term :*: Term :*: Term :*: Term)
 asMux = isGlobalDef "Prelude.ite" @> return <@> return <@> return <@> return

@@ -36,9 +36,9 @@ import qualified Data.Map as Map
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 
-import Verifier.SAW.Simulator.RME.Base (RME)
-import qualified Verifier.SAW.Simulator.RME.Base as RME
-import qualified Verifier.SAW.Simulator.RME.Vector as RMEV
+import Data.RME (RME)
+import qualified Data.RME as RME
+import qualified Data.RME.Vector as RMEV
 
 import qualified Verifier.SAW.Prim as Prim
 import qualified Verifier.SAW.Simulator as Sim
@@ -65,7 +65,7 @@ evalSharedTerm m addlPrims t =
            extcns (const Nothing)
     Sim.evalSharedTerm cfg t
   where
-    extcns ec = return $ Prim.userError $ "Unimplemented: external constant " ++ ecName ec
+    extcns ec = return $ Prim.userError $ "Unimplemented: external constant " ++ show (ecName ec)
 
 ------------------------------------------------------------
 -- Values
@@ -118,14 +118,14 @@ genShift cond f x0 v = go x0 (V.toList v)
     go x [] = x
     go x (y : ys) = go (cond y (f x (2 ^ length ys)) x) ys
 
--- | op :: (w :: Nat) -> bitvector w -> Nat -> bitvector w;
+-- | op : (w : Nat) -> Vec w Bool -> Nat -> Vec w Bool;
 bvShiftOp :: (Vector RME -> Integer -> Vector RME) -> RValue
 bvShiftOp op =
   constFun $
   wordFun $ \x ->
   pureFun $ \y ->
     case y of
-      VNat n   -> vWord (op x n)
+      VNat n   -> vWord (op x (toInteger n))
       VToNat v -> vWord (genShift muxRMEV op x (toWord v))
       _        -> error $ unwords ["Verifier.SAW.Simulator.RME.shiftOp", show y]
 
@@ -240,9 +240,8 @@ constMap =
   , ("Prelude.bvToInt" , bvToIntOp)
   , ("Prelude.sbvToInt", sbvToIntOp)
   -- Integers mod n
-  , ("Prelude.IntMod"    , constFun VIntType)
   , ("Prelude.toIntMod"  , toIntModOp)
-  , ("Prelude.fromIntMod", constFun (VFun force))
+  , ("Prelude.fromIntMod", fromIntModOp)
   , ("Prelude.intModEq"  , intModEqOp)
   , ("Prelude.intModAdd" , intModBinOp (+))
   , ("Prelude.intModSub" , intModBinOp (-))
@@ -256,15 +255,15 @@ constMap =
   , ("Prelude.expByNat", Prims.expByNatOp prims)
   ]
 
--- primitive bvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- primitive bvToInt : (n : Nat) -> Vec n Bool -> Integer;
 bvToIntOp :: RValue
 bvToIntOp = unsupportedRMEPrimitive "bvToIntOp"
 
--- primitive sbvToInt :: (n::Nat) -> bitvector n -> Integer;
+-- primitive sbvToInt : (n : Nat) -> Vec n Bool -> Integer;
 sbvToIntOp :: RValue
 sbvToIntOp = unsupportedRMEPrimitive "sbvToIntOp"
 
--- primitive intToBv :: (n::Nat) -> Integer -> bitvector n;
+-- primitive intToBv : (n : Nat) -> Integer -> Vec n Bool;
 intToBvOp :: RValue
 intToBvOp =
   Prims.natFun' "intToBv n" $ \n -> return $
@@ -301,27 +300,33 @@ toIntModOp :: RValue
 toIntModOp =
   Prims.natFun $ \n -> return $
   Prims.intFun "toIntModOp" $ \x -> return $
-  VInt (x `mod` toInteger n)
+  VIntMod n (x `mod` toInteger n)
+
+fromIntModOp :: RValue
+fromIntModOp =
+  constFun $
+  Prims.intModFun "fromIntModOp" $ \x -> return $
+  VInt x
 
 intModEqOp :: RValue
 intModEqOp =
   constFun $
-  Prims.intFun "intModEqOp" $ \x -> return $
-  Prims.intFun "intModEqOp" $ \y -> return $
+  Prims.intModFun "intModEqOp" $ \x -> return $
+  Prims.intModFun "intModEqOp" $ \y -> return $
   VBool (RME.constant (x == y))
 
 intModBinOp :: (Integer -> Integer -> Integer) -> RValue
 intModBinOp f =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModBinOp x" $ \x -> return $
-  Prims.intFun "intModBinOp y" $ \y -> return $
-  VInt (f x y `mod` toInteger n)
+  Prims.intModFun "intModBinOp x" $ \x -> return $
+  Prims.intModFun "intModBinOp y" $ \y -> return $
+  VIntMod n (f x y `mod` toInteger n)
 
 intModUnOp :: (Integer -> Integer) -> RValue
 intModUnOp f =
   Prims.natFun $ \n -> return $
-  Prims.intFun "intModUnOp" $ \x -> return $
-  VInt (f x `mod` toInteger n)
+  Prims.intModFun "intModUnOp" $ \x -> return $
+  VIntMod n (f x `mod` toInteger n)
 
 ----------------------------------------
 
@@ -382,7 +387,7 @@ bitBlastBasic :: ModuleMap
               -> RValue
 bitBlastBasic m addlPrims t = runIdentity $ do
   cfg <- Sim.evalGlobal m (Map.union constMap addlPrims)
-         (\ec -> error ("RME: unsupported ExtCns: " ++ ecName ec))
+         (\ec -> error ("RME: unsupported ExtCns: " ++ show (ecName ec)))
          (const Nothing)
   Sim.evalSharedTerm cfg t
 
