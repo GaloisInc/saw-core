@@ -42,6 +42,7 @@ module Verifier.SAW.Simulator.What4
   ( w4Solve
   , w4SolveAny
   , w4SolveBasic
+  , w4SolveBasicWithSubst
   , SymFnCache
   , TypedExpr(..)
   , SValue
@@ -53,6 +54,9 @@ module Verifier.SAW.Simulator.What4
 
   , w4SimulatorEval
   , NeutralTermException(..)
+
+  , valueToSymExpr
+  , symExprToValue
   ) where
 
 
@@ -667,10 +671,21 @@ w4SolveBasic ::
   Term {- ^ term to simulate -} ->
   IO (SValue sym)
 w4SolveBasic sc addlPrims ref unintSet t =
-  do m <- scGetModuleMap sc
-     let sym = given :: sym
+  do let sym = given :: sym
      let extcns (EC ix nm ty) =
              parseUninterpreted sym ref (mkUnintApp (Text.unpack (toShortName nm) ++ "_" ++ show ix)) ty
+     w4SolveBasicWithSubst sc addlPrims extcns unintSet t
+
+w4SolveBasicWithSubst ::
+  forall sym. (Given sym, IsSymExprBuilder sym) =>
+  SharedContext ->
+  Map Ident (SValue sym) {- ^ additional primitives -} ->
+  (ExtCns (TValue (What4 sym)) -> IO (SValue sym)) ->
+  Set VarIndex {- ^ 'unints' Constants in this list are kept uninterpreted -} ->
+  Term {- ^ term to simulate -} ->
+  IO (SValue sym)
+w4SolveBasicWithSubst sc addlPrims extcns unintSet t =
+  do m <- scGetModuleMap sc
      let uninterpreted ec
            | Set.member (ecVarIndex ec) unintSet = Just (extcns ec)
            | otherwise                           = Nothing
