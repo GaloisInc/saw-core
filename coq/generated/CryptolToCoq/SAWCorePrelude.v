@@ -358,6 +358,9 @@ Definition eitherCong0 : forall (t : Type), forall (x : Type), forall (y : Type)
 Definition eitherCong1 : forall (t : Type), forall (x : Type), forall (y : Type), @SAWCoreScaffolding.Eq Type x y -> @SAWCoreScaffolding.Eq Type (@Either t x) (@Either t y) :=
   fun (t : Type) (x : Type) (y : Type) (eq : @SAWCoreScaffolding.Eq Type x y) => @eq_cong Type x y eq Type (fun (y' : Type) => @Either t y').
 
+Definition boolToEither : @SAWCoreScaffolding.Bool -> @Either unit unit :=
+  fun (b : @SAWCoreScaffolding.Bool) => if b then @Left unit unit tt else @Right unit unit tt.
+
 Inductive Maybe (a : Type) : Type :=
 | Nothing :  @Maybe a
 | Just : a -> @Maybe a
