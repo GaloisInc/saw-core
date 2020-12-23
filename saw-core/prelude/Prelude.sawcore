@@ -745,6 +745,9 @@ eitherCong1 : (t x y : sort 0) -> Eq (sort 0) x y ->
 eitherCong1 t x y eq =
   eq_cong (sort 0) x y eq (sort 0) (\ (y':sort 0) -> Either t y');
 
+boolToEither : Bool -> Either #() #();
+boolToEither b = ite (Either #() #()) b (Left #() #() ()) (Right #() #() ());
+
 
 --------------------------------------------------------------------------------
 -- Maybe
