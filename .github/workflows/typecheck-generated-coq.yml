@@ -1,0 +1,52 @@
+name: Type-checking generated Coq files
+on:
+  push:
+    branches: [master wip-heapster]
+  pull_request:
+    branches: [master wip-heapster]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    name: saw-core-coq - ${{ matrix.os }}
+    env:
+      OCAML_VERSION: 4.09.1
+      # also change in setup-ocaml step based on value of opamVersion:
+      # https://github.com/avsm/setup-ocaml/blob/v1.1.2/src/installer.ts#L56
+      SETUP_OCAML_ACTION_VERSION: 1.1.2
+      COQBITS_VERSION: 1.0.0
+    steps:
+
+      - uses: actions/checkout@v2
+
+      - run: |
+          git config --global url.https://github.com/.insteadOf git@github.com:
+
+      - name: Cache ~/.opam
+        uses: actions/cache@v2
+        with:
+          path: ~/.opam
+          key: ocaml-coqbits-${{ runner.os }}-${{ env.OCAML_VERSION }}-${{ env.SETUP_OCAML_ACTION_VERSION }}-${{ env.COQBITS_VERSION }}
+
+      - name: Set up ocaml and opam
+        uses: avsm/setup-ocaml@v1.1.2
+        with:
+          ocaml-version: ${{ env.OCAML_VERSION }}
+
+      - name: Install coq-bits
+        shell: bash
+        run: |
+          opam repo add coq-released https://coq.inria.fr/opam/released
+          opam install --unlock-base -y "coq-bits=$COQBITS_VERSION"
+
+      - name: Build saw-core-coq/coq
+        shell: bash
+        working-directory: saw-core-coq/coq
+        run: |
+          eval $(opam env)
+          coq_makefile -o Makefile.coq
+          make -j2
