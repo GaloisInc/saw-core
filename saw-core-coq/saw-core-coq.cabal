@@ -34,8 +34,16 @@ library
      Language.Coq.Pretty
      Verifier.SAW.Translation.Coq
      Verifier.SAW.Translation.Coq.CryptolModule
+     Verifier.SAW.Translation.Coq.CryptolPrelude
      Verifier.SAW.Translation.Coq.SAWModule
      Verifier.SAW.Translation.Coq.Monad
      Verifier.SAW.Translation.Coq.Term
      Verifier.SAW.Translation.Coq.SpecialTreatment
   ghc-options: -Wall -Werror
+
+executable coq-of-cryptol-prelude
+  main-is: CoqOfCryptolPrelude.hs
+  hs-source-dirs: exe
+  build-depends:
+      base >= 4
+    , saw-core-coq
