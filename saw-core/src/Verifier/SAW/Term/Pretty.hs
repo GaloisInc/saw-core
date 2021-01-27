@@ -24,6 +24,7 @@ module Verifier.SAW.Term.Pretty
   , depthPPOpts
   , ppNat
   , ppTerm
+  , ppTermInCtx
   , showTerm
   , scPrettyTerm
   , scPrettyTermInCtx
@@ -634,6 +635,18 @@ renderSawDoc ppOpts doc =
   where
     layoutOpts = LayoutOptions (AvailablePerLine 80 0.8)
     style = if ppColor ppOpts then reAnnotateS colorStyle else unAnnotateS
+
+-- | Like 'ppTerm', but also supply a context of bound names, where the most
+-- recently-bound variable is listed first in the context
+ppTermInCtx :: PPOpts -> [String] -> Term -> SawDoc
+ppTermInCtx opts ctx trm =
+  runPPM opts $
+  flip (Fold.foldl' (\m x -> snd <$> withBoundVarM x m)) ctx $
+  ppTermWithMemoTable PrecNone True trm
+  
+renderSawDoc :: (SawStyle -> AnsiStyle) -> SawDoc -> String
+renderSawDoc style doc = Text.Lazy.unpack (renderLazy (reAnnotateS style (layoutPretty opts doc)))
+  where opts = LayoutOptions (AvailablePerLine 80 0.8)
 
 -- | Pretty-print a term and render it to a string, using the given options
 scPrettyTerm :: PPOpts -> Term -> String

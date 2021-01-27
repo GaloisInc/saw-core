@@ -5,20 +5,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 {- |
-Module      : Verifier.SAW.OpenTerm
-Copyright   : Galois, Inc. 2018
+Module      : Verifier.SAW.TracedOpenTerm
+Copyright   : Galois, Inc. 2020
 License     : BSD3
 Stability   : experimental
 Portability : non-portable (language extensions)
 
 This module defines an interface to building SAW core terms in an incrementally
 type-checked way, meaning that type-checking is performed as the terms are
-built.
+built. The term-building operations are traced using the @Debug.Trace@ library;
+otherwise, this is a drop-in replacement for the @OpenTerm@ module.
 -}
 
-module Verifier.SAW.OpenTerm (
+module Verifier.SAW.TracedOpenTerm (
   -- * Open terms and converting to closed terms
-  OpenTerm(..), completeOpenTerm, completeOpenTermType,
+  OpenTerm, traceOpenTerm, completeOpenTerm,
   -- * Basic operations for building open terms
   closedOpenTerm, flatOpenTerm, sortOpenTerm, natOpenTerm,
   unitOpenTerm, unitTypeOpenTerm, stringLitOpenTerm, stringTypeOpenTerm,
@@ -36,29 +37,30 @@ module Verifier.SAW.OpenTerm (
   ) where
 
 import Control.Monad
-import Control.Monad.IO.Class
+-- import Control.Monad.IO.Class
 import Numeric.Natural
 
 import Verifier.SAW.Term.Functor
 import Verifier.SAW.SharedTerm
 import Verifier.SAW.SCTypeCheck
 import Verifier.SAW.Module
+import Verifier.SAW.OpenTerm (OpenTerm(..),OpenTermM(..))
+
+import Debug.Trace
 
 -- | An open term is represented as a type-checking computation that computes a
 -- SAW core term and its type
-newtype OpenTerm = OpenTerm { unOpenTerm :: TCM TypedTerm }
+-- newtype OpenTerm = OpenTerm { unOpenTerm :: TCM TypedTerm }
+
+-- | Emit debugging output during type-checking
+traceOpenTerm :: String -> OpenTerm -> OpenTerm
+traceOpenTerm str (OpenTerm m) = OpenTerm $ trace str m
 
 -- | "Complete" an 'OpenTerm' to a closed term or 'fail' on type-checking error
 completeOpenTerm :: SharedContext -> OpenTerm -> IO Term
 completeOpenTerm sc (OpenTerm termM) =
   either (fail . show) return =<<
   runTCM (typedVal <$> termM) sc Nothing []
-
--- | "Complete" an 'OpenTerm' to a closed term for its type
-completeOpenTermType :: SharedContext -> OpenTerm -> IO Term
-completeOpenTermType sc (OpenTerm termM) =
-  either (fail . show) return =<<
-  runTCM (typedType <$> termM) sc Nothing []
 
 -- | Embed a closed 'Term' into an 'OpenTerm'
 closedOpenTerm :: Term -> OpenTerm
@@ -73,7 +75,7 @@ flatOpenTerm ftf = OpenTerm $
 sortOpenTerm :: Sort -> OpenTerm
 sortOpenTerm s = flatOpenTerm (Sort s)
 
--- | Build an 'OpenTermm' for a natural number literal
+-- | Build an 'OpenTerm' for a natural number literal
 natOpenTerm :: Natural -> OpenTerm
 natOpenTerm = flatOpenTerm . NatLit
 
@@ -127,10 +129,13 @@ ctorOpenTerm :: Ident -> [OpenTerm] -> OpenTerm
 ctorOpenTerm c all_args = OpenTerm $ do
   maybe_ctor <- liftTCM scFindCtor c
   (params, args) <-
+    trace "ctorOpenTerm: sorting out args..." $
     case maybe_ctor of
       Just ctor -> splitAt (ctorNumParams ctor) <$> mapM unOpenTerm all_args
       Nothing -> throwTCError $ NoSuchCtor c
-  typeInferComplete $ CtorApp c params args
+  trace (unlines ("ctorOpenTerm:" : show c
+                  : map (showTerm . typedVal) (params ++ args))) $
+    typeInferComplete $ CtorApp c params args
 
 -- | Build an 'OpenTerm' for a datatype applied to its arguments
 dataTypeOpenTerm :: Ident -> [OpenTerm] -> OpenTerm
@@ -140,16 +145,25 @@ dataTypeOpenTerm d all_args = OpenTerm $ do
     case maybe_dt of
       Just dt -> splitAt (dtNumParams dt) <$> mapM unOpenTerm all_args
       Nothing -> throwTCError $ NoSuchDataType d
-  typeInferComplete $ DataTypeApp d params args
+  trace (unlines ("dataTypeOpenTerm:" : show d
+                  : map (showTerm . typedVal) (params ++ args))) $
+    typeInferComplete $ DataTypeApp d params args
 
--- | Build an 'OpenTermm' for a global name
+-- | Build an 'OpenTerm' for a global name
 globalOpenTerm :: Ident -> OpenTerm
 globalOpenTerm = flatOpenTerm . GlobalDef
 
 -- | Apply an 'OpenTerm' to another
 applyOpenTerm :: OpenTerm -> OpenTerm -> OpenTerm
 applyOpenTerm (OpenTerm f) (OpenTerm arg) =
-  OpenTerm ((App <$> f <*> arg) >>= typeInferComplete)
+  OpenTerm (do f_trm <- f
+               arg_trm <- arg
+               trace (unlines ["applyOpenTerm:",
+                               showTerm (typedVal f_trm)
+                               ++ " : " ++ showTerm (typedType f_trm),
+                               showTerm (typedVal arg_trm)
+                               ++ " : " ++ showTerm (typedType arg_trm)]) $
+                 typeInferComplete (App f_trm arg_trm))
 
 -- | Apply an 'OpenTerm' to 0 or more arguments
 applyOpenTermMulti :: OpenTerm -> [OpenTerm] -> OpenTerm
@@ -169,15 +183,17 @@ openTermTopVar =
 
 -- | Build an open term inside a binder of a variable with the given name and
 -- type, where the binder is represented as a Haskell function on 'OpenTerm's
-bindOpenTerm :: LocalName -> TypedTerm -> (OpenTerm -> OpenTerm) -> TCM TypedTerm
+bindOpenTerm :: String -> TypedTerm -> (OpenTerm -> OpenTerm) -> TCM TypedTerm
 bindOpenTerm x tp body_f =
   do tp_whnf <- typeCheckWHNF $ typedVal tp
      withVar x tp_whnf (openTermTopVar >>= (unOpenTerm . body_f))
 
 -- | Build a lambda abstraction as an 'OpenTerm'
-lambdaOpenTerm :: LocalName -> OpenTerm -> (OpenTerm -> OpenTerm) -> OpenTerm
+lambdaOpenTerm :: String -> OpenTerm -> (OpenTerm -> OpenTerm) -> OpenTerm
 lambdaOpenTerm x (OpenTerm tpM) body_f = OpenTerm $
   do tp <- tpM
+     () <- trace ("lambdaOpenTerm (" ++ x
+                  ++ ":" ++ showTerm (typedVal tp) ++ ")") (return ())
      body <- bindOpenTerm x tp body_f
      typeInferComplete $ Lambda x tp body
 
@@ -189,7 +205,7 @@ lambdaOpenTermMulti xs_tps body_f =
           lambdaOpenTerm x tp (rest_f . (:xs))) (body_f . reverse) xs_tps []
 
 -- | Build a Pi abstraction as an 'OpenTerm'
-piOpenTerm :: LocalName -> OpenTerm -> (OpenTerm -> OpenTerm) -> OpenTerm
+piOpenTerm :: String -> OpenTerm -> (OpenTerm -> OpenTerm) -> OpenTerm
 piOpenTerm x (OpenTerm tpM) body_f = OpenTerm $
   do tp <- tpM
      body <- bindOpenTerm x tp body_f
@@ -215,11 +231,13 @@ letOpenTerm x tp rhs body_f = applyOpenTerm (lambdaOpenTerm x tp body_f) rhs
 -- | The monad for building 'OpenTerm's if you want to add in 'IO' actions. This
 -- is just the type-checking monad, but we give it a new name to keep this
 -- module self-contained.
+{-
 newtype OpenTermM a = OpenTermM { unOpenTermM :: TCM a }
                     deriving (Functor, Applicative, Monad)
 
 instance MonadIO OpenTermM where
   liftIO = OpenTermM . liftIO
+-}
 
 -- | "Complete" an 'OpenTerm' build in 'OpenTermM' to a closed term, or 'fail'
 -- on a type-checking error
@@ -240,10 +258,9 @@ dedupOpenTermM (OpenTerm trmM) =
 -- 'OpenTerm's that also returns an auxiliary value. Returns the normalized type
 -- and the body, along with the auxiliary result returned by the body-generating
 -- function.
-bindOpenTermAuxM ::
-  LocalName -> OpenTerm ->
-  (OpenTerm -> OpenTermM (OpenTerm, a)) ->
-  OpenTermM (TypedTerm, TypedTerm, a)
+bindOpenTermAuxM :: String -> OpenTerm ->
+                    (OpenTerm -> OpenTermM (OpenTerm, a)) ->
+                    OpenTermM (TypedTerm, TypedTerm, a)
 bindOpenTermAuxM x (OpenTerm tpM) body_f =
   OpenTermM $
   do TypedTerm tp tp_tp <- tpM
@@ -254,34 +271,30 @@ bindOpenTermAuxM x (OpenTerm tpM) body_f =
      return (TypedTerm tp_whnf tp_tp, body, a)
 
 -- | Build a lambda abstraction in the 'OpenTermM' monad
-lambdaOpenTermM ::
-  LocalName -> OpenTerm -> (OpenTerm -> OpenTermM OpenTerm) ->
-  OpenTermM OpenTerm
+lambdaOpenTermM :: String -> OpenTerm -> (OpenTerm -> OpenTermM OpenTerm) ->
+                   OpenTermM OpenTerm
 lambdaOpenTermM x tp body_f =
   fst <$> lambdaOpenTermAuxM x tp (body_f >=> (\t -> return (t, ())))
 
 -- | Build a pi abstraction in the 'OpenTermM' monad
-piOpenTermM ::
-  LocalName -> OpenTerm -> (OpenTerm -> OpenTermM OpenTerm) ->
-  OpenTermM OpenTerm
+piOpenTermM :: String -> OpenTerm -> (OpenTerm -> OpenTermM OpenTerm) ->
+               OpenTermM OpenTerm
 piOpenTermM x tp body_f =
   fst <$> piOpenTermAuxM x tp (body_f >=> (\t -> return (t, ())))
 
 -- | Build a lambda abstraction with an auxiliary return value in the
 -- 'OpenTermM' monad
-lambdaOpenTermAuxM ::
-  LocalName -> OpenTerm ->
-  (OpenTerm -> OpenTermM (OpenTerm, a)) ->
-  OpenTermM (OpenTerm, a)
+lambdaOpenTermAuxM :: String -> OpenTerm ->
+                      (OpenTerm -> OpenTermM (OpenTerm, a)) ->
+                      OpenTermM (OpenTerm, a)
 lambdaOpenTermAuxM x tp body_f =
   do (tp', body, a) <- bindOpenTermAuxM x tp body_f
      return (OpenTerm (typeInferComplete $ Lambda x tp' body), a)
 
 -- | Build a pi abstraction with an auxiliary return value in the 'OpenTermM'
 -- monad
-piOpenTermAuxM ::
-  LocalName -> OpenTerm -> (OpenTerm -> OpenTermM (OpenTerm, a)) ->
-  OpenTermM (OpenTerm, a)
+piOpenTermAuxM :: String -> OpenTerm -> (OpenTerm -> OpenTermM (OpenTerm, a)) ->
+                  OpenTermM (OpenTerm, a)
 piOpenTermAuxM x tp body_f =
   do (tp', body, a) <- bindOpenTermAuxM x tp body_f
      return (OpenTerm (typeInferComplete $ Pi x tp' body), a)
