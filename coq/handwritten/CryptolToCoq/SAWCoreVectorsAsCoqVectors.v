@@ -188,16 +188,6 @@ Arguments bitsToBv : simpl never.
 Definition joinLSB {n} (v : bitvector n) (lsb : bool) : bitvector n.+1 :=
   Vector.shiftin lsb v.
 
-(* NOTE This can cause Coq to stack overflow, avoid it as much as possible! *)
-Fixpoint bvNat (size : Nat) (number : Nat) : bitvector size :=
-  bitsToBv (fromNat number).
-(*   if size is size'.+1 *)
-(*   then joinLSB (bvNat size' (number./2)) (odd number) *)
-(*   else Vector.nil _ *)
-(* . *)
-
-(* Arguments bvNat : simpl never. *)
-
 Definition bvToNatFolder (n : nat) (b : bool) := b + n.*2.
 
 Fixpoint bvToNat (size : Nat) (v : bitvector size) : Nat :=
@@ -207,6 +197,12 @@ Fixpoint bvToNat (size : Nat) (v : bitvector size) : Nat :=
 Definition intToBv (n : Nat) (z : Z) : bitvector n := bitsToBv (fromZ z).
 
 Arguments intToBv : simpl never.
+
+(* NOTE This can cause Coq to stack overflow, avoid it as much as possible! *)
+Definition bvNat (size : Nat) (number : Nat) : bitvector size :=
+  intToBv size (Z.of_nat number).
+
+Arguments bvNat /.
 
 Definition bvToInt (n : Nat) (b : bitvector n) : Z := toPosZ (bvToBITS b).
 

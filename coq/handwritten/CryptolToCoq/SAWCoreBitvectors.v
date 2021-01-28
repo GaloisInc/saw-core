@@ -12,6 +12,7 @@ From CryptolToCoq Require Import SAWCoreVectorsAsCoqVectors.
 Import SAWCorePrelude.
 
 Create HintDb SAWCoreBitvectors.
+Create HintDb SAWCoreBitvectors_eqs.
 
 
 (* Computing opaque bitvector functions *)
@@ -216,12 +217,12 @@ Lemma bvAdd_assoc w a b c : bvAdd w (bvAdd w a b) c = bvAdd w a (bvAdd w b c). A
 Lemma bvSub_zero_bvNeg w a : bvSub w (intToBv w 0) a = bvNeg w a.
 Admitted.
 
-Hint Rewrite bvSub_zero_bvNeg : SAWCoreBitvectors.
+Hint Rewrite bvSub_zero_bvNeg : SAWCoreBitvectors SAWCoreBitvectors_eqs.
 
 Lemma bvNeg_msb w a : msb w (bvNeg (Succ w) a) = not (msb w a).
 Admitted.
 
-Hint Rewrite bvNeg_msb : SAWCoreBitvectors.
+Hint Rewrite bvNeg_msb : SAWCoreBitvectors SAWCoreBitvectors_eqs.
 
 Lemma bvslt_bvSub_r w a b : isBvslt w a b <-> isBvslt w (intToBv w 0) (bvSub w b a).
 Admitted.
@@ -309,3 +310,18 @@ Lemma bool_eq_if_inv_false (b : bool) : (if b then false else true) = false <-> 
 Proof. split; intro H; destruct b; reflexivity || inversion H. Qed.
 
 Hint Rewrite bool_eq_if_true bool_eq_if_false bool_eq_if_false bool_eq_if_true : SAWCoreBitvectors.
+
+Lemma bool_if_lemma (b : bool) : (if b then true else false) = b.
+Proof. destruct b; reflexivity. Qed.
+
+Lemma bool_if_not_lemma (b : bool) : (if b then false else true) = not b.
+Proof. destruct b; reflexivity. Qed.
+
+Hint Rewrite bool_if_lemma bool_if_not_lemma : SAWCoreBitvectors_eqs.
+
+Lemma true_eq_scaffolding_true : Datatypes.true = SAWCoreScaffolding.true.
+Proof. reflexivity. Qed.
+Lemma false_eq_scaffolding_false : Datatypes.false = SAWCoreScaffolding.false.
+Proof. reflexivity. Qed.
+
+Hint Rewrite true_eq_scaffolding_true false_eq_scaffolding_false : SAWCoreBitvectors_eqs.
