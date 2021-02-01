@@ -7,7 +7,6 @@ From Coq          Require Import Strings.String.
 From CryptolToCoq Require Import SAWCorePrelude.
 From CryptolToCoq Require Import SAWCoreScaffolding.
 From CryptolToCoq Require Import SAWCoreVectorsAsCoqVectors.
-From CryptolToCoq Require Import SAWCoreBitvectors.
 From CryptolToCoq Require Export CompM.
 
 (***
@@ -141,7 +140,6 @@ Ltac argName n :=
   | Either   => fresh "e_either"
   | Maybe    => fresh "e_maybe"
   | SigT     => fresh "e_either"
-  | If0      => fresh "e_if"
   | If       => fresh "e_if"
   | Assert   => fresh "e_assert"
   | Assuming => fresh "e_assuming"
@@ -149,7 +147,14 @@ Ltac argName n :=
   | Forall   => fresh "e_forall"
   end.
 
+Definition FreshIntroArg (_ : ArgName) A (goal : A -> Prop) := forall a, goal a.
+
 Definition IntroArg (_ : ArgName) A (goal : A -> Prop) := forall a, goal a.
+
+Lemma unFreshIntroArg n A goal : IntroArg n A goal -> FreshIntroArg n A goal.
+Proof. unfold FreshIntroArg, IntroArg; auto. Qed.
+
+Hint Extern 999 (FreshIntroArg ?n ?T ?goal) => simple apply (unFreshIntroArg n T goal) : refinesFun.
 
 Lemma IntroArg_fold n A goal : forall a, IntroArg n A goal -> goal a.
 Proof. unfold IntroArg; intros a H; exact (H a). Qed.
@@ -157,12 +162,12 @@ Proof. unfold IntroArg; intros a H; exact (H a). Qed.
 (* Lemma IntroArg_unfold n A (goal : A -> Prop) : (forall a, goal a) -> IntroArg n A goal. *)
 (* Proof. unfold IntroArg; intro H; exact H. Qed. *)
 
-Ltac IntroArg_intro e := (* apply IntroArg_unfold; *) intro e; unfold_projs in e.
+Ltac IntroArg_intro e := intro e; unfold_projs in e.
 
 Ltac IntroArg_forget := let e := fresh in intro e; clear e.
 
 Lemma IntroArg_and n P Q (goal : P /\ Q -> Prop)
-  : IntroArg n P (fun p => IntroArg n Q (fun q => goal (conj p q))) -> IntroArg n _ goal.
+  : IntroArg n P (fun p => FreshIntroArg n Q (fun q => goal (conj p q))) -> IntroArg n _ goal.
 Proof. unfold IntroArg; intros H [ p q ]; apply H. Qed.
 
 Lemma IntroArg_or n P Q (goal : P \/ Q -> Prop)
@@ -171,11 +176,11 @@ Lemma IntroArg_or n P Q (goal : P \/ Q -> Prop)
 Proof. unfold IntroArg; intros Hl Hr [ p | q ]; [ apply Hl | apply Hr ]. Qed.
 
 Lemma IntroArg_sigT n A P (goal : {a : A & P a} -> Prop)
-  : IntroArg n A (fun a => IntroArg n (P a) (fun p => goal (existT _ a p))) -> IntroArg n _ goal.
+  : IntroArg n A (fun a => FreshIntroArg n (P a) (fun p => goal (existT _ a p))) -> IntroArg n _ goal.
 Proof. unfold IntroArg; intros H [ a p ]; apply H. Qed.
 
 Lemma IntroArg_prod n P Q (goal : P * Q -> Prop)
-  : IntroArg n P (fun p => IntroArg n Q (fun q => goal (pair p q))) -> IntroArg n _ goal.
+  : IntroArg n P (fun p => FreshIntroArg n Q (fun q => goal (pair p q))) -> IntroArg n _ goal.
 Proof. unfold IntroArg; intros H [ p q ]; apply H. Qed.
 
 Lemma IntroArg_sum n P Q (goal : P + Q -> Prop)
@@ -187,7 +192,7 @@ Lemma IntroArg_unit n (goal : unit -> Prop) : goal tt -> IntroArg n _ goal.
 Proof. unfold IntroArg; intros H []. apply H. Qed.
 
 Lemma IntroArg_eq_sigT_const n A B (a a' : A) (b b' : B) (goal : Prop)
-  : IntroArg n (a = a') (fun _ => IntroArg n (b = b') (fun _ => goal)) ->
+  : IntroArg n (a = a') (fun _ => FreshIntroArg n (b = b') (fun _ => goal)) ->
     IntroArg n (existT _ a b = existT _ a' b') (fun _ => goal).
 Proof.
   unfold IntroArg; intros H eq.
@@ -197,147 +202,6 @@ Qed.
 
 Hint Resolve IntroArg_and IntroArg_or IntroArg_sigT IntroArg_prod IntroArg_sum
              IntroArg_unit IntroArg_eq_sigT_const | 1 : refinesFun.
-
-Lemma IntroArg_bvEq_eq n w a b goal :
-  IntroArg n (a = b) (fun _ => goal) ->
-  IntroArg n (SAWCorePrelude.bvEq w a b = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite bvEq_eq; eauto. Qed.
-
-Lemma IntroArg_bvEq_neq n w a b goal :
-  IntroArg n (a <> b) (fun _ => goal) ->
-  IntroArg n (SAWCorePrelude.bvEq w a b = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite bvEq_neq; eauto. Qed.
-
-Lemma IntroArg_bv_eq_if_true n (b : bool) goal :
-  IntroArg n (b = true) (fun _ => goal) ->
-  IntroArg n ((if b then intToBv 1 1 else intToBv 1 0) = intToBv 1 1) (fun _ => goal).
-Proof. unfold IntroArg; rewrite bv_eq_if_true; eauto. Qed.
-
-Lemma IntroArg_bv_eq_if_false n (b : bool) goal :
-  IntroArg n (b = false) (fun _ => goal) ->
-  IntroArg n ((if b then intToBv 1 1 else intToBv 1 0) = intToBv 1 0) (fun _ => goal).
-Proof. unfold IntroArg; rewrite bv_eq_if_false; eauto. Qed.
-
-Lemma IntroArg_bv_neq_if_true n (b : bool) goal :
-  IntroArg n (b = false) (fun _ => goal) ->
-  IntroArg n ((if b then intToBv 1 1 else intToBv 1 0) <> intToBv 1 1) (fun _ => goal).
-Proof. unfold IntroArg; rewrite bv_neq_if_true; eauto. Qed.
-
-Lemma IntroArg_bv_neq_if_false n (b : bool) goal :
-  IntroArg n (b = true) (fun _ => goal) ->
-  IntroArg n ((if b then intToBv 1 1 else intToBv 1 0) <> intToBv 1 0) (fun _ => goal).
-Proof. unfold IntroArg; rewrite bv_neq_if_false; eauto. Qed.
-
-Lemma IntroArg_and_bool_eq_true_lemma n (b c : bool) goal :
-  IntroArg n ((b = true) /\ (c = true)) (fun _ => goal) ->
-  IntroArg n (and b c = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite and_bool_eq_true_lemma; eauto. Qed.
-
-Lemma IntroArg_and_bool_eq_false_lemma n (b c : bool) goal :
-  IntroArg n ((b = false) \/ (c = false)) (fun _ => goal) ->
-  IntroArg n (and b c = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite and_bool_eq_false_lemma; eauto. Qed.
-
-Lemma IntroArg_or_bool_eq_true_lemma n (b c : bool) goal :
-  IntroArg n ((b = true) \/ (c = true)) (fun _ => goal) ->
-  IntroArg n (or b c = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite or_bool_eq_true_lemma; eauto. Qed.
-
-Lemma IntroArg_or_bool_eq_false_lemma n (b c : bool) goal :
-  IntroArg n ((b = false) /\ (c = false)) (fun _ => goal) ->
-  IntroArg n (or b c = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite or_bool_eq_false_lemma; eauto. Qed.
-
-Lemma IntroArg_not_bool_eq_true_lemma n (b : bool) goal :
-  IntroArg n (b = false) (fun _ => goal) ->
-  IntroArg n (not b = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite not_bool_eq_true_lemma; eauto. Qed.
-
-Lemma IntroArg_not_bool_eq_false_lemma n (b : bool) goal :
-  IntroArg n (b = true) (fun _ => goal) ->
-  IntroArg n (not b = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite not_bool_eq_false_lemma; eauto. Qed.
-
-Lemma IntroArg_boolEq_eq n a b goal :
-  IntroArg n (a = b) (fun _ => goal) ->
-  IntroArg n (boolEq a b = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite boolEq_eq; eauto. Qed.
-
-Lemma IntroArg_boolEq_neq n a b goal :
-  IntroArg n (a <> b) (fun _ => goal) ->
-  IntroArg n (boolEq a b = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite boolEq_neq; eauto. Qed.
-
-Lemma IntroArg_bool_eq_if_true n (b : bool) goal :
-  IntroArg n (b = true) (fun _ => goal) ->
-  IntroArg n ((if b then true else false) = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite bool_eq_if_true; eauto. Qed.
-
-Lemma IntroArg_bool_eq_if_false n (b : bool) goal :
-  IntroArg n (b = false) (fun _ => goal) ->
-  IntroArg n ((if b then true else false) = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite bool_eq_if_false; eauto. Qed.
-
-Lemma IntroArg_bool_eq_if_inv_true n (b : bool) goal :
-  IntroArg n (b = false) (fun _ => goal) ->
-  IntroArg n ((if b then false else true) = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite bool_eq_if_inv_true; eauto. Qed.
-
-Lemma IntroArg_bool_eq_if_inv_false n (b : bool) goal :
-  IntroArg n (b = true) (fun _ => goal) ->
-  IntroArg n ((if b then false else true) = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite bool_eq_if_inv_false; eauto. Qed.
-
-Hint Extern 1 (IntroArg _ (SAWCorePrelude.bvEq _ _ _ = true) _) =>
-   simple apply IntroArg_bvEq_eq : refinesFun.
-Hint Extern 1 (IntroArg _ (SAWCorePrelude.bvEq _ _ _ = false) _) =>
-   simple apply IntroArg_bvEq_neq : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) = intToBv 1 1) _) =>
-   simple apply IntroArg_bv_eq_if_true : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) = intToBv 1 0) _) =>
-   simple apply IntroArg_bv_eq_if_false : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) <> intToBv 1 1) _) =>
-   simple apply IntroArg_bv_neq_if_true : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) <> intToBv 1 0) _) =>
-   simple apply IntroArg_bv_neq_if_false : refinesFun.
-Hint Extern 1 (IntroArg _ (and _ _ = true) _) =>
-   simple apply IntroArg_and_bool_eq_true_lemma : refinesFun.
-Hint Extern 1 (IntroArg _ (and _ _ = false) _) =>
-   simple apply IntroArg_and_bool_eq_false_lemma : refinesFun.
-Hint Extern 1 (IntroArg _ (or _ _ = true) _) =>
-   simple apply IntroArg_or_bool_eq_true_lemma : refinesFun.
-Hint Extern 1 (IntroArg _ (or _ _ = false) _) =>
-   simple apply IntroArg_or_bool_eq_false_lemma : refinesFun.
-Hint Extern 1 (IntroArg _ (not _ = true) _) =>
-   simple apply IntroArg_not_bool_eq_true_lemma : refinesFun.
-Hint Extern 1 (IntroArg _ (not _ = false) _) =>
-   simple apply IntroArg_not_bool_eq_false_lemma : refinesFun.
-Hint Extern 1 (IntroArg _ (boolEq _ _ = true) _) =>
-   simple apply IntroArg_boolEq_eq : refinesFun.
-Hint Extern 1 (IntroArg _ (boolEq _ _ = false) _) =>
-   simple apply IntroArg_boolEq_neq : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then Datatypes.true else Datatypes.false) = SAWCoreScaffolding.true) _) =>
-   simple apply IntroArg_bool_eq_if_true : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then Datatypes.true else Datatypes.false) = SAWCoreScaffolding.false) _) =>
-   simple apply IntroArg_bool_eq_if_false : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then Datatypes.false else Datatypes.true) = SAWCoreScaffolding.true) _) =>
-   simple apply IntroArg_bool_eq_if_inv_true : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then Datatypes.false else Datatypes.true) = SAWCoreScaffolding.false) _) =>
-   simple apply IntroArg_bool_eq_if_inv_false : refinesFun.
-
-Ltac IntroArg_If0_eq T :=
-  let e := fresh in
-    IntroArg_intro e;
-    compute_bv_funs in e;
-    match T with
-    | bool => (* try rewrite e; *)
-              autorewrite with SAWCoreBitvectors_eqs in e;
-              simpl in e; try fold true in e; try fold false in e
-    end;
-    apply (IntroArg_fold If _ _ e); clear e.
-
-Hint Extern 0 (IntroArg If0 (@eq ?T _ _) _) =>
-  progress (IntroArg_If0_eq T) : refinesFun.
 
 Ltac IntroArg_try_rewrite_bool_eq n T :=
   let e := fresh in
@@ -349,75 +213,6 @@ Ltac IntroArg_try_rewrite_bool_eq n T :=
 
 Hint Extern 2 (IntroArg ?n (@eq ?T _ _) _) =>
   progress (IntroArg_try_rewrite_bool_eq n T) : refinesFun.
-
-(* Ltac IntroArg_rewrite_bool_eq T n g := *)
-(*   let e := argName n in *)
-(*     IntroArg_intro e; *)
-(*     match T with *)
-(*     | bool => try rewrite e; let t := type of e in idtac t; idtac g *)
-(*               (* autorewrite with SAWCoreBitvectors_eqs in e *) *)
-(*     end; compute_bv_funs in e; simpl in e; *)
-(*     apply (IntroArg_fold n _ _ e); clear e. *)
-
-(* Hint Extern 2 (IntroArg ?n (@eq ?T _ _) ?g) => *)
-(*   progress (IntroArg_rewrite_bool_eq T n g); idtac "made it" : refinesFun. *)
-
-Lemma IntroArg_isBvsle_def n w a b goal
-  : IntroArg n (isBvsle w a b) (fun _ => goal) ->
-    IntroArg n (bvsle w a b = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite isBvsle_def; eauto. Qed.
-
-Lemma IntroArg_isBvsle_def_opp n w a b goal
-  : IntroArg n (isBvsle w b a) (fun _ => goal) ->
-    IntroArg n (bvslt w a b = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite isBvsle_def_opp; eauto. Qed.
-
-Lemma IntroArg_isBvslt_def n w a b goal
-  : IntroArg n (isBvslt w a b) (fun _ => goal) ->
-    IntroArg n (bvslt w a b = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite isBvslt_def; eauto. Qed.
-
-Lemma IntroArg_isBvslt_def_opp n w a b goal
-  : IntroArg n (isBvslt w b a) (fun _ => goal) ->
-    IntroArg n (bvsle w a b = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite isBvslt_def_opp; eauto. Qed.
-
-Lemma IntroArg_isBvule_def n w a b goal
-  : IntroArg n (isBvule w a b) (fun _ => goal) ->
-    IntroArg n (bvule w a b = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite isBvule_def; eauto. Qed.
-
-Lemma IntroArg_isBvule_def_opp n w a b goal
-  : IntroArg n (isBvule w b a) (fun _ => goal) ->
-    IntroArg n (bvult w a b = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite isBvule_def_opp; eauto. Qed.
-
-Lemma IntroArg_isBvult_def n w a b goal
-  : IntroArg n (isBvult w a b) (fun _ => goal) ->
-    IntroArg n (bvult w a b = true) (fun _ => goal).
-Proof. unfold IntroArg; rewrite isBvult_def; eauto. Qed.
-
-Lemma IntroArg_isBvult_def_opp n w a b goal
-  : IntroArg n (isBvult w b a) (fun _ => goal) ->
-    IntroArg n (bvule w a b = false) (fun _ => goal).
-Proof. unfold IntroArg; rewrite isBvult_def_opp; eauto. Qed.
-
-Hint Extern 3 (IntroArg _ (bvsle _ _ _ = true) _) =>
-   simple apply IntroArg_isBvsle_def : refinesFun.
-Hint Extern 3 (IntroArg _ (bvslt _ _ _ = false) _) =>
-   simple apply IntroArg_isBvsle_def_opp : refinesFun.
-Hint Extern 3 (IntroArg _ (bvslt  _ _ = true) _) =>
-   simple apply IntroArg_isBvslt_def : refinesFun.
-Hint Extern 3 (IntroArg _ (bvsle _ _ _ = false) _) =>
-   simple apply IntroArg_isBvslt_def_opp : refinesFun.
-Hint Extern 3 (IntroArg _ (bvule _ _ _ = true) _) =>
-   simple apply IntroArg_isBvule_def : refinesFun.
-Hint Extern 3 (IntroArg _ (bvult _ _ _ = false) _) =>
-   simple apply IntroArg_isBvule_def_opp : refinesFun.
-Hint Extern 3 (IntroArg _ (bvult _ _ _ = true) _) =>
-   simple apply IntroArg_isBvult_def : refinesFun.
-Hint Extern 3 (IntroArg _ (bvule _ _ _ = false) _) =>
-   simple apply IntroArg_isBvult_def_opp : refinesFun.
 
 Ltac IntroArg_intro_injection n :=
   let e := argName n in
@@ -455,27 +250,20 @@ Hint Extern 3 (IntroArg ?n (eq true false) _) =>
 Hint Extern 3 (IntroArg ?n (eq false true) _) =>
   IntroArg_intro_discriminate n : refinesFun.
 
-(* Ltac IntroArg_intro_try_rewrite_non_bv n T := *)
-(*   let e := argName n in *)
-(*     IntroArg_intro e; *)
-(*     lazymatch T with *)
-(*     | bitvector _ => fail *)
-(*     | _ => try (time (rewrite e); let t := type of e in idtac t) *)
-(*     end. *)
-
-(* Hint Extern 4 (IntroArg ?n (@eq ?T _ _) _) => *)
-(*   IntroArg_intro_try_rewrite_non_bv n T : refinesFun. *)
-
-Hint Extern 5 (IntroArg ?n _ _) =>
+Hint Extern 4 (IntroArg ?n _ _) =>
   let e := argName n in IntroArg_intro e; subst : refinesFun.
 
 Definition refinesM_either_l_IntroArg {A B C} (f:A -> CompM C) (g:B -> CompM C) eith P :
-  (IntroArg Any _ (fun a => IntroArg Either (eith = SAWCorePrelude.Left _ _ a) (fun _ => f a |= P))) ->
-  (IntroArg Any _ (fun b => IntroArg Either (eith = SAWCorePrelude.Right _ _ b) (fun _ => g b |= P))) ->
+  (FreshIntroArg Any _ (fun a =>
+    FreshIntroArg Either (eith = SAWCorePrelude.Left _ _ a) (fun _ => f a |= P))) ->
+  (FreshIntroArg Any _ (fun b =>
+    FreshIntroArg Either (eith = SAWCorePrelude.Right _ _ b) (fun _ => g b |= P))) ->
   SAWCorePrelude.either _ _ _ f g eith |= P := refinesM_either_l f g eith P.
 Definition refinesM_either_r_IntroArg {A B C} (f:A -> CompM C) (g:B -> CompM C) eith P :
-  (IntroArg Any _ (fun a => IntroArg Either (eith = SAWCorePrelude.Left _ _ a) (fun _ => P |= f a))) ->
-  (IntroArg Any _ (fun b => IntroArg Either (eith = SAWCorePrelude.Right _ _ b) (fun _ => P |= g b))) ->
+  (FreshIntroArg Any _ (fun a =>
+    FreshIntroArg Either (eith = SAWCorePrelude.Left _ _ a) (fun _ => P |= f a))) ->
+  (FreshIntroArg Any _ (fun b =>
+    FreshIntroArg Either (eith = SAWCorePrelude.Right _ _ b) (fun _ => P |= g b))) ->
   P |= SAWCorePrelude.either _ _ _ f g eith := refinesM_either_r f g eith P.
 
 Hint Extern 1 (SAWCorePrelude.either _ _ _ _ _ _ |= _) =>
@@ -484,12 +272,14 @@ Hint Extern 1 (_ |= SAWCorePrelude.either _ _ _ _ _ _) =>
   simple apply refinesM_either_r_IntroArg : refinesM.
 
 Definition refinesM_maybe_l_IntroArg {A B} (x : CompM B) (f : A -> CompM B) mb P :
-  (IntroArg Maybe (mb = SAWCorePrelude.Nothing _) (fun _ => x |= P)) ->
-  (IntroArg Any _ (fun a => IntroArg Maybe (mb = SAWCorePrelude.Just _ a) (fun _ => f a |= P))) ->
+  (FreshIntroArg Maybe (mb = SAWCorePrelude.Nothing _) (fun _ => x |= P)) ->
+  (FreshIntroArg Any _ (fun a =>
+    FreshIntroArg Maybe (mb = SAWCorePrelude.Just _ a) (fun _ => f a |= P))) ->
   SAWCorePrelude.maybe _ _ x f mb |= P := refinesM_maybe_l x f mb P.
 Definition refinesM_maybe_r_IntroArg {A B} (x : CompM B) (f : A -> CompM B) mb P :
-  (IntroArg Maybe (mb = SAWCorePrelude.Nothing _) (fun _ => P |= x)) ->
-  (IntroArg Any _ (fun a => IntroArg Maybe (mb = SAWCorePrelude.Just _ a) (fun _ => P |= f a))) ->
+  (FreshIntroArg Maybe (mb = SAWCorePrelude.Nothing _) (fun _ => P |= x)) ->
+  (FreshIntroArg Any _ (fun a =>
+    FreshIntroArg Maybe (mb = SAWCorePrelude.Just _ a) (fun _ => P |= f a))) ->
   P |= SAWCorePrelude.maybe _ _ x f mb := refinesM_maybe_r x f mb P.
 
 Hint Extern 1 (SAWCorePrelude.maybe _ _ _ _ _ |= _) =>
@@ -498,13 +288,13 @@ Hint Extern 1 (_ |= SAWCorePrelude.maybe _ _ _ _ _) =>
   simple apply refinesM_maybe_r_IntroArg : refinesM.
 
 Definition refinesM_sigT_rect_l_IntroArg {A1 A2 B} F P (s: {x:A1 & A2 x}) :
-  (IntroArg Any _ (fun a1 => IntroArg Any _ (fun a2 =>
-    IntroArg SigT (s = existT _ a1 a2) (fun _ => F a1 a2 |= P)))) ->
+  (FreshIntroArg Any _ (fun a1 => FreshIntroArg Any _ (fun a2 =>
+    FreshIntroArg SigT (s = existT _ a1 a2) (fun _ => F a1 a2 |= P)))) ->
   sigT_rect (fun _ => CompM B) F s |= P := refinesM_sigT_rect_l F P s.
 
 Definition refinesM_sigT_rect_r_IntroArg {A1 A2 B} F P (s: {x:A1 & A2 x}) :
-  (IntroArg Any _ (fun a1 => IntroArg Any _ (fun a2 =>
-    IntroArg SigT (s = existT _ a1 a2) (fun _ => P |= F a1 a2)))) ->
+  (FreshIntroArg Any _ (fun a1 => FreshIntroArg Any _ (fun a2 =>
+    FreshIntroArg SigT (s = existT _ a1 a2) (fun _ => P |= F a1 a2)))) ->
   P |= sigT_rect (fun _ => CompM B) F s := refinesM_sigT_rect_r F P s.
 
 Hint Extern 1 (sigT_rect (fun _ => CompM _) _ _ |= _) =>
@@ -513,12 +303,12 @@ Hint Extern 1 (_ |= sigT_rect (fun _ => CompM _) _ _) =>
   simple apply refinesM_sigT_rect_r_IntroArg : refinesM.
 
 Definition refinesM_if_l_IntroArg {A} (m1 m2:CompM A) b P :
-  (IntroArg If0 (b = true) (fun _ => m1 |= P)) ->
-  (IntroArg If0 (b = false) (fun _ => m2 |= P)) ->
+  (FreshIntroArg If (b = true) (fun _ => m1 |= P)) ->
+  (FreshIntroArg If (b = false) (fun _ => m2 |= P)) ->
   (if b then m1 else m2) |= P := refinesM_if_l m1 m2 b P.
 Definition refinesM_if_r_IntroArg {A} (m1 m2:CompM A) b P :
-  (IntroArg If0 (b = true) (fun _ => P |= m1)) ->
-  (IntroArg If0 (b = false) (fun _ => P |= m2)) ->
+  (FreshIntroArg If (b = true) (fun _ => P |= m1)) ->
+  (FreshIntroArg If (b = false) (fun _ => P |= m2)) ->
   P |= (if b then m1 else m2) := refinesM_if_r m1 m2 b P.
 
 Hint Extern 1 ((if _ then _ else _) |= _) =>
@@ -532,10 +322,10 @@ Hint Extern 1 (_ |= returnM (if _ then _ else _)) =>
   simple apply refinesM_returnM_if_r : refinesM.
 
 Definition refinesM_bindM_assertM_l_IntroArg {A} (P:Prop) (m1 m2: CompM A) :
-  (IntroArg Assert P (fun _ => m1 |= m2)) -> assertM P >> m1 |= m2 :=
+  (FreshIntroArg Assert P (fun _ => m1 |= m2)) -> assertM P >> m1 |= m2 :=
   refinesM_bindM_assertM_l P m1 m2.
 Definition refinesM_assumingM_r_IntroArg {A} (P:Prop) (m1 m2: CompM A) :
-  (IntroArg Assuming P (fun _ => m1 |= m2))  -> m1 |= assumingM P m2 :=
+  (FreshIntroArg Assuming P (fun _ => m1 |= m2))  -> m1 |= assumingM P m2 :=
   refinesM_assumingM_r P m1 m2.
 
 Hint Extern 1 (assertM _ >> _ |= _) =>
@@ -549,10 +339,10 @@ Hint Extern 2 (assumingM _ _ |= _) =>
   simple eapply refinesM_assumingM_l; shelve : refinesM.
 
 Definition refinesM_existsM_l_IntroArg A B (P: A -> CompM B) Q :
-  (IntroArg Exists _ (fun a => P a |= Q)) -> existsM P |= Q :=
+  (FreshIntroArg Exists _ (fun a => P a |= Q)) -> existsM P |= Q :=
   refinesM_existsM_l A B P Q.
 Definition refinesM_forallM_r_IntroArg {A B} P (Q: A -> CompM B) :
-  (IntroArg Forall _ (fun a => P |= (Q a))) -> P |= (forallM Q) :=
+  (FreshIntroArg Forall _ (fun a => P |= (Q a))) -> P |= (forallM Q) :=
   refinesM_forallM_r P Q.
 
 Hint Extern 2 (existsM _ |= _) =>
@@ -758,6 +548,13 @@ Admitted.
  *** Automation for proving function refinement
  ***)
 
+Definition StartAutomation (goal : Prop) := goal.
+
+Lemma StartAutomation_fold goal : StartAutomation goal -> goal.
+Proof. easy. Qed.
+
+Hint Extern 999 (StartAutomation ?A) => unfold StartAutomation : refinesFun.
+
 (* Create HintDb refinesFun. *)
 Hint Extern 999 (_ |= _) => shelve : refinesFun.
 Hint Extern 999 (refinesFun _ _) => shelve : refinesFun.
@@ -842,7 +639,8 @@ Ltac prove_refinement_core := prove_refinement_core with Default.
    form` P |= Q`, where P,Q may contain matching calls to `letRecM`. *)
 
 Tactic Notation "prove_refinement" "with" constr(opts) :=
-  unfold_projs; compute_bv_funs;
+  unfold_projs; (* compute_bv_funs; *)
+  apply StartAutomation_fold;
   prove_refinement_core with opts.
 
 Ltac prove_refinement := prove_refinement with Default.
