@@ -3,11 +3,17 @@
  ***)
 
 From Coq          Require Import Logic.
+From Coq          Require        Program.Equality.
 From Coq          Require Import Strings.String.
 From CryptolToCoq Require Import SAWCorePrelude.
 From CryptolToCoq Require Import SAWCoreScaffolding.
 From CryptolToCoq Require Import SAWCoreVectorsAsCoqVectors.
 From CryptolToCoq Require Export CompM.
+
+(* A duplicate from `Program.Equality`, because importing that
+   module directly gives us a conflict with the `~=` notation... *)
+Tactic Notation "dependent" "destruction" ident(H) := 
+  Equality.do_depelim' ltac:(fun hyp => idtac) ltac:(fun hyp => Equality.do_case hyp) H.
 
 (***
  *** Some useful Ltac
@@ -147,14 +153,14 @@ Ltac argName n :=
   | Forall   => fresh "e_forall"
   end.
 
-Definition FreshIntroArg (_ : ArgName) A (goal : A -> Prop) := forall a, goal a.
-
 Definition IntroArg (_ : ArgName) A (goal : A -> Prop) := forall a, goal a.
 
-Lemma unFreshIntroArg n A goal : IntroArg n A goal -> FreshIntroArg n A goal.
-Proof. unfold FreshIntroArg, IntroArg; auto. Qed.
+Definition FreshIntroArg (n : ArgName) A (goal : A -> Prop) := IntroArg n A goal.
 
-Hint Extern 999 (FreshIntroArg ?n ?T ?goal) => simple apply (unFreshIntroArg n T goal) : refinesFun.
+(* Lemma unFreshIntroArg n A goal : IntroArg n A goal -> FreshIntroArg n A goal. *)
+(* Proof. unfold FreshIntroArg, IntroArg; auto. Qed. *)
+
+Hint Extern 999 (FreshIntroArg _ _ _) => unfold FreshIntroArg : refinesFun.
 
 Lemma IntroArg_fold n A goal : forall a, IntroArg n A goal -> goal a.
 Proof. unfold IntroArg; intros a H; exact (H a). Qed.
@@ -162,7 +168,7 @@ Proof. unfold IntroArg; intros a H; exact (H a). Qed.
 (* Lemma IntroArg_unfold n A (goal : A -> Prop) : (forall a, goal a) -> IntroArg n A goal. *)
 (* Proof. unfold IntroArg; intro H; exact H. Qed. *)
 
-Ltac IntroArg_intro e := intro e; unfold_projs in e.
+Ltac IntroArg_intro e := intro e; unfold_projs in *.
 
 Ltac IntroArg_forget := let e := fresh in intro e; clear e.
 
@@ -194,61 +200,70 @@ Proof. unfold IntroArg; intros H []. apply H. Qed.
 Lemma IntroArg_eq_sigT_const n A B (a a' : A) (b b' : B) (goal : Prop)
   : IntroArg n (a = a') (fun _ => FreshIntroArg n (b = b') (fun _ => goal)) ->
     IntroArg n (existT _ a b = existT _ a' b') (fun _ => goal).
-Proof.
-  unfold IntroArg; intros H eq.
-  injection eq; intros.
-  apply H; assumption.
-Qed.
+Proof. intros H eq; apply H; injection eq; eauto. Qed.
+
+Lemma IntroArg_eq_prod_const n P Q (p p' : P) (q q' : Q) (goal : Prop)
+  : IntroArg n (p = p') (fun _ => FreshIntroArg n (q = q') (fun _ => goal)) ->
+    IntroArg n (pair p q = pair p' q') (fun _ => goal).
+Proof. intros H eq; apply H; injection eq; eauto. Qed.
+
+Lemma IntroArg_eq_Left_const n A B (x y : A) (goal : Prop)
+  : IntroArg n (x = y) (fun _ => goal) ->
+    IntroArg n (SAWCorePrelude.Left A B x = SAWCorePrelude.Left A B y) (fun _ => goal).
+Proof. intros H eq; apply H; injection eq; eauto. Qed.
+Lemma IntroArg_eq_Right_const n A B (x y : B) (goal : Prop)
+  : IntroArg n (x = y) (fun _ => goal) ->
+    IntroArg n (SAWCorePrelude.Right A B x = SAWCorePrelude.Right A B y) (fun _ => goal).
+Proof. intros H eq; apply H; injection eq; eauto. Qed.
+Lemma IntroArg_eq_Left_Right n A B (x : A) (y : B) goal
+  : IntroArg n (SAWCorePrelude.Left A B x = SAWCorePrelude.Right A B y) goal.
+Proof. intros eq; discriminate eq. Qed.
+Lemma IntroArg_eq_Right_Left n A B (x : A) (y : B) goal
+  : IntroArg n (SAWCorePrelude.Right A B y = SAWCorePrelude.Left A B x) goal.
+Proof. intros eq; discriminate eq. Qed.
+
+Lemma IntroArg_eq_Just_const n A (x y : A) (goal : Prop)
+  : IntroArg n (x = y) (fun _ => goal) ->
+    IntroArg n (SAWCorePrelude.Just _ x = SAWCorePrelude.Just _ y) (fun _ => goal).
+Proof. intros H eq; apply H; injection eq; eauto. Qed.
+Lemma IntroArg_eq_Just_Nothing_const n A (x : A) goal
+  : IntroArg n (SAWCorePrelude.Just _ x = SAWCorePrelude.Nothing _) goal.
+Proof. intros eq; discriminate eq. Qed.
+Lemma IntroArg_eq_Nothing_Just_const n A (y : A) goal
+  : IntroArg n (SAWCorePrelude.Nothing _ = SAWCorePrelude.Just _ y) goal.
+Proof. intros eq; discriminate eq. Qed.
 
 Hint Resolve IntroArg_and IntroArg_or IntroArg_sigT IntroArg_prod IntroArg_sum
-             IntroArg_unit IntroArg_eq_sigT_const | 1 : refinesFun.
+             IntroArg_unit IntroArg_eq_sigT_const IntroArg_eq_prod_const
+             IntroArg_eq_Left_const IntroArg_eq_Right_const
+             IntroArg_eq_Left_Right IntroArg_eq_Right_Left
+             IntroArg_eq_Just_const IntroArg_eq_Just_Nothing_const
+             IntroArg_eq_Nothing_Just_const | 1 : refinesFun.
 
-Ltac IntroArg_try_rewrite_bool_eq n T :=
+Ltac IntroArg_intro_dependent_destruction n :=
+  let e := argName n in
+    IntroArg_intro e; dependent destruction e.
+
+Hint Extern 1 (IntroArg ?n (eq (SAWCorePrelude.Nothing _) (SAWCorePrelude.Nothing _)) _) =>
+  IntroArg_forget : refinesFun.
+Hint Extern 1 (IntroArg ?n (eq true true) _) =>
+  IntroArg_intro_dependent_destruction n : refinesFun.
+Hint Extern 1 (IntroArg ?n (eq false false) _) =>
+IntroArg_intro_dependent_destruction n : refinesFun.
+Hint Extern 1 (IntroArg ?n (eq true false) _) =>
+  IntroArg_intro_dependent_destruction n : refinesFun.
+Hint Extern 1 (IntroArg ?n (eq false true) _) =>
+  IntroArg_intro_dependent_destruction n : refinesFun.
+Hint Extern 1 (IntroArg ?n (@eq unit _ _) _) =>
+  IntroArg_forget : refinesFun.
+
+Ltac IntroArg_rewrite_bool_eq n :=
   let e := fresh in
-    IntroArg_intro e;
-    lazymatch T with
-    | bool => try rewrite e
-    | _ => simpl in e
-    end; apply (IntroArg_fold n _ _ e); clear e.
+    IntroArg_intro e; repeat rewrite e in *;
+    apply (IntroArg_fold n _ _ e); clear e.
 
-Hint Extern 2 (IntroArg ?n (@eq ?T _ _) _) =>
-  progress (IntroArg_try_rewrite_bool_eq n T) : refinesFun.
-
-Ltac IntroArg_intro_injection n :=
-  let e := argName n in
-    IntroArg_intro e; injection e as; subst.
-
-Hint Extern 3 (IntroArg ?n (eq (SAWCorePrelude.Left _ _ _) (SAWCorePrelude.Left _ _ _)) _) =>
-  IntroArg_intro_injection n : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq (SAWCorePrelude.Right _ _ _) (SAWCorePrelude.Right _ _ _)) _) =>
-  IntroArg_intro_injection n : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq (SAWCorePrelude.Nothing _) (SAWCorePrelude.Nothing _)) _) =>
-  IntroArg_forget : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq (SAWCorePrelude.Just _ _) (SAWCorePrelude.Just _ _)) _) =>
-  IntroArg_intro_injection n : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq (sigT _ _) (sigT _ _)) _) =>
-  IntroArg_intro_injection n : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq true true) _) =>
-  IntroArg_forget : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq false false) _) =>
-  IntroArg_forget : refinesFun.
-
-Ltac IntroArg_intro_discriminate n :=
-  let e := argName n in
-    IntroArg_intro e; discriminate e.
-
-Hint Extern 3 (IntroArg ?n (eq (SAWCorePrelude.Left _ _ _) (SAWCorePrelude.Right _ _ _)) _) =>
-  IntroArg_intro_discriminate n : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq (SAWCorePrelude.Right _ _ _) (SAWCorePrelude.Left _ _ _)) _) =>
-  IntroArg_intro_discriminate n : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq (SAWCorePrelude.Nothing _) (SAWCorePrelude.Just _ _)) _) =>
-  IntroArg_intro_discriminate n : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq (SAWCorePrelude.Just _ _) (SAWCorePrelude.Nothing _)) _) =>
-  IntroArg_intro_discriminate n : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq true false) _) =>
-  IntroArg_intro_discriminate n : refinesFun.
-Hint Extern 3 (IntroArg ?n (eq false true) _) =>
-  IntroArg_intro_discriminate n : refinesFun.
+Hint Extern 2 (IntroArg ?n (@eq bool _ _) _) =>
+  progress (IntroArg_rewrite_bool_eq n) : refinesFun.
 
 Hint Extern 4 (IntroArg ?n _ _) =>
   let e := argName n in IntroArg_intro e; subst : refinesFun.
@@ -465,27 +480,31 @@ Definition DidInduction {A} (a : A) : Type := unit.
 Lemma didInduction {A} (a : A) : DidInduction a.
 Proof. exact tt. Qed.
 
-Tactic Notation "doInduction" tactic(ind) ident(l) :=
+Tactic Notation "doInduction" tactic(ind) tactic(smp) ident(l) :=
   lazymatch goal with
   | H: DidInduction l |- _ => assumption
   | _ => let l' := fresh l in
-         ind l l'; try pose proof (didInduction l'); simpl in *
+         ind l l'; try pose proof (didInduction l'); smp
   end.
+
+Tactic Notation "doDestruction" tactic(dst) tactic(smp) ident(l) :=
+  let l' := fresh l in dst l l'; smp.
 
 Ltac list_destruct l l' := destruct l as [| ? l'].
 Ltac list_induction l l' := induction l as [| ? l'].
+Ltac list_simpl := simpl SAWCorePrelude.unfoldList in *; simpl list_rect in *.
 
 Hint Extern 2 (IntroArg ?n (eq (SAWCorePrelude.unfoldList _ ?l)
                                (SAWCorePrelude.Left _ _ _)) _) =>
-  doInduction (list_destruct) l : refinesFun.
+  doDestruction (list_destruct) (list_simpl) l : refinesFun.
 Hint Extern 2 (IntroArg ?n (eq (SAWCorePrelude.unfoldList _ ?l)
                                (SAWCorePrelude.Right _ _ _)) _) =>
-  doInduction (list_destruct) l : refinesFun.
+  doDestruction (list_destruct) (list_simpl) l : refinesFun.
 
 Hint Extern 9 (list_rect _ _ _ ?l |= _) =>
-  doInduction (list_induction) l  : refinesM.
+  doInduction (list_induction) (list_simpl) l : refinesM.
 Hint Extern 9 (_ |= list_rect _ _ _ ?l) =>
-  doInduction (list_induction) l : refinesM.
+  doInduction (list_induction) (list_simpl) l : refinesM.
 
 (***
  *** Rewriting rules
@@ -639,7 +658,7 @@ Ltac prove_refinement_core := prove_refinement_core with Default.
    form` P |= Q`, where P,Q may contain matching calls to `letRecM`. *)
 
 Tactic Notation "prove_refinement" "with" constr(opts) :=
-  unfold_projs; (* compute_bv_funs; *)
+  unfold_projs; unfold EqP, ReflP, SAWCoreScaffolding.Bool;
   apply StartAutomation_fold;
   prove_refinement_core with opts.
 

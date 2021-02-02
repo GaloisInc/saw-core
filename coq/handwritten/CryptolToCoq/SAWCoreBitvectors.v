@@ -453,7 +453,6 @@ Lemma IntroArg_bool_eq_if_inv_false n (b : bool) goal :
   IntroArg n ((if b then false else true) = false) (fun _ => goal).
 Proof. do 2 intro; apply H; destruct b; eauto. Qed.
 
-(* TODO Figure out a way to not be forced to add `Datatypes.` here... *)
 Hint Extern 1 (IntroArg _ ((if _ then true else false) = true) _) =>
    simple apply IntroArg_bool_eq_if_true : refinesFun.
 Hint Extern 1 (IntroArg _ ((if _ then true else false) = false) _) =>
@@ -462,6 +461,21 @@ Hint Extern 1 (IntroArg _ ((if _ then false else true) = true) _) =>
    simple apply IntroArg_bool_eq_if_inv_true : refinesFun.
 Hint Extern 1 (IntroArg _ ((if _ then false else true) = false) _) =>
    simple apply IntroArg_bool_eq_if_inv_false : refinesFun.
+
+(* these show up as the unfolded versions of `bvultWithProof` and `bvuleWithProof` *)
+Lemma IntroArg_iteDep_Maybe_EqP_true n t f x (goal : Prop)
+  : IntroArg n (t = x) (fun _ => goal) ->
+    IntroArg n (iteDep (fun b => Maybe (b = true)) true t f = x) (fun _ => goal).
+Proof. do 2 intro; apply H; eauto. Qed.
+Lemma IntroArg_iteDep_Maybe_EqP_false n t f x (goal : Prop)
+  : IntroArg n (f = x) (fun _ => goal) ->
+    IntroArg n (iteDep (fun b => Maybe (b = true)) false t f = x) (fun _ => goal).
+Proof. do 2 intro; apply H; eauto. Qed.
+
+Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (EqP _ _ _)) true _ _ = _) _) =>
+   simple apply IntroArg_iteDep_Maybe_EqP_true : refinesFun.
+Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (EqP _ _ _)) false _ _ = _) _) =>
+   simple apply IntroArg_iteDep_Maybe_EqP_false : refinesFun.
 
 Lemma IntroArg_isBvsle_def n w a b goal
   : IntroArg n (isBvsle w a b) (fun _ => goal) ->
