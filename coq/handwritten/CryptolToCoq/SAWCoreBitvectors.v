@@ -343,192 +343,258 @@ Hint Extern 1 (FreshIntroArg _ (@eq ?T _ _) _) =>
 Lemma IntroArg_bvEq_eq n w a b goal :
   IntroArg n (a = b) (fun _ => goal) ->
   IntroArg n (SAWCorePrelude.bvEq w a b = true) (fun _ => goal).
-Proof. do 2 intro; apply H, bvEq_eq; eauto. Qed.
+Proof. intros H eq; apply H, bvEq_eq; eauto. Qed.
 Lemma IntroArg_bvEq_neq n w a b goal :
   IntroArg n (a <> b) (fun _ => goal) ->
   IntroArg n (SAWCorePrelude.bvEq w a b = false) (fun _ => goal).
-Proof. do 2 intro; apply H, bvEq_neq; eauto. Qed.
+Proof. intros H eq; apply H, bvEq_neq; eauto. Qed.
 
-Hint Extern 1 (IntroArg _ (SAWCorePrelude.bvEq _ _ _ = true) _) =>
-   simple apply IntroArg_bvEq_eq : refinesFun.
-Hint Extern 1 (IntroArg _ (SAWCorePrelude.bvEq _ _ _ = false) _) =>
-   simple apply IntroArg_bvEq_neq : refinesFun.
+(* Hint Extern 1 (IntroArg _ (SAWCorePrelude.bvEq _ _ _ = true) _) => *)
+(*    simple apply IntroArg_bvEq_eq : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ (SAWCorePrelude.bvEq _ _ _ = false) _) => *)
+(*    simple apply IntroArg_bvEq_neq : refinesFun. *)
 
 Lemma IntroArg_bv_eq_if_true n (b : bool) goal :
   IntroArg n (b = true) (fun _ => goal) ->
   IntroArg n ((if b then intToBv 1 1 else intToBv 1 0) = intToBv 1 1) (fun _ => goal).
-Proof. do 2 intro; apply H; destruct b; easy. Qed.
+Proof. intros H eq; apply H; destruct b; easy. Qed.
 Lemma IntroArg_bv_eq_if_false n (b : bool) goal :
   IntroArg n (b = false) (fun _ => goal) ->
   IntroArg n ((if b then intToBv 1 1 else intToBv 1 0) = intToBv 1 0) (fun _ => goal).
-Proof. do 2 intro; apply H; destruct b; easy. Qed.
+Proof. intros H eq; apply H; destruct b; easy. Qed.
 Lemma IntroArg_bv_neq_if_true n (b : bool) goal :
   IntroArg n (b = false) (fun _ => goal) ->
   IntroArg n ((if b then intToBv 1 1 else intToBv 1 0) <> intToBv 1 1) (fun _ => goal).
-Proof. do 2 intro; apply H; destruct b; easy. Qed.
+Proof. intros H eq; apply H; destruct b; easy. Qed.
 Lemma IntroArg_bv_neq_if_false n (b : bool) goal :
   IntroArg n (b = true) (fun _ => goal) ->
   IntroArg n ((if b then intToBv 1 1 else intToBv 1 0) <> intToBv 1 0) (fun _ => goal).
-Proof. do 2 intro; apply H; destruct b; easy. Qed.
+Proof. intros H eq; apply H; destruct b; easy. Qed.
 
-Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) = intToBv 1 1) _) =>
-   simple apply IntroArg_bv_eq_if_true : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) = intToBv 1 0) _) =>
-   simple apply IntroArg_bv_eq_if_false : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) <> intToBv 1 1) _) =>
-   simple apply IntroArg_bv_neq_if_true : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) <> intToBv 1 0) _) =>
-   simple apply IntroArg_bv_neq_if_false : refinesFun.
+(* Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) = intToBv 1 1) _) => *)
+(*    simple apply IntroArg_bv_eq_if_true : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) = intToBv 1 0) _) => *)
+(*    simple apply IntroArg_bv_eq_if_false : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) <> intToBv 1 1) _) => *)
+(*    simple apply IntroArg_bv_neq_if_true : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ ((if _ then intToBv 1 (-1) else intToBv 1 0) <> intToBv 1 0) _) => *)
+(*    simple apply IntroArg_bv_neq_if_false : refinesFun. *)
 
 Lemma IntroArg_and_bool_eq_true n (b c : bool) goal :
-  IntroArg n ((b = true) /\ (c = true)) (fun _ => goal) ->
+  IntroArg n (b = true) (fun _ => FreshIntroArg n (c = true) (fun _ => goal)) ->
   IntroArg n (and b c = true) (fun _ => goal).
-Proof. do 2 intro; apply H, and_bool_eq_true; eauto. Qed.
+Proof.
+  intros H eq; apply H; apply and_bool_eq_true in eq; destruct eq; eauto.
+Qed.
 Lemma IntroArg_and_bool_eq_false n (b c : bool) goal :
-  IntroArg n ((b = false) \/ (c = false)) (fun _ => goal) ->
+  IntroArg n (b = false) (fun _ => goal) ->
+  IntroArg n (c = false) (fun _ => goal) ->
   IntroArg n (and b c = false) (fun _ => goal).
-Proof. do 2 intro; apply H, and_bool_eq_false; eauto. Qed.
+Proof.
+  intros Hl Hr eq; apply and_bool_eq_false in eq.
+  destruct eq; [ apply Hl | apply Hr ]; eauto.
+Qed.
 
-Hint Extern 1 (IntroArg _ (and _ _ = true) _) =>
-   simple apply IntroArg_and_bool_eq_true : refinesFun.
-Hint Extern 1 (IntroArg _ (and _ _ = false) _) =>
-   simple apply IntroArg_and_bool_eq_false : refinesFun.
+(* Hint Extern 1 (IntroArg _ (and _ _ = true) _) => *)
+(*    simple apply IntroArg_and_bool_eq_true : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ (and _ _ = false) _) => *)
+(*    simple apply IntroArg_and_bool_eq_false : refinesFun. *)
 
 Lemma IntroArg_or_bool_eq_true n (b c : bool) goal :
-  IntroArg n ((b = true) \/ (c = true)) (fun _ => goal) ->
+  IntroArg n (b = true) (fun _ => goal) ->
+  IntroArg n (c = true) (fun _ => goal) ->
   IntroArg n (or b c = true) (fun _ => goal).
-Proof. do 2 intro; apply H, or_bool_eq_true; eauto. Qed.
+Proof.
+  intros Hl Hr eq; apply or_bool_eq_true in eq.
+  destruct eq; [ apply Hl | apply Hr ]; eauto.
+Qed.
 Lemma IntroArg_or_bool_eq_false n (b c : bool) goal :
-  IntroArg n ((b = false) /\ (c = false)) (fun _ => goal) ->
+  IntroArg n (b = false) (fun _ => FreshIntroArg n (c = false) (fun _ => goal)) ->
   IntroArg n (or b c = false) (fun _ => goal).
-Proof. do 2 intro; apply H, or_bool_eq_false; eauto. Qed.
+Proof.
+  intros H eq; apply H; apply or_bool_eq_false in eq; destruct eq; eauto.
+Qed.
 
-Hint Extern 1 (IntroArg _ (or _ _ = true) _) =>
-   simple apply IntroArg_or_bool_eq_true : refinesFun.
-Hint Extern 1 (IntroArg _ (or _ _ = false) _) =>
-   simple apply IntroArg_or_bool_eq_false : refinesFun.
+(* Hint Extern 1 (IntroArg _ (or _ _ = true) _) => *)
+(*    simple apply IntroArg_or_bool_eq_true : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ (or _ _ = false) _) => *)
+(*    simple apply IntroArg_or_bool_eq_false : refinesFun. *)
 
 Lemma IntroArg_not_bool_eq_true n (b : bool) goal :
   IntroArg n (b = false) (fun _ => goal) ->
   IntroArg n (not b = true) (fun _ => goal).
-Proof. do 2 intro; apply H, not_bool_eq_true; eauto. Qed.
+Proof. intros H eq; apply H, not_bool_eq_true; eauto. Qed.
 Lemma IntroArg_not_bool_eq_false n (b : bool) goal :
   IntroArg n (b = true) (fun _ => goal) ->
   IntroArg n (not b = false) (fun _ => goal).
-Proof. do 2 intro; apply H, not_bool_eq_false; eauto. Qed.
+Proof. intros H eq; apply H, not_bool_eq_false; eauto. Qed.
 
-Hint Extern 1 (IntroArg _ (not _ = true) _) =>
-   simple apply IntroArg_not_bool_eq_true : refinesFun.
-Hint Extern 1 (IntroArg _ (not _ = false) _) =>
-   simple apply IntroArg_not_bool_eq_false : refinesFun.
+(* Hint Extern 1 (IntroArg _ (not _ = true) _) => *)
+(*    simple apply IntroArg_not_bool_eq_true : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ (not _ = false) _) => *)
+(*    simple apply IntroArg_not_bool_eq_false : refinesFun. *)
 
 Lemma IntroArg_boolEq_eq n a b goal :
   IntroArg n (a = b) (fun _ => goal) ->
   IntroArg n (boolEq a b = true) (fun _ => goal).
-Proof. do 2 intro; apply H, boolEq_eq; eauto. Qed.
+Proof. intros H eq; apply H, boolEq_eq; eauto. Qed.
 Lemma IntroArg_boolEq_neq n a b goal :
   IntroArg n (a <> b) (fun _ => goal) ->
   IntroArg n (boolEq a b = false) (fun _ => goal).
-Proof. do 2 intro; apply H, boolEq_neq; eauto. Qed.
+Proof. intros H eq; apply H, boolEq_neq; eauto. Qed.
 
-Hint Extern 1 (IntroArg _ (boolEq _ _ = true) _) =>
-   simple apply IntroArg_boolEq_eq : refinesFun.
-Hint Extern 1 (IntroArg _ (boolEq _ _ = false) _) =>
-   simple apply IntroArg_boolEq_neq : refinesFun.
+(* Hint Extern 1 (IntroArg _ (boolEq _ _ = true) _) => *)
+(*    simple apply IntroArg_boolEq_eq : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ (boolEq _ _ = false) _) => *)
+(*    simple apply IntroArg_boolEq_neq : refinesFun. *)
 
 Lemma IntroArg_bool_eq_if_true n (b : bool) goal :
   IntroArg n (b = true) (fun _ => goal) ->
   IntroArg n ((if b then true else false) = true) (fun _ => goal).
-Proof. do 2 intro; apply H; destruct b; eauto. Qed.
+Proof. intros H eq; apply H; destruct b; eauto. Qed.
 Lemma IntroArg_bool_eq_if_false n (b : bool) goal :
   IntroArg n (b = false) (fun _ => goal) ->
   IntroArg n ((if b then true else false) = false) (fun _ => goal).
-Proof. do 2 intro; apply H; destruct b; eauto. Qed.
+Proof. intros H eq; apply H; destruct b; eauto. Qed.
 Lemma IntroArg_bool_eq_if_inv_true n (b : bool) goal :
   IntroArg n (b = false) (fun _ => goal) ->
   IntroArg n ((if b then false else true) = true) (fun _ => goal).
-Proof. do 2 intro; apply H; destruct b; eauto. Qed.
+Proof. intros H eq; apply H; destruct b; eauto. Qed.
 Lemma IntroArg_bool_eq_if_inv_false n (b : bool) goal :
   IntroArg n (b = true) (fun _ => goal) ->
   IntroArg n ((if b then false else true) = false) (fun _ => goal).
-Proof. do 2 intro; apply H; destruct b; eauto. Qed.
+Proof. intros H eq; apply H; destruct b; eauto. Qed.
 
-Hint Extern 1 (IntroArg _ ((if _ then true else false) = true) _) =>
-   simple apply IntroArg_bool_eq_if_true : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then true else false) = false) _) =>
-   simple apply IntroArg_bool_eq_if_false : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then false else true) = true) _) =>
-   simple apply IntroArg_bool_eq_if_inv_true : refinesFun.
-Hint Extern 1 (IntroArg _ ((if _ then false else true) = false) _) =>
-   simple apply IntroArg_bool_eq_if_inv_false : refinesFun.
+(* Hint Extern 1 (IntroArg _ ((if _ then true else false) = true) _) => *)
+(*    simple apply IntroArg_bool_eq_if_true : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ ((if _ then true else false) = false) _) => *)
+(*    simple apply IntroArg_bool_eq_if_false : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ ((if _ then false else true) = true) _) => *)
+(*    simple apply IntroArg_bool_eq_if_inv_true : refinesFun. *)
+(* Hint Extern 1 (IntroArg _ ((if _ then false else true) = false) _) => *)
+(*    simple apply IntroArg_bool_eq_if_inv_false : refinesFun. *)
+
+Hint Extern 1 (IntroArg _ (@eq bool ?x ?y) _) =>
+  lazymatch y with
+  | true => lazymatch x with
+    | SAWCorePrelude.bvEq _ _ _ => simple apply IntroArg_bvEq_eq
+    | and _ _ => simple apply IntroArg_and_bool_eq_true
+    | or _ _ => simple apply IntroArg_or_bool_eq_true
+    | not _ => simple apply IntroArg_not_bool_eq_true
+    | boolEq _ _ => simple apply IntroArg_boolEq_eq
+    | if _ then true else false => simple apply IntroArg_bool_eq_if_true
+    | if _ then false else true => simple apply IntroArg_bool_eq_if_inv_true
+    end
+  | false => lazymatch x with
+    | SAWCorePrelude.bvEq _ _ _ => simple apply IntroArg_bvEq_neq
+    | and _ _ => simple apply IntroArg_and_bool_eq_false
+    | or _ _ => simple apply IntroArg_or_bool_eq_false
+    | not _ => simple apply IntroArg_not_bool_eq_false
+    | boolEq _ _ => simple apply IntroArg_boolEq_neq
+    | if _ then true else false => simple apply IntroArg_bool_eq_if_false
+    | if _ then false else true => simple apply IntroArg_bool_eq_if_inv_false
+    end
+  end : refinesFun.
+
+Hint Extern 1 (IntroArg _ (@eq (bitvector _) ?x ?y) _) =>
+  lazymatch constr:(x = y) with
+  | (if _ then intToBv 1 (-1) else intToBv 1 0) = intToBv 1 1 => simple apply IntroArg_bv_eq_if_true
+  | (if _ then intToBv 1 (-1) else intToBv 1 0) = intToBv 1 0 => simple apply IntroArg_bv_eq_if_false
+  end : refinesFun.
+
+Hint Extern 1 (IntroArg _ (~ (@eq (bitvector _) ?x ?y)) _) =>
+  lazymatch constr:(x <> y) with
+  | (if _ then intToBv 1 (-1) else intToBv 1 0) <> intToBv 1 1 => simple apply IntroArg_bv_neq_if_true
+  | (if _ then intToBv 1 (-1) else intToBv 1 0) <> intToBv 1 0 => simple apply IntroArg_bv_neq_if_false
+  end : refinesFun.
 
 (* these show up as the unfolded versions of `bvultWithProof` and `bvuleWithProof` *)
 Lemma IntroArg_iteDep_Maybe_EqP_true n t f x (goal : Prop)
   : IntroArg n (t = x) (fun _ => goal) ->
     IntroArg n (iteDep (fun b => Maybe (b = true)) true t f = x) (fun _ => goal).
-Proof. do 2 intro; apply H; eauto. Qed.
+Proof. intros H eq; apply H; eauto. Qed.
 Lemma IntroArg_iteDep_Maybe_EqP_false n t f x (goal : Prop)
   : IntroArg n (f = x) (fun _ => goal) ->
     IntroArg n (iteDep (fun b => Maybe (b = true)) false t f = x) (fun _ => goal).
-Proof. do 2 intro; apply H; eauto. Qed.
+Proof. intros H eq; apply H; eauto. Qed.
 
 Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (EqP _ _ _)) true _ _ = _) _) =>
    simple apply IntroArg_iteDep_Maybe_EqP_true : refinesFun.
 Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (EqP _ _ _)) false _ _ = _) _) =>
+simple apply IntroArg_iteDep_Maybe_EqP_false : refinesFun.
+Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (EqP _ _ _)) Datatypes.true _ _ = _) _) =>
+   simple apply IntroArg_iteDep_Maybe_EqP_true : refinesFun.
+Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (EqP _ _ _)) Datatypes.false _ _ = _) _) =>
    simple apply IntroArg_iteDep_Maybe_EqP_false : refinesFun.
 
 Lemma IntroArg_isBvsle_def n w a b goal
   : IntroArg n (isBvsle w a b) (fun _ => goal) ->
     IntroArg n (bvsle w a b = true) (fun _ => goal).
-Proof. do 2 intro; apply H, isBvsle_def; eauto. Qed.
+Proof. intros H eq; apply H, isBvsle_def; eauto. Qed.
 Lemma IntroArg_isBvsle_def_opp n w a b goal
   : IntroArg n (isBvsle w b a) (fun _ => goal) ->
     IntroArg n (bvslt w a b = false) (fun _ => goal).
-Proof. do 2 intro; apply H, isBvsle_def_opp; eauto. Qed.
+Proof. intros H eq; apply H, isBvsle_def_opp; eauto. Qed.
 
-Hint Extern 3 (IntroArg _ (bvsle _ _ _ = true) _) =>
-   simple apply IntroArg_isBvsle_def : refinesFun.
-Hint Extern 3 (IntroArg _ (bvslt _ _ _ = false) _) =>
-   simple apply IntroArg_isBvsle_def_opp : refinesFun.
+(* Hint Extern 3 (IntroArg _ (bvsle _ _ _ = true) _) => *)
+(*    simple apply IntroArg_isBvsle_def : refinesFun. *)
+(* Hint Extern 3 (IntroArg _ (bvslt _ _ _ = false) _) => *)
+(*    simple apply IntroArg_isBvsle_def_opp : refinesFun. *)
 
 Lemma IntroArg_isBvslt_def n w a b goal
   : IntroArg n (isBvslt w a b) (fun _ => goal) ->
     IntroArg n (bvslt w a b = true) (fun _ => goal).
-Proof. do 2 intro; apply H, isBvslt_def; eauto. Qed.
+Proof. intros H eq; apply H, isBvslt_def; eauto. Qed.
 Lemma IntroArg_isBvslt_def_opp n w a b goal
   : IntroArg n (isBvslt w b a) (fun _ => goal) ->
     IntroArg n (bvsle w a b = false) (fun _ => goal).
-Proof. do 2 intro; apply H, isBvslt_def_opp; eauto. Qed.
+Proof. intros H eq; apply H, isBvslt_def_opp; eauto. Qed.
 
-Hint Extern 3 (IntroArg _ (bvslt  _ _ = true) _) =>
-   simple apply IntroArg_isBvslt_def : refinesFun.
-Hint Extern 3 (IntroArg _ (bvsle _ _ _ = false) _) =>
-   simple apply IntroArg_isBvslt_def_opp : refinesFun.
+(* Hint Extern 3 (IntroArg _ (bvslt  _ _ = true) _) => *)
+(*    simple apply IntroArg_isBvslt_def : refinesFun. *)
+(* Hint Extern 3 (IntroArg _ (bvsle _ _ _ = false) _) => *)
+(*    simple apply IntroArg_isBvslt_def_opp : refinesFun. *)
 
 Lemma IntroArg_isBvule_def n w a b goal
   : IntroArg n (isBvule w a b) (fun _ => goal) ->
     IntroArg n (bvule w a b = true) (fun _ => goal).
-Proof. do 2 intro; apply H, isBvule_def; eauto. Qed.
+Proof. intros H eq; apply H, isBvule_def; eauto. Qed.
 Lemma IntroArg_isBvule_def_opp n w a b goal
   : IntroArg n (isBvule w b a) (fun _ => goal) ->
     IntroArg n (bvult w a b = false) (fun _ => goal).
-Proof. do 2 intro; apply H, isBvule_def_opp; eauto. Qed.
+Proof. intros H eq; apply H, isBvule_def_opp; eauto. Qed.
 
-Hint Extern 3 (IntroArg _ (bvule _ _ _ = true) _) =>
-   simple apply IntroArg_isBvule_def : refinesFun.
-Hint Extern 3 (IntroArg _ (bvult _ _ _ = false) _) =>
-   simple apply IntroArg_isBvule_def_opp : refinesFun.
+(* Hint Extern 3 (IntroArg _ (bvule _ _ _ = true) _) => *)
+(*    simple apply IntroArg_isBvule_def : refinesFun. *)
+(* Hint Extern 3 (IntroArg _ (bvult _ _ _ = false) _) => *)
+(*    simple apply IntroArg_isBvule_def_opp : refinesFun. *)
 
 Lemma IntroArg_isBvult_def n w a b goal
   : IntroArg n (isBvult w a b) (fun _ => goal) ->
     IntroArg n (bvult w a b = true) (fun _ => goal).
-Proof. do 2 intro; apply H, isBvult_def; eauto. Qed.
+Proof. intros H eq; apply H, isBvult_def; eauto. Qed.
 Lemma IntroArg_isBvult_def_opp n w a b goal
   : IntroArg n (isBvult w b a) (fun _ => goal) ->
     IntroArg n (bvule w a b = false) (fun _ => goal).
-Proof. do 2 intro; apply H, isBvult_def_opp; eauto. Qed.
+Proof. intros H eq; apply H, isBvult_def_opp; eauto. Qed.
 
-Hint Extern 3 (IntroArg _ (bvult _ _ _ = true) _) =>
-   simple apply IntroArg_isBvult_def : refinesFun.
-Hint Extern 3 (IntroArg _ (bvule _ _ _ = false) _) =>
-   simple apply IntroArg_isBvult_def_opp : refinesFun.
+(* Hint Extern 3 (IntroArg _ (bvult _ _ _ = true) _) => *)
+(*    simple apply IntroArg_isBvult_def : refinesFun. *)
+(* Hint Extern 3 (IntroArg _ (bvule _ _ _ = false) _) => *)
+(*    simple apply IntroArg_isBvult_def_opp : refinesFun. *)
+
+Hint Extern 3 (IntroArg _ (@eq bool ?x ?y) _) =>
+  lazymatch y with
+  | true => lazymatch x with
+    | bvsle _ _ _ => simple apply IntroArg_isBvsle_def
+    | bvslt _ _ _ => simple apply IntroArg_isBvslt_def
+    | bvule _ _ _ => simple apply IntroArg_isBvule_def
+    | bvult _ _ _ => simple apply IntroArg_isBvult_def
+    end
+  | false => lazymatch x with
+    | bvsle _ _ _ => simple apply IntroArg_isBvslt_def_opp
+    | bvslt _ _ _ => simple apply IntroArg_isBvsle_def_opp
+    | bvule _ _ _ => simple apply IntroArg_isBvult_def_opp
+    | bvult _ _ _ => simple apply IntroArg_isBvule_def_opp
+    end
+  end : refinesFun.
