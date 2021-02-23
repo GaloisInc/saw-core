@@ -1858,7 +1858,7 @@ unflattenLRTFun lrt =
 -}
 
 -- A list of 0 or more LetRecTypes
-data LetRecTypes : sort 0 where {
+data LetRecTypes : sort 1 where {
   LRT_Nil : LetRecTypes;
   LRT_Cons : LetRecType -> LetRecTypes -> LetRecTypes;
 }
