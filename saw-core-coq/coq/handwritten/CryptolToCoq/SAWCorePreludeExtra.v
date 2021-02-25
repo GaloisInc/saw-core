@@ -59,3 +59,13 @@ Proof.
     intuition.
   }
 Qed.
+
+Theorem fold_unfold_IRT As Ds D : forall x, foldIRT As Ds D (unfoldIRT As Ds D x) = x.
+Proof.
+  induction x; simpl; unfold uncurry; now f_equal.
+Qed.
+
+Theorem unfold_fold_IRT As Ds D : forall u, unfoldIRT As Ds D (foldIRT As Ds D u) = u.
+Proof.
+  revert Ds; induction D; try destruct u; simpl; now f_equal.
+Qed.
