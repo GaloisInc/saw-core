@@ -1689,6 +1689,10 @@ Sigma_proj2 a b =
   Sigma__rec a b (\ (p:Sigma a b) -> b (Sigma_proj1 a b p))
              (\ (pa:a) (pb: b pa) -> pb);
 
+uncurrySigma : (a : sort 0) -> (b : a -> sort 0) -> (c : sort 0) ->
+               ((pa : a) -> b pa -> c) -> Sigma a b -> c;
+uncurrySigma a b c = Sigma__rec a b (\ (_:Sigma a b) -> c);
+
 
 --------------------------------------------------------------------------------
 -- Lists
@@ -1721,6 +1725,32 @@ foldList a =
          (\ (_ : #()) -> Nil a)
          (\ (tup : (a * List a * #())) ->
             Cons a tup.(1) tup.(2).(1));
+
+-- A list of types, i.e. `List (sort 0)` if `List` was universe polymorphic
+data ListSort : sort 1 where {
+  LS_Nil : ListSort;
+  LS_Cons : sort 0 -> ListSort -> ListSort;
+}
+
+ListSort__rec : (P : ListSort -> sort 1) -> P LS_Nil ->
+                ((A:sort 0) -> (l:ListSort) -> P l -> P (LS_Cons A l)) ->
+                (l:ListSort) -> P l;
+ListSort__rec P f1 f2 l = ListSort#rec P f1 f2 l;
+
+-- The sort at the given index in a ListSort or `EqP Bool True False` if
+--  the index is out of bounds
+listSortGet : ListSort -> Nat -> sort 0;
+listSortGet = ListSort__rec (\ (_:ListSort) -> Nat -> sort 0)
+  (\ (_:Nat) -> EqP Bool True False)
+  (\ (A:sort 0) (_:ListSort) (rec : Nat -> sort 0) ->
+     Nat_cases (sort 0) A (\ (n:Nat) (_:sort 0) -> rec n));
+
+-- A ListSort with the first n (or all, if n > length) entries removed
+listSortDrop : ListSort -> Nat -> ListSort;
+listSortDrop = ListSort__rec (\ (_:ListSort) -> Nat -> ListSort)
+  (\ (_:Nat) -> LS_Nil)
+  (\ (_:sort 0) (Ds:ListSort) (rec : Nat -> ListSort) ->
+     Nat_cases ListSort Ds (\ (n:Nat) (_ : ListSort) -> rec n));
 
 
 --------------------------------------------------------------------------------
@@ -1756,6 +1786,182 @@ foldW64List =
             W64Cons (Sigma_proj1 (bitvector 64)
                                  (\ (_:bitvector 64) -> #()) bv_l.(1))
                     bv_l.(2).(1));
+
+
+--------------------------------------------------------------------------------
+-- Iso-recursive types
+
+data IRTDesc (As:ListSort) : sort 0 where {
+  IRT_varD   : Nat -> IRTDesc As; -- a IRTDesc var
+  IRT_mu     : IRTDesc As -> IRTDesc As; -- binds a varD
+  IRT_Either : IRTDesc As -> IRTDesc As -> IRTDesc As;
+  IRT_prod   : IRTDesc As -> IRTDesc As -> IRTDesc As;
+  IRT_sigT   : (n:Nat) -> (listSortGet As n -> IRTDesc As) -> IRTDesc As;
+  IRT_unit   : IRTDesc As;
+  IRT_empty  : IRTDesc As;
+  IRT_varT   : Nat -> IRTDesc As; -- a sort var, i.e. an index into `As`
+}
+
+IRTDesc__rec : (As:ListSort) -> (P : IRTDesc As -> sort 1) ->
+               ((n:Nat) -> P (IRT_varD As n)) ->
+               ((D:IRTDesc As) -> P D -> P (IRT_mu As D)) ->
+               ((Dl:IRTDesc As) -> P Dl -> (Dr:IRTDesc As) -> P Dr ->
+                  P (IRT_Either As Dl Dr)) ->
+               ((Dl:IRTDesc As) -> P Dl -> (Dr:IRTDesc As) -> P Dr ->
+                  P (IRT_prod As Dl Dr)) ->
+               ((n:Nat) -> (Df : listSortGet As n -> IRTDesc As) ->
+                  ((a:listSortGet As n) -> P (Df a)) -> P (IRT_sigT As n Df)) ->
+               P (IRT_unit As) -> P (IRT_empty As) ->
+               ((n:Nat) -> P (IRT_varT As n)) ->
+               (D:IRTDesc As) -> P D;
+IRTDesc__rec As P f1 f2 f3 f4 f5 f6 f7 f8 D = IRTDesc#rec As P f1 f2 f3 f4 f5 f6 f7 f8 D;
+
+-- A list of substitutions for a context of iso-recursive type descriptions
+data IRTSubsts (As:ListSort) : sort 0 where {
+  IRTs_Nil : IRTSubsts As;
+  IRTs_Cons : IRTDesc As -> IRTSubsts As -> IRTSubsts As;
+}
+
+IRTSubsts__rec : (As:ListSort) -> (P : IRTSubsts As -> sort 1) -> P (IRTs_Nil As) ->
+                 ((D:IRTDesc As) -> (Ds:IRTSubsts As) -> P Ds -> P (IRTs_Cons As D Ds)) ->
+                 (Ds:IRTSubsts As) -> P Ds;
+IRTSubsts__rec As P f1 f2 Ds = IRTSubsts#rec As P f1 f2 Ds;
+
+-- The IRTDesc at the given index in an IRTSubsts or IRT_empty if the
+-- index is out of bounds
+atIRTs : (As:ListSort) -> IRTSubsts As -> Nat -> IRTDesc As;
+atIRTs As = IRTSubsts__rec As (\ (_:IRTSubsts As) -> Nat -> IRTDesc As)
+  (\ (_:Nat) -> IRT_empty As)
+  (\ (D:IRTDesc As) (_:IRTSubsts As) (rec : Nat -> IRTDesc As) ->
+     Nat_cases (IRTDesc As) D (\ (n:Nat) (_:IRTDesc As) -> rec n));
+
+-- A IRTSubsts with the first n (or all, if n > length) entries removed
+dropIRTs : (As:ListSort) -> IRTSubsts As -> Nat -> IRTSubsts As;
+dropIRTs As = IRTSubsts__rec As (\ (_:IRTSubsts As) -> Nat -> IRTSubsts As)
+  (\ (_:Nat) -> IRTs_Nil As)
+  (\ (_:IRTDesc As) (Ds:IRTSubsts As) (rec : Nat -> IRTSubsts As) ->
+     Nat_cases (IRTSubsts As) Ds (\ (n:Nat) (_ : IRTSubsts As) -> rec n));
+
+-- The type corresponding to an iso-recursive type description
+data IRT (As:ListSort) : IRTSubsts As -> IRTDesc As -> sort 0 where {
+  IRT_elemD  : (Ds:IRTSubsts As) -> (n:Nat) ->
+               IRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n) ->
+               IRT As Ds (IRT_varD As n);
+  IRT_fold   : (Ds:IRTSubsts As) -> (D:IRTDesc As) ->
+               IRT As (IRTs_Cons As (IRT_mu As D) Ds) D -> IRT As Ds (IRT_mu As D);
+  IRT_Left   : (Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) ->
+               IRT As Ds Dl -> IRT As Ds (IRT_Either As Dl Dr);
+  IRT_Right  : (Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) ->
+               IRT As Ds Dr -> IRT As Ds (IRT_Either As Dl Dr);
+  IRT_pair   : (Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) ->
+               IRT As Ds Dl -> IRT As Ds Dr -> IRT As Ds (IRT_prod As Dl Dr);
+  IRT_existT : (Ds:IRTSubsts As) -> (n:Nat) -> (Df : listSortGet As n -> IRTDesc As) ->
+               (a:listSortGet As n) -> IRT As Ds (Df a) -> IRT As Ds (IRT_sigT As n Df);
+  IRT_tt     : (Ds:IRTSubsts As) -> IRT As Ds (IRT_unit As);
+  IRT_elemT  : (Ds:IRTSubsts As) -> (n:Nat) ->
+               listSortGet As n -> IRT As Ds (IRT_varT As n);
+}
+
+IRT__rec : (As:ListSort) -> (P : (Ds:IRTSubsts As) -> (D:IRTDesc As) -> IRT As Ds D -> sort 1) ->
+           ((Ds:IRTSubsts As) -> (n:Nat) ->
+              (x:IRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n)) ->
+              P (dropIRTs As Ds (Succ n)) (atIRTs As Ds n) x ->
+              P Ds (IRT_varD As n) (IRT_elemD As Ds n x)) ->
+           ((Ds:IRTSubsts As) -> (D:IRTDesc As) ->
+              (x:IRT As (IRTs_Cons As (IRT_mu As D) Ds) D) ->
+              P (IRTs_Cons As (IRT_mu As D) Ds) D x ->
+              P Ds (IRT_mu As D) (IRT_fold As Ds D x)) ->
+           ((Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) -> (xl:IRT As Ds Dl) ->
+              P Ds Dl xl -> P Ds (IRT_Either As Dl Dr) (IRT_Left As Ds Dl Dr xl)) ->
+           ((Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) -> (xr:IRT As Ds Dr) ->
+              P Ds Dr xr -> P Ds (IRT_Either As Dl Dr) (IRT_Right As Ds Dl Dr xr)) ->
+           ((Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) ->
+              (xl:IRT As Ds Dl) -> P Ds Dl xl ->
+              (xr:IRT As Ds Dr) -> P Ds Dr xr ->
+              P Ds (IRT_prod As Dl Dr) (IRT_pair As Ds Dl Dr xl xr)) ->
+           ((Ds:IRTSubsts As) -> (n:Nat) -> (Df : listSortGet As n -> IRTDesc As) ->
+              (a:listSortGet As n) -> (xf:IRT As Ds (Df a)) -> P Ds (Df a) xf ->
+              P Ds (IRT_sigT As n Df) (IRT_existT As Ds n Df a xf)) ->
+           ((Ds:IRTSubsts As) -> P Ds (IRT_unit As) (IRT_tt As Ds)) ->
+           ((Ds:IRTSubsts As) -> (n:Nat) -> (a:listSortGet As n) ->
+              P Ds (IRT_varT As n) (IRT_elemT As Ds n a)) ->
+           (Ds:IRTSubsts As) -> (D:IRTDesc As) -> (x:IRT As Ds D) -> P Ds D x;
+IRT__rec As P f1 f2 f3 f4 f5 f6 f7 f8 Ds D x = IRT#rec As P f1 f2 f3 f4 f5 f6 f7 f8 Ds D x;
+
+-- The type of a once-unfolded iso-recursive type
+UnfoldedIRT : (As:ListSort) -> IRTSubsts As -> IRTDesc As -> sort 0;
+UnfoldedIRT As Ds D = IRTDesc__rec As (\ (_:IRTDesc As) -> IRTSubsts As -> sort 0)
+  (\ (n:Nat) (Ds:IRTSubsts As) ->
+      IRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n))
+  (\ (D:IRTDesc As) (rec : IRTSubsts As -> sort 0) (Ds:IRTSubsts As) ->
+      rec (IRTs_Cons As (IRT_mu As D) Ds))
+  (\ (_:IRTDesc As) (recl : IRTSubsts As -> sort 0)
+     (_:IRTDesc As) (recr : IRTSubsts As -> sort 0) (Ds:IRTSubsts As) ->
+      Either (recl Ds) (recr Ds))
+  (\ (_:IRTDesc As) (recl : IRTSubsts As -> sort 0)
+     (_:IRTDesc As) (recr : IRTSubsts As -> sort 0) (Ds:IRTSubsts As) ->
+      recl Ds * recr Ds)
+  (\ (n:Nat) (_ : listSortGet As n -> IRTDesc As)
+     (recf : listSortGet As n -> IRTSubsts As -> sort 0) (Ds:IRTSubsts As) ->
+      Sigma (listSortGet As n) (\ (a:listSortGet As n) -> recf a Ds))
+  (\ (_:IRTSubsts As) -> #())
+  (\ (_:IRTSubsts As) -> EqP Bool True False)
+  (\ (n:Nat) (_:IRTSubsts As) -> listSortGet As n) D Ds;
+
+-- `fold` and `unfold` for IRTs
+
+unfoldIRT : (As:ListSort) -> (Ds:IRTSubsts As) -> (D:IRTDesc As) ->
+            IRT As Ds D -> UnfoldedIRT As Ds D;
+unfoldIRT As = IRT__rec As (\ (Ds:IRTSubsts As) (D:IRTDesc As) (_:IRT As Ds D) -> UnfoldedIRT As Ds D)
+  (\ (Ds:IRTSubsts As) (n:Nat) (x:IRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n))
+     (_:UnfoldedIRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n)) -> x)
+  (\ (Ds:IRTSubsts As) (D:IRTDesc As) (_:IRT As (IRTs_Cons As (IRT_mu As D) Ds) D)
+     (rec: UnfoldedIRT As (IRTs_Cons As (IRT_mu As D) Ds) D) -> rec)
+  (\ (Ds:IRTSubsts As) (Dl:IRTDesc As) (Dr:IRTDesc As)
+     (_:IRT As Ds Dl) (recl:UnfoldedIRT As Ds Dl) ->
+      Left (UnfoldedIRT As Ds Dl) (UnfoldedIRT As Ds Dr) recl)
+  (\ (Ds:IRTSubsts As) (Dl:IRTDesc As) (Dr:IRTDesc As)
+     (_:IRT As Ds Dr) (recr:UnfoldedIRT As Ds Dr) ->
+      Right (UnfoldedIRT As Ds Dl) (UnfoldedIRT As Ds Dr) recr)
+  (\ (Ds:IRTSubsts As) (Dl:IRTDesc As) (Dr:IRTDesc As)
+     (_:IRT As Ds Dl) (recl:UnfoldedIRT As Ds Dl)
+     (_:IRT As Ds Dr) (recr:UnfoldedIRT As Ds Dr) ->
+      (recl, recr))
+  (\ (Ds:IRTSubsts As) (n:Nat) (Df : listSortGet As n -> IRTDesc As) (a:listSortGet As n)
+     (_:IRT As Ds (Df a)) (recf:UnfoldedIRT As Ds (Df a)) ->
+      exists (listSortGet As n) (\ (a:listSortGet As n) -> UnfoldedIRT As Ds (Df a)) a recf)
+  (\ (Ds:IRTSubsts As) -> ())
+  (\ (Ds:IRTSubsts As) (n:Nat) (a:listSortGet As n) -> a);
+
+foldIRT : (As:ListSort) -> (Ds:IRTSubsts As) -> (D:IRTDesc As) ->
+          UnfoldedIRT As Ds D -> IRT As Ds D;
+foldIRT As Ds D = IRTDesc__rec As (\ (D:IRTDesc As) -> (Ds:IRTSubsts As) -> UnfoldedIRT As Ds D -> IRT As Ds D)
+  (\ (n:Nat) (Ds:IRTSubsts As) (x:IRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n)) ->
+      IRT_elemD As Ds n x)
+  (\ (D:IRTDesc As) (rec : (Ds:IRTSubsts As) -> UnfoldedIRT As Ds D -> IRT As Ds D)
+     (Ds:IRTSubsts As) (x:UnfoldedIRT As (IRTs_Cons As (IRT_mu As D) Ds) D) ->
+      IRT_fold As Ds D (rec (IRTs_Cons As (IRT_mu As D) Ds) x))
+  (\ (Dl:IRTDesc As) (recl : (Ds:IRTSubsts As) -> UnfoldedIRT As Ds Dl -> IRT As Ds Dl)
+     (Dr:IRTDesc As) (recr : (Ds:IRTSubsts As) -> UnfoldedIRT As Ds Dr -> IRT As Ds Dr)
+     (Ds:IRTSubsts As) (x:Either (UnfoldedIRT As Ds Dl) (UnfoldedIRT As Ds Dr)) ->
+      either (UnfoldedIRT As Ds Dl) (UnfoldedIRT As Ds Dr) (IRT As Ds (IRT_Either As Dl Dr))
+             (\ (xl:UnfoldedIRT As Ds Dl) -> IRT_Left  As Ds Dl Dr (recl Ds xl))
+             (\ (xr:UnfoldedIRT As Ds Dr) -> IRT_Right As Ds Dl Dr (recr Ds xr)) x)
+  (\ (Dl:IRTDesc As) (recl : (Ds:IRTSubsts As) -> UnfoldedIRT As Ds Dl -> IRT As Ds Dl)
+     (Dr:IRTDesc As) (recr : (Ds:IRTSubsts As) -> UnfoldedIRT As Ds Dr -> IRT As Ds Dr)
+     (Ds:IRTSubsts As) (x:UnfoldedIRT As Ds Dl * UnfoldedIRT As Ds Dr) ->
+      uncurry (UnfoldedIRT As Ds Dl) (UnfoldedIRT As Ds Dr) (IRT As Ds (IRT_prod As Dl Dr))
+              (\ (xl:UnfoldedIRT As Ds Dl) (xr:UnfoldedIRT As Ds Dr) ->
+                  IRT_pair As Ds Dl Dr (recl Ds xl) (recr Ds xr)) x)
+  (\ (n:Nat) (Df : listSortGet As n -> IRTDesc As)
+     (recf : (a:listSortGet As n) -> (Ds:IRTSubsts As) -> UnfoldedIRT As Ds (Df a) -> IRT As Ds (Df a))
+     (Ds:IRTSubsts As) (x:Sigma (listSortGet As n) (\ (a:listSortGet As n) -> UnfoldedIRT As Ds (Df a))) ->
+      uncurrySigma (listSortGet As n) (\ (a:listSortGet As n) -> UnfoldedIRT As Ds (Df a)) (IRT As Ds (IRT_sigT As n Df))
+                   (\ (a:listSortGet As n) (xf:UnfoldedIRT As Ds (Df a)) ->
+                       IRT_existT As Ds n Df a (recf a Ds xf)) x)
+  (\ (Ds:IRTSubsts As) (x:#()) -> IRT_tt As Ds)
+  (\ (Ds:IRTSubsts As) (x:EqP Bool True False) -> efq (IRT As Ds (IRT_empty As)) x)
+  (\ (n:Nat) (Ds:IRTSubsts As) (x:listSortGet As n) -> IRT_elemT As Ds n x) D Ds;
 
 
 --------------------------------------------------------------------------------
