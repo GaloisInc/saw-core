@@ -1972,8 +1972,20 @@ primitive CompM : sort 0 -> sort 0;
 primitive returnM : (a:sort 0) -> a -> CompM a;
 primitive bindM : (a b:sort 0) -> CompM a -> (a -> CompM b) -> CompM b;
 
+-- Compose two monadic functions
 composeM : (a b c: sort 0) -> (a -> CompM b) -> (b -> CompM c) -> a -> CompM c;
 composeM a b c f g x = bindM b c (f x) g;
+
+-- Tuple a type onto the input and output types of a monadic function
+tupleCompMFunBoth : (a b c: sort 0) -> (a -> CompM b) -> (c * a -> CompM (c * b));
+tupleCompMFunBoth a b c f =
+  \ (x:c * a) ->
+    bindM b (c * b) (f x.(2)) (\ (y:b) -> returnM (c*b) (x.(1), y));
+
+-- Tuple a valu onto the output of a monadic function
+tupleCompMFunOut : (a b c: sort 0) -> c -> (a -> CompM b) -> (a -> CompM (c * b));
+tupleCompMFunOut a b c x f =
+  \ (y:a) -> bindM b (c*b) (f y) (\ (z:b) -> returnM (c*b) (x,z));
 
 -- Raise an error in the computation monad
 primitive errorM : (a:sort 0) -> String -> CompM a;
