@@ -115,6 +115,7 @@ data Eq (t : sort 1) (x : t) : t -> Prop where {
     Refl : Eq t x x;
   }
 
+
 -- The eliminator for the Eq type at sort 1, assuming the usual parameter-index
 -- structure of the Eq type
 Eq__rec : (t : sort 1) -> (x : t) -> (p : (y : t) -> Eq t x y -> sort 1) ->
@@ -744,6 +745,32 @@ pred x = Nat_cases Nat Zero (\ (n:Nat) -> \ (m:Nat) -> n) x;
 eqNatPrec : (x y : Nat) -> eqNat (Succ x) (Succ y) -> eqNat x y;
 eqNatPrec x y eq' =
   eq_cong Nat (Succ x) (Succ y) eq' Nat pred;
+
+-- | Propositional less than or equal to; defined the same way as in Coq
+data IsLeNat (n:Nat) : Nat -> Prop where {
+  IsLeNat_base : IsLeNat n n;
+  IsLeNat_succ : (m:Nat) -> IsLeNat n m -> IsLeNat n (Succ m);
+}
+
+-- | m < n is defined as m+1 <= n (as in Coq)
+IsLtNat : Nat -> Nat -> Prop;
+IsLtNat m n = IsLeNat (Succ m) n;
+
+-- | Test if m < n or n <= m
+-- FIXME: implement this!
+primitive natCompareLe : (m n : Nat) -> Either (IsLtNat m n) (IsLeNat n m);
+
+-- | Test if m = n
+-- FIXME: implement this!
+primitive proveEqNat : (m n : Nat) -> Maybe (Eq Nat m n);
+
+-- | Try to prove x <= y (FIXME: implement this from natCompareLe!)
+primitive proveLeNat : (x y : Nat) -> Maybe (IsLeNat x y);
+
+-- | Try to prove x < y
+proveLtNat : (x y : Nat) -> Maybe (IsLtNat x y);
+proveLtNat x y = proveLeNat (Succ x) y;
+
 
 -- | Addition
 addNat : Nat -> Nat -> Nat;
@@ -1393,6 +1420,58 @@ List__rec :
   ((x : a) -> (l : List a) -> P l -> P (Cons a x l)) ->
   (l : List a) -> P l;
 List__rec a P f1 f2 l = List#rec a P f1 f2 l;
+
+
+--------------------------------------------------------------------------------
+-- Vector operations with built-in casts of their resulting lengths
+
+-- Decide equality on two bitvectors, returning a proof if they are equal
+primitive bvEqWithProof : (n : Nat) -> (v1 v2 : Vec n Bool) ->
+                          Maybe (Eq (Vec n Bool) v1 v2);
+
+-- Compare two bitvectors with bvult, returning a proof if bvult succeeds
+bvultWithProof : (n : Nat) -> (v1 v2 : Vec n Bool) ->
+                 Maybe (Eq Bool (bvult n v1 v2) True);
+bvultWithProof n v1 v2 =
+  iteDep (\ (b:Bool) -> Maybe (Eq Bool b True)) (bvult n v1 v2)
+         (Just (Eq Bool True True) (Refl Bool True))
+         (Nothing (Eq Bool False True));
+
+-- Compare two bitvectors with bvule, returning a proof if bvule succeeds
+bvuleWithProof : (n : Nat) -> (v1 v2 : Vec n Bool) ->
+                 Maybe (Eq Bool (bvule n v1 v2) True);
+bvuleWithProof n v1 v2 =
+  iteDep (\ (b:Bool) -> Maybe (Eq Bool b True)) (bvule n v1 v2)
+         (Just (Eq Bool True True) (Refl Bool True))
+         (Nothing (Eq Bool False True));
+
+-- Convert a proof of bitvector equality to one of Nat equality
+primitive bvEqToEqNat : (n : Nat) -> (v1 v2 : Vec n Bool) ->
+                        Eq (Vec n Bool) v1 v2 ->
+                        eqNat (bvToNat n v1) (bvToNat n v2);
+
+-- Convert a proof of bitvector less-than to one of Nat less-than
+primitive bvultToIsLtNat : (n : Nat) -> (v1 v2 : Vec n Bool) ->
+                           Eq Bool (bvult n v1 v2) True ->
+                           IsLtNat (bvToNat n v1) (bvToNat n v2);
+
+-- | Index a vector using a proof that the index is in the range of the vector
+-- FIXME: atWithDefault should maybe use this...?
+primitive atWithProof : (n : Nat) -> (a : sort 0) -> a -> Vec n a ->
+                        (i : Nat) -> IsLtNat i n -> a;
+
+-- Set the value at index i in a vector using a proof that i is in range
+primitive updWithProof : (n : Nat) -> (a : sort 0) -> Vec n a ->
+                         (i : Nat) -> a -> IsLtNat i n -> Vec n a;
+
+-- Take a slice of a vector using a proof that the slice is in range
+primitive sliceWithProof : (a : sort 0) -> (n off len : Nat) ->
+                           IsLeNat (addNat off len) n -> Vec n a -> Vec len a;
+
+-- Update a slice of a vector using a proof that the slice is in range
+primitive updSliceWithProof : (a : sort 0) -> (n off len : Nat) ->
+                              IsLeNat (addNat off len) n ->
+                              Vec n a -> Vec len a -> Vec n a;
 
 
 --------------------------------------------------------------------------------
