@@ -64,6 +64,7 @@ library
      Verifier.SAW.Grammar
      Verifier.SAW.Lexer
      Verifier.SAW.Module
+     Verifier.SAW.Name
      Verifier.SAW.ParserUtils
      Verifier.SAW.Position
      Verifier.SAW.Prelude
@@ -91,9 +92,10 @@ library
      Verifier.SAW.Unique
      Verifier.SAW.UntypedAST
      Verifier.SAW.Change
+     Verifier.SAW.Utils
   other-modules:
      Verifier.SAW.UnionFind
-     Verifier.SAW.Utils
+
   GHC-options: -Wall -Werror -Wcompat
   if impl(ghc == 8.0.1)
     ghc-options: -Wno-redundant-constraints

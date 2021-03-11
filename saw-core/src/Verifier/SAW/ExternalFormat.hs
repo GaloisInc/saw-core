@@ -61,7 +61,7 @@ renderNames nms = show
   | (idx,nmi) <- Map.toList nms
   ]
  where
-   f (ModuleIdentifier i)  = Left i
+   f (ModuleIdentifier i)  = Left (show i)
    f (ImportedName uri as) = Right (render uri, as)
 
 readNames :: String -> Maybe (Map VarIndex NameInfo)
@@ -124,15 +124,17 @@ scWriteExternal t0 =
     writeTermF tf =
       case tf of
         App e1 e2      -> pure $ unwords ["App", show e1, show e2]
-        Lambda s t e   -> pure $ unwords ["Lam", s, show t, show e]
-        Pi s t e       -> pure $ unwords ["Pi", s, show t, show e]
+        Lambda s t e   -> pure $ unwords ["Lam", Text.unpack s, show t, show e]
+        Pi s t e       -> pure $ unwords ["Pi", Text.unpack s, show t, show e]
         LocalVar i     -> pure $ unwords ["Var", show i]
         Constant ec e  ->
             do stashName ec
                pure $ unwords ["Constant", show (ecVarIndex ec), show (ecType ec), show e]
         FTermF ftf     ->
           case ftf of
-            GlobalDef ident     -> pure $ unwords ["Global", show ident]
+            Primitive ec ->
+               do stashName ec
+                  pure $ unwords ["Primitive", show (ecVarIndex ec), show (ecType ec)]
             UnitValue           -> pure $ unwords ["Unit"]
             UnitType            -> pure $ unwords ["UnitT"]
             PairValue x y       -> pure $ unwords ["Pair", show x, show y]
@@ -149,7 +151,7 @@ scWriteExternal t0 =
                        map show ixs ++ [show e])
             RecordType elem_tps -> pure $ unwords ["RecordType", show elem_tps]
             RecordValue elems   -> pure $ unwords ["Record", show elems]
-            RecordProj e prj    -> pure $ unwords ["RecordProj", show e, prj]
+            RecordProj e prj    -> pure $ unwords ["RecordProj", show e, Text.unpack prj]
             Sort s              -> pure $
               if s == propSort then unwords ["Prop"] else
                 unwords ["Sort", drop 5 (show s)] -- Ugly hack to drop "sort "
@@ -225,11 +227,11 @@ scReadExternal sc input =
     parse tokens =
       case tokens of
         ["App", e1, e2]     -> App <$> readIdx e1 <*> readIdx e2
-        ["Lam", x, t, e]    -> Lambda x <$> readIdx t <*> readIdx e
-        ["Pi", s, t, e]     -> Pi s <$> readIdx t <*> readIdx e
+        ["Lam", x, t, e]    -> Lambda (Text.pack x) <$> readIdx t <*> readIdx e
+        ["Pi", s, t, e]     -> Pi (Text.pack s) <$> readIdx t <*> readIdx e
         ["Var", i]          -> pure $ LocalVar (read i)
         ["Constant",i,t,e]  -> Constant <$> readEC i t <*> readIdx e
-        ["Global", x]       -> pure $ FTermF (GlobalDef (parseIdent x))
+        ["Primitive", i, t] -> FTermF <$> (Primitive <$> readEC i t)
         ["Unit"]            -> pure $ FTermF UnitValue
         ["UnitT"]           -> pure $ FTermF UnitType
         ["Pair", x, y]      -> FTermF <$> (PairValue <$> readIdx x <*> readIdx y)
@@ -254,7 +256,7 @@ scReadExternal sc input =
           FTermF <$> (RecordType <$> (traverse (traverse getTerm) =<< readM elem_tps))
         ["Record", elems] ->
           FTermF <$> (RecordValue <$> (traverse (traverse getTerm) =<< readM elems))
-        ["RecordProj", e, prj] -> FTermF <$> (RecordProj <$> readIdx e <*> pure prj)
+        ["RecordProj", e, prj] -> FTermF <$> (RecordProj <$> readIdx e <*> pure (Text.pack prj))
         ["Prop"]            -> pure $ FTermF (Sort propSort)
         ["Sort", s]         -> FTermF <$> (Sort <$> (mkSort <$> readM s))
         ["Nat", n]          -> FTermF <$> (NatLit <$> readM n)

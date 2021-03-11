@@ -52,6 +52,7 @@ import Control.Monad.Reader
 import Data.List ( (\\) )
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Text (Text)
 #if !MIN_VERSION_base(4,8,0)
 import Data.Traversable (Traversable(..))
 #endif
@@ -59,7 +60,6 @@ import qualified Data.Vector as V
 import Prelude hiding (mapM, maximum)
 
 import Verifier.SAW.Conversion (natConversions)
-import Verifier.SAW.Prelude.Constants
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Rewriter
 import Verifier.SAW.SharedTerm
@@ -79,18 +79,19 @@ type TCState = Map TermIndex Term
 --
 -- * Can throw 'TCError's
 type TCM a =
-  ReaderT (SharedContext, Maybe ModuleName, [(String,Term)])
+  ReaderT (SharedContext, Maybe ModuleName, [(LocalName, Term)])
   (StateT TCState (ExceptT TCError IO)) a
 
 -- | Run a type-checking computation in a given context, starting from the empty
 -- memoization table
-runTCM :: TCM a -> SharedContext -> Maybe ModuleName -> [(String,Term)] ->
-          IO (Either TCError a)
+runTCM ::
+  TCM a -> SharedContext -> Maybe ModuleName -> [(LocalName, Term)] ->
+  IO (Either TCError a)
 runTCM m sc mnm ctx =
   runExceptT $ evalStateT (runReaderT m (sc, mnm, ctx)) Map.empty
 
 -- | Read the current typing context
-askCtx :: TCM [(String,Term)]
+askCtx :: TCM [(LocalName, Term)]
 askCtx = (\(_,_,ctx) -> ctx) <$> ask
 
 -- | Read the current module name
@@ -104,7 +105,7 @@ askModName = (\(_,mnm,_) -> mnm) <$> ask
 --
 -- NOTE: the type given for the variable should be in WHNF, so that we do not
 -- have to normalize the types of variables each time we see them.
-withVar :: String -> Term -> TCM a -> TCM a
+withVar :: LocalName -> Term -> TCM a -> TCM a
 withVar x tp m =
   flip catchError (throwError . ErrorCtx x tp) $
   do saved_table <- get
@@ -115,7 +116,7 @@ withVar x tp m =
 
 -- | Run a type-checking computation in a typing context extended by a list of
 -- variables and their types. See 'withVar'.
-withCtx :: [(String,Term)] -> TCM a -> TCM a
+withCtx :: [(LocalName, Term)] -> TCM a -> TCM a
 withCtx = flip (foldr (\(x,tp) -> withVar x tp))
 
 
@@ -151,7 +152,7 @@ data TCError
   | NotRecordType TypedTerm
   | BadRecordField FieldName Term
   | DanglingVar Int
-  | UnboundName String
+  | UnboundName Text
   | SubtypeFailure TypedTerm Term
   | EmptyVectorLit
   | NoSuchDataType Ident
@@ -160,15 +161,15 @@ data TCError
   | BadParamsOrArgsLength Bool Ident [Term] [Term]
   | BadConstType NameInfo Term Term
   | MalformedRecursor Term String
-  | DeclError String String
+  | DeclError Text String
   | ErrorPos Pos TCError
-  | ErrorCtx String Term TCError
+  | ErrorCtx LocalName Term TCError
 
 -- | Throw a type-checking error
 throwTCError :: TCError -> TCM a
 throwTCError = throwError
 
-type PPErrM = Reader ([String], Maybe Pos)
+type PPErrM = Reader ([LocalName], Maybe Pos)
 
 -- | Pretty-print a type-checking error
 prettyTCError :: TCError -> [String]
@@ -210,7 +211,7 @@ prettyTCError e = runReader (helper e) ([], Nothing) where
                 , ishow ty ]
   helper (DanglingVar n) =
       ppWithPos [ return ("Dangling bound variable index: " ++ show n)]
-  helper (UnboundName str) = ppWithPos [ return ("Unbound name: " ++ str)]
+  helper (UnboundName str) = ppWithPos [ return ("Unbound name: " ++ show str)]
   helper (SubtypeFailure trm tp2) =
       ppWithPos [ return "Inferred type", ishow (typedType trm),
                   return "Not a subtype of expected type", ishow tp2,
@@ -236,7 +237,7 @@ prettyTCError e = runReader (helper e) ([], Nothing) where
       ppWithPos [ return "Malformed recursor application",
                   ishow trm, return reason ]
   helper (DeclError nm reason) =
-    ppWithPos [ return ("Malformed declaration for " ++ nm), return reason ]
+    ppWithPos [ return ("Malformed declaration for " ++ show nm), return reason ]
   helper (ErrorPos p err) =
     local (\(ctx,_) -> (ctx, Just p)) $ helper err
   helper (ErrorCtx x _ err) =
@@ -264,8 +265,9 @@ scTypeCheck sc mnm = scTypeCheckInCtx sc mnm []
 
 -- | Like 'scTypeCheck', but type-check the term relative to a typing context,
 -- which assigns types to free variables in the term
-scTypeCheckInCtx :: TypeInfer a => SharedContext -> Maybe ModuleName ->
-                    [(String,Term)] -> a -> IO (Either TCError Term)
+scTypeCheckInCtx ::
+  TypeInfer a => SharedContext -> Maybe ModuleName ->
+  [(LocalName, Term)] -> a -> IO (Either TCError Term)
 scTypeCheckInCtx sc mnm ctx t0 = runTCM (typeInfer t0) sc mnm ctx
 
 -- | Infer the type of an @a@ and complete it to a term using
@@ -287,7 +289,7 @@ scTypeCheckComplete sc mnm = scTypeCheckCompleteInCtx sc mnm []
 -- | Like 'scTypeCheckComplete', but type-check the term relative to a typing
 -- context, which assigns types to free variables in the term
 scTypeCheckCompleteInCtx :: TypeInfer a => SharedContext ->
-                            Maybe ModuleName -> [(String,Term)] -> a ->
+                            Maybe ModuleName -> [(LocalName, Term)] -> a ->
                             IO (Either TCError TypedTerm)
 scTypeCheckCompleteInCtx sc mnm ctx t0 =
   runTCM (typeInferComplete t0) sc mnm ctx
@@ -325,9 +327,9 @@ typeInferCompleteWHNF a =
 -- while @a@ is the type of types. This will give us 'Term's for each type, as
 -- well as their 'Sort's, since the type of any type is a 'Sort'.
 class TypeInferCtx var a where
-  typeInferCompleteCtx :: [(var,a)] -> TCM [(String, Term, Sort)]
+  typeInferCompleteCtx :: [(var,a)] -> TCM [(LocalName, Term, Sort)]
 
-instance TypeInfer a => TypeInferCtx String a where
+instance TypeInfer a => TypeInferCtx LocalName a where
   typeInferCompleteCtx [] = return []
   typeInferCompleteCtx ((x,tp):ctx) =
     do typed_tp <- typeInferComplete tp
@@ -338,8 +340,9 @@ instance TypeInfer a => TypeInferCtx String a where
 -- | Perform type inference on a context via 'typeInferCompleteCtx', and then
 -- run a computation in that context via 'withCtx', also passing in that context
 -- to the computation
-typeInferCompleteInCtx :: TypeInferCtx var tp => [(var, tp)] ->
-                          ([(String,Term,Sort)] -> TCM a) -> TCM a
+typeInferCompleteInCtx ::
+  TypeInferCtx var tp => [(var, tp)] ->
+  ([(LocalName, Term, Sort)] -> TCM a) -> TCM a
 typeInferCompleteInCtx ctx f =
   do typed_ctx <- typeInferCompleteCtx ctx
      withCtx (map (\(x,tp,_) -> (x,tp)) typed_ctx) (f typed_ctx)
@@ -428,9 +431,8 @@ instance TypeInfer (TermF TypedTerm) where
 -- terms. Intuitively, this represents the case where each immediate subterm of
 -- a term has already been labeled with its (most general) type.
 instance TypeInfer (FlatTermF TypedTerm) where
-  typeInfer (GlobalDef d) =
-    do ty <- liftTCM scTypeOfGlobal d
-       typeCheckWHNF ty
+  typeInfer (Primitive ec) =
+    typeCheckWHNF $ typedVal $ ecType ec
   typeInfer UnitValue = liftTCM scUnitType
   typeInfer UnitType = liftTCM scSort (mkSort 0)
   typeInfer (PairValue (TypedTerm _ tx) (TypedTerm _ ty)) =
@@ -507,7 +509,7 @@ instance TypeInfer (FlatTermF TypedTerm) where
        tp' <- typeCheckWHNF tp
        forM_ vs $ \v_elem -> checkSubtype v_elem tp'
        liftTCM scVecType n tp'
-  typeInfer (StringLit{}) = liftTCM scFlatTermF preludeStringType
+  typeInfer (StringLit{}) = liftTCM scStringType
   typeInfer (ExtCns ec) =
     -- FIXME: should we check that the type of ecType is a sort?
     typeCheckWHNF $ typedVal $ ecType ec

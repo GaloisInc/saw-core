@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -28,6 +29,8 @@ module Verifier.SAW.Term.Pretty
   , scPrettyTerm
   , scPrettyTermInCtx
   , ppTermDepth
+  , ppTermWithNames
+  , showTermWithNames
   , PPModule(..), PPDecl(..)
   , ppPPModule
   , scTermCount
@@ -43,6 +46,7 @@ import Control.Monad.State.Strict as State
 import Data.Foldable (Foldable)
 #endif
 import qualified Data.Foldable as Fold
+import qualified Data.Text as Text
 import qualified Data.Text.Lazy as Text.Lazy
 import qualified Data.Vector as V
 import Numeric (showIntAtBase)
@@ -53,13 +57,14 @@ import Text.URI
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 
+import Verifier.SAW.Name
 import Verifier.SAW.Term.Functor
 
 --------------------------------------------------------------------------------
 -- * Doc annotations
 
 data SawStyle
-  = GlobalDefStyle
+  = PrimitiveStyle
   | ConstantStyle
   | ExtCnsStyle
   | LocalVarStyle
@@ -72,7 +77,7 @@ data SawStyle
 colorStyle :: SawStyle -> AnsiStyle
 colorStyle =
   \case
-    GlobalDefStyle -> mempty
+    PrimitiveStyle -> mempty
     ConstantStyle -> colorDull Blue
     ExtCnsStyle -> colorDull Red
     LocalVarStyle -> colorDull Green
@@ -154,7 +159,7 @@ ppParensPrec p1 p2 d
 
 -- | Local variable namings, which map each deBruijn index in scope to a unique
 -- string to be used to print it. This mapping is given by position in a list.
-newtype VarNaming = VarNaming [String]
+newtype VarNaming = VarNaming [LocalName]
 
 -- | The empty local variable context
 emptyVarNaming :: VarNaming
@@ -162,24 +167,24 @@ emptyVarNaming = VarNaming []
 
 -- | Look up a string to use for a variable, if the first argument is 'True', or
 -- just print the variable number if the first argument is 'False'
-lookupVarName :: Bool -> VarNaming -> DeBruijnIndex -> String
+lookupVarName :: Bool -> VarNaming -> DeBruijnIndex -> LocalName
 lookupVarName True (VarNaming names) i
-  | i >= length names = '!' : show (i - length names)
+  | i >= length names = Text.pack ('!' : show (i - length names))
 lookupVarName True (VarNaming names) i = names!!i
-lookupVarName False _ i = '!' : show i
+lookupVarName False _ i = Text.pack ('!' : show i)
 
 -- | Generate a fresh name from a base name that does not clash with any names
 -- already in a given list, unless it is "_", in which case return it as is
-freshName :: [String] -> String -> String
+freshName :: [LocalName] -> LocalName -> LocalName
 freshName used name
   | name == "_" = name
-  | elem name used = freshName used (name ++ "'")
+  | elem name used = freshName used (name <> "'")
   | otherwise = name
 
 -- | Add a new variable with the given base name to the local variable list,
 -- returning both the fresh name actually used and the new variable list. As a
 -- special case, if the base name is "_", it is not modified.
-consVarNaming :: VarNaming -> String -> (String, VarNaming)
+consVarNaming :: VarNaming -> LocalName -> (LocalName, VarNaming)
 consVarNaming (VarNaming names) name =
   let nm = freshName names name in (nm, VarNaming (nm : names))
 
@@ -202,6 +207,8 @@ data PPState =
     ppDepth :: Int,
     -- | The current naming for the local variables
     ppNaming :: VarNaming,
+    -- | The top-level naming environment
+    ppNamingEnv :: SAWNamingEnv,
     -- | The next "memoization variable" to generate
     ppNextMemoVar :: MemoVar,
     -- | Memoization table for the global, closed terms, mapping term indices to
@@ -212,9 +219,10 @@ data PPState =
     ppLocalMemoTable :: IntMap MemoVar
   }
 
-emptyPPState :: PPOpts -> PPState
-emptyPPState opts =
+emptyPPState :: PPOpts -> SAWNamingEnv -> PPState
+emptyPPState opts ne =
   PPState { ppOpts = opts, ppDepth = 0, ppNaming = emptyVarNaming,
+            ppNamingEnv = ne,
             ppNextMemoVar = 1, ppGlobalMemoTable = IntMap.empty,
             ppLocalMemoTable = IntMap.empty }
 
@@ -223,15 +231,15 @@ newtype PPM a = PPM (Reader PPState a)
               deriving (Functor, Applicative, Monad)
 
 -- | Run a pretty-printing computation in a top-level, empty context
-runPPM :: PPOpts -> PPM a -> a
-runPPM opts (PPM m) = runReader m $ emptyPPState opts
+runPPM :: PPOpts -> SAWNamingEnv -> PPM a -> a
+runPPM opts ne (PPM m) = runReader m $ emptyPPState opts ne
 
 instance MonadReader PPState PPM where
   ask = PPM ask
   local f (PPM m) = PPM $ local f m
 
 -- | Look up the given local variable by deBruijn index to get its name
-varLookupM :: DeBruijnIndex -> PPM String
+varLookupM :: DeBruijnIndex -> PPM LocalName
 varLookupM idx =
   lookupVarName <$> (ppShowLocalNames <$> ppOpts <$> ask)
   <*> (ppNaming <$> ask) <*> return idx
@@ -261,7 +269,7 @@ atNextDepthM dflt m =
 -- also erasing the local memoization table (which is no longer valid in an
 -- extended variable context) during that computation. Return the result of the
 -- computation and also the name that was actually used for the bound variable.
-withBoundVarM :: String -> PPM a -> PPM (String, a)
+withBoundVarM :: LocalName -> PPM a -> PPM (LocalName, a)
 withBoundVarM basename m =
   do st <- ask
      let (var, naming) = consVarNaming (ppNaming st) basename
@@ -301,23 +309,23 @@ ppNat (PPOpts{..}) i
   | otherwise = prefix <> pretty value
   where
     prefix = case ppBase of
-      2  -> pretty "0b"
-      8  -> pretty "0o"
+      2  -> "0b"
+      8  -> "0o"
       10 -> mempty
-      16 -> pretty "0x"
-      _  -> pretty "0" <> pretty '<' <> pretty ppBase <> pretty '>'
+      16 -> "0x"
+      _  -> "0" <> pretty '<' <> pretty ppBase <> pretty '>'
 
     value  = showIntAtBase (toInteger ppBase) (digits !!) i ""
     digits = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 -- | Pretty-print a memoization variable
 ppMemoVar :: MemoVar -> SawDoc
-ppMemoVar mv = pretty "x@" <> pretty mv
+ppMemoVar mv = "x@" <> pretty mv
 
 -- | Pretty-print a type constraint (also known as an ascription) @x : tp@
 ppTypeConstraint :: SawDoc -> SawDoc -> SawDoc
 ppTypeConstraint x tp =
-  hang 2 $ group $ vsep [annotate LocalVarStyle x, pretty ":" <+> tp]
+  hang 2 $ group $ vsep [annotate LocalVarStyle x, ":" <+> tp]
 
 -- | Pretty-print an application to 0 or more arguments at the given precedence
 ppAppList :: Prec -> SawDoc -> [SawDoc] -> SawDoc
@@ -328,9 +336,9 @@ ppAppList p f args = ppParensPrec p PrecApp $ group $ hang 2 $ vsep (f : args)
 ppLetBlock :: [(MemoVar, SawDoc)] -> SawDoc -> SawDoc
 ppLetBlock defs body =
   vcat
-  [ pretty "let" <+> lbrace <+> align (vcat (map ppEqn defs))
+  [ "let" <+> lbrace <+> align (vcat (map ppEqn defs))
   , indent 4 rbrace
-  , pretty " in" <+> body
+  , " in" <+> body
   ]
   where
     ppEqn (var,d) = ppMemoVar var <+> pretty '=' <+> d
@@ -351,16 +359,16 @@ ppPairType prec x y = ppParensPrec prec PrecProd (x <+> pretty '*' <+> y)
 --
 -- * @{ fld1 op val1, ..., fldn op valn }@ otherwise, where @op@ is @::@ for
 --   types and @=@ for values.
-ppRecord :: Bool -> [(String, SawDoc)] -> SawDoc
+ppRecord :: Bool -> [(FieldName, SawDoc)] -> SawDoc
 ppRecord type_p alist =
   (if type_p then (pretty '#' <>) else id) $
   encloseSep lbrace rbrace comma $ map ppField alist
   where
-    ppField (fld, rhs) = group (nest 2 (vsep [pretty fld <+> pretty op_str, rhs]))
+    ppField (fld, rhs) = group (nest 2 (vsep [pretty fld <+> op_str, rhs]))
     op_str = if type_p then ":" else "="
 
 -- | Pretty-print a projection / selector "x.f"
-ppProj :: String -> SawDoc -> SawDoc
+ppProj :: FieldName -> SawDoc -> SawDoc
 ppProj sel doc = doc <> pretty '.' <> pretty sel
 
 -- | Pretty-print an array value @[v1, ..., vn]@
@@ -369,15 +377,15 @@ ppArrayValue = list
 
 -- | Pretty-print a lambda abstraction as @\(x :: tp) -> body@, where the
 -- variable name to use for @x@ is bundled with @body@
-ppLambda :: SawDoc -> (String, SawDoc) -> SawDoc
+ppLambda :: SawDoc -> (LocalName, SawDoc) -> SawDoc
 ppLambda tp (name, body) =
   group $ hang 2 $
-  vsep [pretty "\\" <> parens (ppTypeConstraint (pretty name) tp) <+> pretty "->", body]
+  vsep ["\\" <> parens (ppTypeConstraint (pretty name) tp) <+> "->", body]
 
 -- | Pretty-print a pi abstraction as @(x :: tp) -> body@, or as @tp -> body@ if
 -- @x == "_"@
-ppPi :: SawDoc -> (String, SawDoc) -> SawDoc
-ppPi tp (name, body) = vsep [lhs, pretty "->" <+> body]
+ppPi :: SawDoc -> (LocalName, SawDoc) -> SawDoc
+ppPi tp (name, body) = vsep [lhs, "->" <+> body]
   where
     lhs = if name == "_" then tp else parens (ppTypeConstraint (pretty name) tp)
 
@@ -397,9 +405,9 @@ ppDataType d (params, ((d_ctx,d_tp), ctors)) =
   vcat
   [ vsep
     [ (group . vsep)
-      [ pretty "data" <+> ppIdent d <+> params <+> pretty ":" <+>
-         (d_ctx <+> pretty "->" <+> d_tp)
-      , pretty "where" <+> lbrace
+      [ "data" <+> ppIdent d <+> params <+> ":" <+>
+         (d_ctx <+> "->" <+> d_tp)
+      , "where" <+> lbrace
       ]
     , vcat (map (<> semi) ctors)
     ]
@@ -415,9 +423,9 @@ ppDataType d (params, ((d_ctx,d_tp), ctors)) =
 ppFlatTermF :: Prec -> FlatTermF Term -> PPM SawDoc
 ppFlatTermF prec tf =
   case tf of
-    GlobalDef i   -> return $ annotate GlobalDefStyle $ ppIdent i
-    UnitValue     -> return $ pretty "(-empty-)"
-    UnitType      -> return $ pretty "#(-empty-)"
+    Primitive ec  -> annotate PrimitiveStyle <$> ppBestName (ecName ec)
+    UnitValue     -> return "(-empty-)"
+    UnitType      -> return "#(-empty-)"
     PairValue x y -> ppPair prec <$> ppTerm' PrecLambda x <*> ppTerm' PrecNone y
     PairType x y  -> ppPairType prec <$> ppTerm' PrecApp x <*> ppTerm' PrecProd y
     PairLeft t    -> ppProj "1" <$> ppTerm' PrecArg t
@@ -434,10 +442,10 @@ ppFlatTermF prec tf =
          ixs_pp <- mapM (ppTerm' PrecArg) ixs
          arg_pp <- ppTerm' PrecArg arg
          return $
-           ppAppList prec (annotate RecursorStyle (ppIdent d <> pretty "#rec"))
+           ppAppList prec (annotate RecursorStyle (ppIdent d <> "#rec"))
            (params_pp ++ [p_ret_pp] ++
             [tupled $
-             zipWith (\(c,_) f_pp -> vsep [ppIdent c, pretty "=>", f_pp])
+             zipWith (\(c,_) f_pp -> vsep [ppIdent c, "=>", f_pp])
              cs_fs fs_pp]
             ++ ixs_pp ++ [arg_pp])
     RecordType alist ->
@@ -450,7 +458,16 @@ ppFlatTermF prec tf =
     ArrayValue _ args   ->
       ppArrayValue <$> mapM (ppTerm' PrecNone) (V.toList args)
     StringLit s -> return $ viaShow s
-    ExtCns cns -> pure $ annotate ExtCnsStyle $ ppName (ecName cns)
+    ExtCns cns -> annotate ExtCnsStyle <$> ppBestName (ecName cns)
+
+-- | Pretty-print a name, using the best unambiguous alias from the
+-- naming environment.
+ppBestName :: NameInfo -> PPM SawDoc
+ppBestName ni =
+  do ne <- asks ppNamingEnv
+     case bestAlias ne ni of
+       Left _ -> pure $ ppName ni
+       Right alias -> pure $ pretty alias
 
 ppName :: NameInfo -> SawDoc
 ppName (ModuleIdentifier i) = ppIdent i
@@ -469,12 +486,12 @@ ppTermF prec (Pi x tp body) =
   (ppPi <$> ppTerm' PrecApp tp <*>
    ppTermInBinder PrecLambda x body)
 ppTermF _ (LocalVar x) = annotate LocalVarStyle <$> pretty <$> varLookupM x
-ppTermF _ (Constant ec _) = pure $ annotate ConstantStyle $ ppName (ecName ec)
+ppTermF _ (Constant ec _) = annotate ConstantStyle <$> ppBestName (ecName ec)
 
 
 -- | Internal function to recursively pretty-print a term
 ppTerm' :: Prec -> Term -> PPM SawDoc
-ppTerm' prec = atNextDepthM (pretty "...") . ppTerm'' where
+ppTerm' prec = atNextDepthM "..." . ppTerm'' where
   ppTerm'' (Unshared tf) = ppTermF prec tf
   ppTerm'' (STApp {stAppIndex = idx, stAppTermF = tf}) =
     do maybe_memo_var <- memoLookupM idx
@@ -526,7 +543,7 @@ scTermCount doBinders t0 = execState (go [t0]) IntMap.empty
 shouldMemoizeTerm :: Term -> Bool
 shouldMemoizeTerm t =
   case unwrapTermF t of
-    FTermF GlobalDef{} -> False
+    FTermF Primitive{} -> False
     FTermF UnitValue -> False
     FTermF UnitType -> False
     FTermF (CtorApp _ [] []) -> False
@@ -585,7 +602,7 @@ ppTermWithMemoTable prec global_p trm = ppLets occ_map_elems [] where
 --
 -- Also, pretty-print let-bindings around the term for all subterms that occur
 -- more than once at the same binding level.
-ppTermInBinder :: Prec -> String -> Term -> PPM (String, SawDoc)
+ppTermInBinder :: Prec -> LocalName -> Term -> PPM (LocalName, SawDoc)
 ppTermInBinder prec basename trm =
   let nm = if basename == "_" && inBitSet 0 (looseVars trm) then "_x"
            else basename in
@@ -596,7 +613,7 @@ ppTermInBinder prec basename trm =
 -- pretty-printing of the context. Note: we do not use any local memoization
 -- tables for the inner computation; the justification is that this function is
 -- only used for printing datatypes, which we assume are not very big.
-ppWithBoundCtx :: [(String, Term)] -> PPM a -> PPM (SawDoc, a)
+ppWithBoundCtx :: [(LocalName, Term)] -> PPM a -> PPM (SawDoc, a)
 ppWithBoundCtx [] m = (mempty ,) <$> m
 ppWithBoundCtx ((x,tp):ctx) m =
   (\tp_d (x', (ctx_d, ret)) ->
@@ -606,7 +623,7 @@ ppWithBoundCtx ((x,tp):ctx) m =
 -- | Pretty-print a term, also adding let-bindings for all subterms that occur
 -- more than once at the same binding level
 ppTerm :: PPOpts -> Term -> SawDoc
-ppTerm opts trm = runPPM opts $ ppTermWithMemoTable PrecNone True trm
+ppTerm opts = ppTermWithNames opts emptySAWNamingEnv
 
 -- | Pretty-print a term, but only to a maximum depth
 ppTermDepth :: Int -> Term -> SawDoc
@@ -614,27 +631,30 @@ ppTermDepth depth t = ppTerm (depthPPOpts depth) t
 
 -- | Like 'ppTerm', but also supply a context of bound names, where the most
 -- recently-bound variable is listed first in the context
-ppTermInCtx :: PPOpts -> [String] -> Term -> SawDoc
+ppTermInCtx :: PPOpts -> [LocalName] -> Term -> SawDoc
 ppTermInCtx opts ctx trm =
-  runPPM opts $
+  runPPM opts emptySAWNamingEnv $
   flip (Fold.foldl' (\m x -> snd <$> withBoundVarM x m)) ctx $
   ppTermWithMemoTable PrecNone True trm
-  
-renderSawDoc :: (SawStyle -> AnsiStyle) -> SawDoc -> String
-renderSawDoc style doc = Text.Lazy.unpack (renderLazy (reAnnotateS style (layoutPretty opts doc)))
-  where opts = LayoutOptions (AvailablePerLine 80 0.8)
+
+renderSawDoc :: PPOpts -> SawDoc -> String
+renderSawDoc ppOpts doc =
+  Text.Lazy.unpack (renderLazy (style (layoutPretty layoutOpts doc)))
+  where
+    layoutOpts = LayoutOptions (AvailablePerLine 80 0.8)
+    style = if ppColor ppOpts then reAnnotateS colorStyle else unAnnotateS
 
 -- | Pretty-print a term and render it to a string, using the given options
 scPrettyTerm :: PPOpts -> Term -> String
 scPrettyTerm opts t =
-  renderSawDoc (if ppColor opts then colorStyle else const mempty) $ ppTerm opts t
+  renderSawDoc opts $ ppTerm opts t
 
 -- | Like 'scPrettyTerm', but also supply a context of bound names, where the
 -- most recently-bound variable is listed first in the context
-scPrettyTermInCtx :: PPOpts -> [String] -> Term -> String
+scPrettyTermInCtx :: PPOpts -> [LocalName] -> Term -> String
 scPrettyTermInCtx opts ctx trm =
-  renderSawDoc (if ppColor opts then colorStyle else const mempty) $
-  runPPM opts $
+  renderSawDoc opts $
+  runPPM opts emptySAWNamingEnv $
   flip (Fold.foldl' (\m x -> snd <$> withBoundVarM x m)) ctx $
   ppTermWithMemoTable PrecNone False trm
 
@@ -643,6 +663,20 @@ scPrettyTermInCtx opts ctx trm =
 showTerm :: Term -> String
 showTerm t = scPrettyTerm defaultPPOpts t
 
+
+--------------------------------------------------------------------------------
+-- * Pretty-printers with naming environments
+--------------------------------------------------------------------------------
+
+-- | Pretty-print a term, also adding let-bindings for all subterms that occur
+-- more than once at the same binding level
+ppTermWithNames :: PPOpts -> SAWNamingEnv -> Term -> SawDoc
+ppTermWithNames opts ne trm =
+  runPPM opts ne $ ppTermWithMemoTable PrecNone True trm
+
+showTermWithNames :: PPOpts -> SAWNamingEnv -> Term -> String
+showTermWithNames opts ne trm =
+  renderSawDoc opts $ ppTermWithNames opts ne trm
 
 --------------------------------------------------------------------------------
 -- * Pretty-printers for Modules and Top-level Constructs
@@ -654,7 +688,7 @@ showTerm t = scPrettyTerm defaultPPOpts t
 data PPModule = PPModule [ModuleName] [PPDecl]
 
 data PPDecl
-  = PPTypeDecl Ident [(String,Term)] [(String,Term)] Sort [(Ident,Term)]
+  = PPTypeDecl Ident [(LocalName, Term)] [(LocalName, Term)] Sort [(Ident, Term)]
   | PPDefDecl Ident Term (Maybe Term)
 
 -- | Pretty-print a 'PPModule'
@@ -662,7 +696,7 @@ ppPPModule :: PPOpts -> PPModule -> SawDoc
 ppPPModule opts (PPModule importNames decls) =
   vcat $ concat $ fmap (map (<> line)) $
   [ map ppImport importNames
-  , map (runPPM opts . ppDecl) decls
+  , map (runPPM opts emptySAWNamingEnv . ppDecl) decls
   ]
   where
     ppImport nm = pretty $ "import " ++ show nm

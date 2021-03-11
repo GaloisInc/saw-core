@@ -26,6 +26,8 @@ import Control.Monad.State (State, get, gets, modify, put, runState, evalState)
 import Control.Monad.Except (ExceptT, throwError, runExceptT)
 import qualified Data.ByteString.Lazy.UTF8 as B
 import Data.Maybe (isJust)
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Data.Traversable
 import Data.Word
 import Numeric.Natural
@@ -170,7 +172,7 @@ AppTerm : AtomTerm                 { $1 }
 AtomTerm :: { Term }
 AtomTerm
   : nat                          { NatLit (pos $1) (tokNat (val $1)) }
-  | string                       { StringLit (pos $1) (tokString (val $1)) }
+  | string                       { StringLit (pos $1) (Text.pack (tokString (val $1))) }
   | Ident                        { Name $1 }
   | IdentRec                     { Recursor Nothing $1 }
   | 'Prop'                       { Sort (pos $1) propSort }
@@ -185,16 +187,16 @@ AtomTerm
   | '#' '{' sepBy(FieldType, ',') '}'  { RecordType  (pos $1) $3 }
   | AtomTerm '.' '(' nat ')'           {% mkTupleProj $1 (tokNat (val $4)) }
 
-Ident :: { PosPair String }
-Ident : ident { fmap tokIdent $1 }
+Ident :: { PosPair Text }
+Ident : ident { fmap (Text.pack . tokIdent) $1 }
 
-IdentRec :: { PosPair String }
-IdentRec : identrec { fmap tokRecursor $1 }
+IdentRec :: { PosPair Text }
+IdentRec : identrec { fmap (Text.pack . tokRecursor) $1 }
 
-FieldValue :: { (PosPair String, Term) }
+FieldValue :: { (PosPair FieldName, Term) }
 FieldValue : Ident '=' Term { ($1, $3) }
 
-FieldType :: { (PosPair String, Term) }
+FieldType :: { (PosPair FieldName, Term) }
 FieldType : Ident ':' LTerm { ($1, $3) }
 
 opt(q) :: { Maybe q }
@@ -336,11 +338,11 @@ mkTupleProj t _ =
 
 -- | Parse a term as a dotted list of strings
 parseModuleName :: Term -> Maybe [String]
-parseModuleName (RecordProj t str) = (++ [str]) <$> parseModuleName t
+parseModuleName (RecordProj t str) = (++ [Text.unpack str]) <$> parseModuleName t
 parseModuleName _ = Nothing
 
 -- | Parse a qualified recursor @M1.M2...Mn.d#rec@
-parseRecursorProj :: Term -> PosPair String -> Parser Term
+parseRecursorProj :: Term -> PosPair Text -> Parser Term
 parseRecursorProj (parseModuleName -> Just mnm) i =
   return $ Recursor (Just $ mkModuleName mnm) i
 parseRecursorProj t _ =
@@ -355,9 +357,9 @@ parseTupleSelector t i =
 
 -- | Create a module name given a list of strings with the top-most
 -- module name given first.
-mkPosModuleName :: [PosPair String] -> PosPair ModuleName
+mkPosModuleName :: [PosPair Text] -> PosPair ModuleName
 mkPosModuleName [] = error "internal: Unexpected empty module name"
-mkPosModuleName l = PosPair p (mkModuleName nms)
+mkPosModuleName l = PosPair p (mkModuleName (fmap Text.unpack nms))
   where nms = fmap val l
         p = pos (last l)
 }

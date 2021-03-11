@@ -44,6 +44,7 @@ module Verifier.SAW.SharedTerm
   , scResolveNameByURI
   , scResolveUnambiguous
   , scFindBestName
+  , scShowTerm
   , DuplicateNameException(..)
     -- * Re-exported pretty-printing functions
   , PPOpts(..)
@@ -67,6 +68,7 @@ module Verifier.SAW.SharedTerm
   , scFreshEC
   , scExtCns
   , scGlobalDef
+  , scRegisterGlobal
     -- ** Recursors and datatypes
   , scRecursorElimTypes
   , scRecursorRetTypeType
@@ -256,7 +258,6 @@ import Data.Maybe
 import qualified Data.Foldable as Fold
 import Data.Foldable (foldl', foldlM, foldrM, maximum)
 import Data.HashMap.Strict (HashMap)
-import Data.List.NonEmpty ( NonEmpty(..) )
 import qualified Data.HashMap.Strict as HMap
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
@@ -276,6 +277,7 @@ import Text.URI
 
 import Verifier.SAW.Cache
 import Verifier.SAW.Change
+import Verifier.SAW.Name
 import Verifier.SAW.Prelude.Constants
 import Verifier.SAW.Recognizer
 import Verifier.SAW.Term.Functor
@@ -283,7 +285,6 @@ import Verifier.SAW.Term.CtxTerm
 import Verifier.SAW.Term.Pretty
 import Verifier.SAW.TypedAST
 import Verifier.SAW.Unique
-import Verifier.SAW.Utils
 
 #if !MIN_VERSION_base(4,8,0)
 countTrailingZeros :: (FiniteBits b) => b -> Int
@@ -329,16 +330,11 @@ insertTFM tf x tfm =
 ----------------------------------------------------------------------
 -- SharedContext: a high-level interface for building Terms.
 
-data SAWNamingEnv = SAWNamingEnv
-  { resolvedNames :: !(Map VarIndex NameInfo)
-  , absoluteNames :: !(Map URI VarIndex)
-  , aliasNames    :: !(Map Text (Set VarIndex))
-  }
-
 data SharedContext = SharedContext
   { scModuleMap      :: IORef ModuleMap
   , scTermF          :: TermF Term -> IO Term
   , scNamingEnv      :: IORef SAWNamingEnv
+  , scGlobalEnv      :: IORef (HashMap Ident Term)
   , scFreshGlobalVar :: IO VarIndex
   }
 
@@ -350,31 +346,6 @@ scFlatTermF sc ftf = scTermF sc (FTermF ftf)
 scExtCns :: SharedContext -> ExtCns Term -> IO Term
 scExtCns sc ec = scFlatTermF sc (ExtCns ec)
 
-scFreshNameURI :: Text -> VarIndex -> URI
-scFreshNameURI nm i = fromMaybe (panic "scFreshNameURI" ["Failed to constructed name URI", show nm, show i]) $
-  do sch <- mkScheme "fresh"
-     nm' <- mkPathPiece (if Text.null nm then "_" else nm)
-     i'  <- mkFragment (Text.pack (show i))
-     pure URI
-       { uriScheme = Just sch
-       , uriAuthority = Left False -- relative path
-       , uriPath   = Just (False, (nm' :| []))
-       , uriQuery  = []
-       , uriFragment = Just i'
-       }
-
-moduleIdentToURI :: Ident -> URI
-moduleIdentToURI ident = fromMaybe (panic "moduleIdentToURI" ["Failed to constructed ident URI", show ident]) $
-  do sch  <- mkScheme "sawcore"
-     path <- mapM mkPathPiece (identPieces ident)
-     pure URI
-       { uriScheme = Just sch
-       , uriAuthority = Left True -- absolute path
-       , uriPath   = Just (False, path)
-       , uriQuery  = []
-       , uriFragment = Nothing
-       }
-
 data DuplicateNameException = DuplicateNameException URI
 instance Exception DuplicateNameException
 instance Show DuplicateNameException where
@@ -384,26 +355,10 @@ instance Show DuplicateNameException where
 scRegisterName :: SharedContext -> VarIndex -> NameInfo -> IO ()
 scRegisterName sc i nmi = atomicModifyIORef' (scNamingEnv sc) (\env -> (f env, ()))
   where
-    uri = case nmi of
-            ImportedName x _ -> x
-            ModuleIdentifier x -> moduleIdentToURI x
-
-    aliases = case nmi of
-                ImportedName x xs -> render x : xs
-                ModuleIdentifier x  -> [identBaseName x, identText x, render uri]
-
-    insertAlias :: Text -> Map Text (Set VarIndex) -> Map Text (Set VarIndex)
-    insertAlias x m = Map.alter (Just . maybe (Set.singleton i) (Set.insert i)) x m
-
     f env =
-      case Map.lookup uri (absoluteNames env) of
-        Just _ -> throw (DuplicateNameException uri)
-        Nothing ->
-            SAWNamingEnv
-            { resolvedNames = Map.insert i nmi (resolvedNames env)
-            , absoluteNames = Map.insert uri i (absoluteNames env)
-            , aliasNames    = foldr insertAlias (aliasNames env) aliases
-            }
+      case registerName i nmi env of
+        Left uri -> throw (DuplicateNameException uri)
+        Right env' -> env'
 
 scResolveUnambiguous :: SharedContext -> Text -> IO (VarIndex, NameInfo)
 scResolveUnambiguous sc nm =
@@ -415,32 +370,26 @@ scResolveUnambiguous sc nm =
           fail $ unlines (("Ambiguous name " ++ show nm ++ " might refer to any of the following:") : map show nms)
 
 scFindBestName :: SharedContext -> NameInfo -> IO Text
-scFindBestName _sc (ModuleIdentifier nm) = pure (identText nm)
-scFindBestName sc (ImportedName uri as) = go as
-  where
-  go [] = pure (render uri)
-  go (x:xs) =
-    do vs <- scResolveName sc x
-       case vs of
-         [_] -> return x
-         _   -> go xs
+scFindBestName sc nmi =
+  do env <- readIORef (scNamingEnv sc)
+     case bestAlias env nmi of
+       Left uri -> pure (render uri)
+       Right nm -> pure nm
 
 scResolveNameByURI :: SharedContext -> URI -> IO (Maybe VarIndex)
 scResolveNameByURI sc uri =
   do env <- readIORef (scNamingEnv sc)
-     pure $! Map.lookup uri (absoluteNames env)
+     pure $! resolveURI env uri
 
 scResolveName :: SharedContext -> Text -> IO [(VarIndex, NameInfo)]
 scResolveName sc nm =
   do env <- readIORef (scNamingEnv sc)
-     case Map.lookup nm (aliasNames env) of
-       Nothing -> pure []
-       Just vs -> pure [ (v, fndName v (resolvedNames env)) | v <- Set.toList vs ]
- where
- fndName v m =
-   case Map.lookup v m of
-     Just nmi -> nmi
-     Nothing -> panic "scResolveName" ["Unbound VarIndex when resolving name", show nm, show v]
+     pure (resolveName env nm)
+
+scShowTerm :: SharedContext -> PPOpts -> Term -> IO String
+scShowTerm sc opts t =
+  do env <- readIORef (scNamingEnv sc)
+     pure (showTermWithNames opts env t)
 
 -- | Create a global variable with the given identifier (which may be "_") and type.
 scFreshEC :: SharedContext -> String -> Term -> IO (ExtCns Term)
@@ -459,7 +408,21 @@ scFreshGlobal sc x tp = scExtCns sc =<< scFreshEC sc x tp
 -- | Returns shared term associated with ident.
 -- Does not check module namespace.
 scGlobalDef :: SharedContext -> Ident -> IO Term
-scGlobalDef sc ident = scFlatTermF sc (GlobalDef ident)
+scGlobalDef sc ident =
+  do m <- readIORef (scGlobalEnv sc)
+     case HMap.lookup ident m of
+       Nothing -> fail ("Could not find global: " ++ show ident)
+       Just t -> pure t
+
+scRegisterGlobal :: SharedContext -> Ident -> Term -> IO ()
+scRegisterGlobal sc ident t =
+  do dup <- atomicModifyIORef' (scGlobalEnv sc) f
+     when dup $ fail ("Global identifier already registered: " ++ show ident)
+  where
+    f m =
+      case HMap.lookup ident m of
+        Just _ -> (m, True)
+        Nothing -> (HMap.insert ident t m, False)
 
 -- | Create a function application term.
 scApply :: SharedContext
@@ -547,7 +510,7 @@ scFindModule sc name =
 -- | Look up a definition by its identifier
 scFindDef :: SharedContext -> Ident -> IO (Maybe Def)
 scFindDef sc i =
-  findDef <$> scFindModule sc (identModule i) <*> return (identName i)
+  findDef <$> scFindModule sc (identModule i) <*> pure (identBaseName i)
 
 -- | Look up a 'Def' by its identifier, throwing an error if it is not found
 scRequireDef :: SharedContext -> Ident -> IO Def
@@ -560,7 +523,7 @@ scRequireDef sc i =
 -- | Look up a datatype by its identifier
 scFindDataType :: SharedContext -> Ident -> IO (Maybe DataType)
 scFindDataType sc i =
-  findDataType <$> scFindModule sc (identModule i) <*> return (identName i)
+  findDataType <$> scFindModule sc (identModule i) <*> pure (identBaseName i)
 
 -- | Look up a datatype by its identifier, throwing an error if it is not found
 scRequireDataType :: SharedContext -> Ident -> IO DataType
@@ -573,7 +536,7 @@ scRequireDataType sc i =
 -- | Look up a constructor by its identifier
 scFindCtor :: SharedContext -> Ident -> IO (Maybe Ctor)
 scFindCtor sc i =
-  findCtor <$> scFindModule sc (identModule i) <*> return (identName i)
+  findCtor <$> scFindModule sc (identModule i) <*> pure (identBaseName i)
 
 -- | Look up a constructor by its identifier, throwing an error if not found
 scRequireCtor :: SharedContext -> Ident -> IO Ctor
@@ -740,7 +703,7 @@ scReduceRecursor sc d params p_ret cs_fs c args =
 -- | An elimination for 'scWhnf'
 data WHNFElim
   = ElimApp Term
-  | ElimProj String
+  | ElimProj FieldName
   | ElimPair Bool
   | ElimRecursor Ident [Term] Term [(Ident,Term)] [Term]
 
@@ -964,7 +927,7 @@ scTypeOf' sc env t0 = State.evalStateT (memo t0) Map.empty
            -> State.StateT (Map TermIndex Term) IO Term
     ftermf tf =
       case tf of
-        GlobalDef d -> lift $ scTypeOfGlobal sc d
+        Primitive ec -> return $ ecType ec
         UnitValue -> lift $ scUnitType sc
         UnitType -> lift $ scSort sc (mkSort 0)
         PairValue x y -> do
@@ -1009,9 +972,8 @@ scTypeOf' sc env t0 = State.evalStateT (memo t0) Map.empty
         NatLit _ -> lift $ scNatType sc
         ArrayValue tp vs -> lift $ do
           n <- scNat sc (fromIntegral (V.length vs))
-          vec_f <- scFlatTermF sc preludeVecTypeFun
-          scApplyAll sc vec_f [n, tp]
-        StringLit{} -> lift $ scFlatTermF sc preludeStringType
+          scVecType sc n tp
+        StringLit{} -> lift $ scStringType sc
         ExtCns ec   -> return $ ecType ec
 
 --------------------------------------------------------------------------------
@@ -1246,12 +1208,12 @@ scNat :: SharedContext -> Natural -> IO Term
 scNat sc n = scFlatTermF sc (NatLit n)
 
 -- | Create a literal term (of saw-core type @String@) from a 'String'.
-scString :: SharedContext -> String -> IO Term
+scString :: SharedContext -> Text -> IO Term
 scString sc s = scFlatTermF sc (StringLit s)
 
 -- | Create a term representing the primitive saw-core type @String@.
 scStringType :: SharedContext -> IO Term
-scStringType sc = scFlatTermF sc preludeStringType
+scStringType sc = scGlobalDef sc preludeStringIdent
 
 -- | Create a vector term from a type (as a 'Term') and a list of 'Term's of
 -- that type.
@@ -1268,9 +1230,9 @@ scRecordSelect :: SharedContext -> Term -> FieldName -> IO Term
 scRecordSelect sc t fname = scFlatTermF sc (RecordProj t fname)
 
 -- | Create a term representing the type of a record from a list associating
--- field names (as 'String's) and types (as 'Term's). Note that the order of
+-- field names (as 'FieldName's) and types (as 'Term's). Note that the order of
 -- the given list is irrelevant, as record fields are not ordered.
-scRecordType :: SharedContext -> [(String,Term)] -> IO Term
+scRecordType :: SharedContext -> [(FieldName, Term)] -> IO Term
 scRecordType sc elem_tps = scFlatTermF sc (RecordType elem_tps)
 
 -- | Create a unit-valued term.
@@ -1360,7 +1322,7 @@ scFunAll sc argTypes resultType = foldrM (scFun sc) resultType argTypes
 -- (as a 'Term'), and a body. Regarding deBruijn indices, in the body of the
 -- function, an index of 0 refers to the bound parameter.
 scLambda :: SharedContext
-         -> String -- ^ The parameter name
+         -> LocalName -- ^ The parameter name
          -> Term   -- ^ The parameter type
          -> Term   -- ^ The body
          -> IO Term
@@ -1372,7 +1334,7 @@ scLambda sc varname ty body = scTermF sc (Lambda varname ty body)
 -- parameter in the list, and n-1 (where n is the list length) refers to the
 -- first.
 scLambdaList :: SharedContext
-             -> [(String, Term)] -- ^ List of parameter / parameter type pairs
+             -> [(LocalName, Term)] -- ^ List of parameter / parameter type pairs
              -> Term -- ^ The body
              -> IO Term
 scLambdaList _ [] rhs = return rhs
@@ -1383,7 +1345,7 @@ scLambdaList sc ((nm,tp):r) rhs =
 -- type (as a 'Term'), and a body. This function follows the same deBruijn
 -- index convention as 'scLambda'.
 scPi :: SharedContext
-     -> String -- ^ The parameter name
+     -> LocalName -- ^ The parameter name
      -> Term   -- ^ The parameter type
      -> Term   -- ^ The body
      -> IO Term
@@ -1393,7 +1355,7 @@ scPi sc nm tp body = scTermF sc (Pi nm tp body)
 -- from a list associating parameter names to types (as 'Term's) and a body.
 -- This function follows the same deBruijn index convention as 'scLambdaList'.
 scPiList :: SharedContext
-         -> [(String, Term)] -- ^ List of parameter / parameter type pairs
+         -> [(LocalName, Term)] -- ^ List of parameter / parameter type pairs
          -> Term -- ^ The body
          -> IO Term
 scPiList _ [] rhs = return rhs
@@ -1526,9 +1488,7 @@ scVecType :: SharedContext
           -> Term -- ^ The length of the vector
           -> Term -- ^ The element type
           -> IO Term
-scVecType sc n e =
-  do vec_f <- scFlatTermF sc preludeVecTypeFun
-     scApplyAll sc vec_f [n, e]
+scVecType sc n e = scGlobalApply sc preludeVecIdent [n, e]
 
 -- | Create a term applying @Prelude.not@ to the given term.
 --
@@ -1731,7 +1691,7 @@ scMaxNat sc x y = scGlobalApply sc "Prelude.maxNat" [x,y]
 
 -- | Create a term representing the prelude Integer type.
 scIntegerType :: SharedContext -> IO Term
-scIntegerType sc = scFlatTermF sc preludeIntegerType
+scIntegerType sc = scGlobalDef sc preludeIntegerIdent
 
 -- | Create an integer constant term from an 'Integer'.
 scIntegerConst :: SharedContext -> Integer -> IO Term
@@ -2155,14 +2115,16 @@ mkSharedContext :: IO SharedContext
 mkSharedContext = do
   vr <- newMVar 0 -- Reference for getting variables.
   cr <- newMVar emptyAppCache
+  gr <- newIORef HMap.empty
   let freshGlobalVar = modifyMVar vr (\i -> return (i+1, i))
   mod_map_ref <- newIORef HMap.empty
-  envRef <- newIORef (SAWNamingEnv mempty mempty mempty)
+  envRef <- newIORef emptySAWNamingEnv
   return SharedContext {
              scModuleMap = mod_map_ref
            , scTermF = getTerm cr
            , scFreshGlobalVar = freshGlobalVar
            , scNamingEnv = envRef
+           , scGlobalEnv = gr
            }
 
 useChangeCache :: C m => Cache m k (Change v) -> k -> ChangeT m v -> ChangeT m v
@@ -2274,7 +2236,7 @@ scExtsToLocals sc exts x = instantiateVars sc fn 0 x
 scAbstractExts :: SharedContext -> [ExtCns Term] -> Term -> IO Term
 scAbstractExts _ [] x = return x
 scAbstractExts sc exts x =
-   do let lams = [ (Text.unpack (toShortName (ecName ec)), ecType ec) | ec <- exts ]
+   do let lams = [ (toShortName (ecName ec), ecType ec) | ec <- exts ]
       scLambdaList sc lams =<< scExtsToLocals sc exts x
 
 -- | Generalize over the given list of external constants by wrapping
@@ -2283,7 +2245,7 @@ scAbstractExts sc exts x =
 scGeneralizeExts :: SharedContext -> [ExtCns Term] -> Term -> IO Term
 scGeneralizeExts _ [] x = return x
 scGeneralizeExts sc exts x =
-  do let pis = [ (Text.unpack (toShortName (ecName ec)), ecType ec) | ec <- exts ]
+  do let pis = [ (toShortName (ecName ec), ecType ec) | ec <- exts ]
      scPiList sc pis =<< scExtsToLocals sc exts x
 
 scUnfoldConstants :: SharedContext -> [VarIndex] -> Term -> IO Term
@@ -2383,7 +2345,7 @@ scOpenTerm sc nm tp idx body = do
 -- | `closeTerm closer sc ec body` replaces the external constant `ec` in `body` by
 --   a new deBruijn variable and binds it using the binding form given by 'close'.
 --   The name and type of the new bound variable are given by the name and type of `ec`.
-scCloseTerm :: (SharedContext -> String -> Term -> Term -> IO Term)
+scCloseTerm :: (SharedContext -> LocalName -> Term -> Term -> IO Term)
           -> SharedContext
           -> ExtCns Term
           -> Term
@@ -2391,4 +2353,4 @@ scCloseTerm :: (SharedContext -> String -> Term -> Term -> IO Term)
 scCloseTerm close sc ec body = do
     lv <- scLocalVar sc 0
     body' <- scInstantiateExt sc (Map.insert (ecVarIndex ec) lv Map.empty) =<< incVars sc 0 1 body
-    close sc (Text.unpack (toShortName (ecName ec))) (ecType ec) body'
+    close sc (toShortName (ecName ec)) (ecType ec) body'

@@ -33,6 +33,10 @@ opam repo add coq-released https://coq.inria.fr/opam/released
 opam install coq-bits
 ```
 
+If you run into any issue that is probably due to the version mismatch between the `ocamlc`
+and the `ocaml` base system installed on your machine and it can be fixed as explained
+[here](https://github.com/ocaml/opam/issues/3708).
+
 
 ## Building the and Using the Coq Support Libraries
 
@@ -50,8 +54,8 @@ To use these libraries, the following lines can be added to a `_CoqProject`
 file, where PATH_TO_SAW is replaced by the path to the `saw-script` directory:
 
 ```
--Q PATH_TO_SAW/deps/saw-core-coq/coq/generated/CryptolToCoq   CryptolToCoq
--Q PATH_TO_SAW/deps/saw-core-coq/coq/handwritten/CryptolToCoq   CryptolToCoq
+-Q PATH_TO_SAW/deps/saw-core/saw-core-coq/coq/generated/CryptolToCoq   CryptolToCoq
+-Q PATH_TO_SAW/deps/saw-core/saw-core-coq/coq/handwritten/CryptolToCoq   CryptolToCoq
 ```
 
 

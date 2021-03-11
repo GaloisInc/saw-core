@@ -39,6 +39,7 @@ module Verifier.SAW.TracedOpenTerm (
 import Control.Monad
 -- import Control.Monad.IO.Class
 import Numeric.Natural
+import Data.Text (Text, unpack)
 
 import Verifier.SAW.Term.Functor
 import Verifier.SAW.SharedTerm
@@ -88,7 +89,7 @@ unitTypeOpenTerm :: OpenTerm
 unitTypeOpenTerm = flatOpenTerm UnitType
 
 -- | Build a SAW core string literal
-stringLitOpenTerm :: String -> OpenTerm
+stringLitOpenTerm :: Text -> OpenTerm
 stringLitOpenTerm = flatOpenTerm . StringLit
 
 -- | Return the SAW core type @String@ of strings
@@ -151,7 +152,7 @@ dataTypeOpenTerm d all_args = OpenTerm $ do
 
 -- | Build an 'OpenTerm' for a global name
 globalOpenTerm :: Ident -> OpenTerm
-globalOpenTerm = flatOpenTerm . GlobalDef
+globalOpenTerm ident = OpenTerm (liftTCM scGlobalDef ident >>= typeInferComplete)
 
 -- | Apply an 'OpenTerm' to another
 applyOpenTerm :: OpenTerm -> OpenTerm -> OpenTerm
@@ -183,40 +184,40 @@ openTermTopVar =
 
 -- | Build an open term inside a binder of a variable with the given name and
 -- type, where the binder is represented as a Haskell function on 'OpenTerm's
-bindOpenTerm :: String -> TypedTerm -> (OpenTerm -> OpenTerm) -> TCM TypedTerm
+bindOpenTerm :: LocalName -> TypedTerm -> (OpenTerm -> OpenTerm) -> TCM TypedTerm
 bindOpenTerm x tp body_f =
   do tp_whnf <- typeCheckWHNF $ typedVal tp
      withVar x tp_whnf (openTermTopVar >>= (unOpenTerm . body_f))
 
 -- | Build a lambda abstraction as an 'OpenTerm'
-lambdaOpenTerm :: String -> OpenTerm -> (OpenTerm -> OpenTerm) -> OpenTerm
+lambdaOpenTerm :: LocalName -> OpenTerm -> (OpenTerm -> OpenTerm) -> OpenTerm
 lambdaOpenTerm x (OpenTerm tpM) body_f = OpenTerm $
   do tp <- tpM
-     () <- trace ("lambdaOpenTerm (" ++ x
+     () <- trace ("lambdaOpenTerm (" ++ unpack x
                   ++ ":" ++ showTerm (typedVal tp) ++ ")") (return ())
      body <- bindOpenTerm x tp body_f
      typeInferComplete $ Lambda x tp body
 
 -- | Build a nested sequence of lambda abstractions as an 'OpenTerm'
-lambdaOpenTermMulti :: [(String, OpenTerm)] -> ([OpenTerm] -> OpenTerm) ->
+lambdaOpenTermMulti :: [(LocalName, OpenTerm)] -> ([OpenTerm] -> OpenTerm) ->
                        OpenTerm
 lambdaOpenTermMulti xs_tps body_f =
   foldr (\(x,tp) rest_f xs ->
           lambdaOpenTerm x tp (rest_f . (:xs))) (body_f . reverse) xs_tps []
 
 -- | Build a Pi abstraction as an 'OpenTerm'
-piOpenTerm :: String -> OpenTerm -> (OpenTerm -> OpenTerm) -> OpenTerm
+piOpenTerm :: LocalName -> OpenTerm -> (OpenTerm -> OpenTerm) -> OpenTerm
 piOpenTerm x (OpenTerm tpM) body_f = OpenTerm $
   do tp <- tpM
      body <- bindOpenTerm x tp body_f
      typeInferComplete $ Pi x tp body
 
 -- | Build a non-dependent function type
-arrowOpenTerm :: String -> OpenTerm -> OpenTerm -> OpenTerm
+arrowOpenTerm :: LocalName -> OpenTerm -> OpenTerm -> OpenTerm
 arrowOpenTerm x tp body = piOpenTerm x tp (const body)
 
 -- | Build a nested sequence of Pi abstractions as an 'OpenTerm'
-piOpenTermMulti :: [(String, OpenTerm)] -> ([OpenTerm] -> OpenTerm) ->
+piOpenTermMulti :: [(LocalName, OpenTerm)] -> ([OpenTerm] -> OpenTerm) ->
                        OpenTerm
 piOpenTermMulti xs_tps body_f =
   foldr (\(x,tp) rest_f xs ->
@@ -224,7 +225,7 @@ piOpenTermMulti xs_tps body_f =
 
 -- | Build a let expression as an 'OpenTerm'. This is equivalent to
 -- > 'applyOpenTerm' ('lambdaOpenTerm' x tp body) rhs
-letOpenTerm :: String -> OpenTerm -> OpenTerm -> (OpenTerm -> OpenTerm) ->
+letOpenTerm :: LocalName -> OpenTerm -> OpenTerm -> (OpenTerm -> OpenTerm) ->
                OpenTerm
 letOpenTerm x tp rhs body_f = applyOpenTerm (lambdaOpenTerm x tp body_f) rhs
 
@@ -258,7 +259,7 @@ dedupOpenTermM (OpenTerm trmM) =
 -- 'OpenTerm's that also returns an auxiliary value. Returns the normalized type
 -- and the body, along with the auxiliary result returned by the body-generating
 -- function.
-bindOpenTermAuxM :: String -> OpenTerm ->
+bindOpenTermAuxM :: LocalName -> OpenTerm ->
                     (OpenTerm -> OpenTermM (OpenTerm, a)) ->
                     OpenTermM (TypedTerm, TypedTerm, a)
 bindOpenTermAuxM x (OpenTerm tpM) body_f =
@@ -271,20 +272,20 @@ bindOpenTermAuxM x (OpenTerm tpM) body_f =
      return (TypedTerm tp_whnf tp_tp, body, a)
 
 -- | Build a lambda abstraction in the 'OpenTermM' monad
-lambdaOpenTermM :: String -> OpenTerm -> (OpenTerm -> OpenTermM OpenTerm) ->
+lambdaOpenTermM :: LocalName -> OpenTerm -> (OpenTerm -> OpenTermM OpenTerm) ->
                    OpenTermM OpenTerm
 lambdaOpenTermM x tp body_f =
   fst <$> lambdaOpenTermAuxM x tp (body_f >=> (\t -> return (t, ())))
 
 -- | Build a pi abstraction in the 'OpenTermM' monad
-piOpenTermM :: String -> OpenTerm -> (OpenTerm -> OpenTermM OpenTerm) ->
+piOpenTermM :: LocalName -> OpenTerm -> (OpenTerm -> OpenTermM OpenTerm) ->
                OpenTermM OpenTerm
 piOpenTermM x tp body_f =
   fst <$> piOpenTermAuxM x tp (body_f >=> (\t -> return (t, ())))
 
 -- | Build a lambda abstraction with an auxiliary return value in the
 -- 'OpenTermM' monad
-lambdaOpenTermAuxM :: String -> OpenTerm ->
+lambdaOpenTermAuxM :: LocalName -> OpenTerm ->
                       (OpenTerm -> OpenTermM (OpenTerm, a)) ->
                       OpenTermM (OpenTerm, a)
 lambdaOpenTermAuxM x tp body_f =
@@ -293,7 +294,7 @@ lambdaOpenTermAuxM x tp body_f =
 
 -- | Build a pi abstraction with an auxiliary return value in the 'OpenTermM'
 -- monad
-piOpenTermAuxM :: String -> OpenTerm -> (OpenTerm -> OpenTermM (OpenTerm, a)) ->
+piOpenTermAuxM :: LocalName -> OpenTerm -> (OpenTerm -> OpenTermM (OpenTerm, a)) ->
                   OpenTermM (OpenTerm, a)
 piOpenTermAuxM x tp body_f =
   do (tp', body, a) <- bindOpenTermAuxM x tp body_f

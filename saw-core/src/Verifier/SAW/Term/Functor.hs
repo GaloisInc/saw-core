@@ -34,6 +34,7 @@ module Verifier.SAW.Term.Functor
     -- * Data types and definitions
   , DeBruijnIndex
   , FieldName
+  , LocalName
   , ExtCns(..)
   , VarIndex
   , NameInfo(..)
@@ -58,16 +59,12 @@ module Verifier.SAW.Term.Functor
   , looseVars, smallestFreeVar
   ) where
 
-import Control.Exception (assert)
 import Data.Bits
-import Data.Char
 #if !MIN_VERSION_base(4,8,0)
 import Data.Foldable (Foldable)
 #endif
-import qualified Data.Foldable as Foldable (all, and, foldl')
+import qualified Data.Foldable as Foldable (and, foldl')
 import Data.Hashable
-import Data.List (intercalate)
-import Data.List.NonEmpty (NonEmpty(..))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Text (Text)
@@ -77,115 +74,23 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
 import GHC.Generics (Generic)
-import GHC.Exts (IsString(..))
 import Numeric.Natural
-import Text.URI
 
 import qualified Language.Haskell.TH.Syntax as TH
 import Instances.TH.Lift () -- for instance TH.Lift Text
 
+import Verifier.SAW.Name
 import qualified Verifier.SAW.TermNet as Net
-import Verifier.SAW.Utils (internalError)
 
 type DeBruijnIndex = Int
-type FieldName = String
+type FieldName = Text
+type LocalName = Text
 
 instance (Hashable k, Hashable a) => Hashable (Map k a) where
     hashWithSalt x m = hashWithSalt x (Map.assocs m)
 
 instance Hashable a => Hashable (Vector a) where
     hashWithSalt x v = hashWithSalt x (V.toList v)
-
-
--- Module Names ----------------------------------------------------------------
-
-newtype ModuleName = ModuleName Text
-  deriving (Eq, Ord, Generic, TH.Lift)
-
-instance Hashable ModuleName -- automatically derived
-
-instance Show ModuleName where
-  show (ModuleName s) = Text.unpack s
-
-
-moduleNameText :: ModuleName -> Text
-moduleNameText (ModuleName x) = x
-
-moduleNamePieces :: ModuleName -> [Text]
-moduleNamePieces (ModuleName x) = Text.splitOn (Text.pack ".") x
-
--- | Create a module name given a list of strings with the top-most
--- module name given first.
-mkModuleName :: [String] -> ModuleName
-mkModuleName [] = error "internal: mkModuleName given empty module name"
-mkModuleName nms = assert (Foldable.all isCtor nms) $ ModuleName (Text.pack s)
-  where s = intercalate "." (reverse nms)
-
-preludeName :: ModuleName
-preludeName = mkModuleName ["Prelude"]
-
-
--- Identifiers -----------------------------------------------------------------
-
-data Ident =
-  Ident
-  { identModule :: ModuleName
-  , identBaseName :: Text
-  }
-  deriving (Eq, Ord, Generic)
-
-instance Hashable Ident -- automatically derived
-
-instance Show Ident where
-  show (Ident m s) = shows m ('.' : Text.unpack s)
-
-identText :: Ident -> Text
-identText i = moduleNameText (identModule i) <> Text.pack "." <> identBaseName i
-
-identPieces :: Ident -> NonEmpty Text
-identPieces i =
-  case moduleNamePieces (identModule i) of
-    [] -> identBaseName i :| []
-    (x:xs) -> x :| (xs ++ [identBaseName i])
-
-identName :: Ident -> String
-identName = Text.unpack . identBaseName
-
-instance Read Ident where
-  readsPrec _ str =
-    let (str1, str2) = break (not . isIdChar) str in
-    [(parseIdent str1, str2)]
-
-mkIdent :: ModuleName -> String -> Ident
-mkIdent m s = Ident m (Text.pack s)
-
--- | Parse a fully qualified identifier.
-parseIdent :: String -> Ident
-parseIdent s0 =
-    case reverse (breakEach s0) of
-      (_:[]) -> internalError $ "parseIdent given empty module name."
-      (nm:rMod) -> mkIdent (mkModuleName (reverse rMod)) nm
-      _ -> internalError $ "parseIdent given bad identifier " ++ show s0
-  where breakEach s =
-          case break (=='.') s of
-            (h,[]) -> [h]
-            (h,'.':r) -> h : breakEach r
-            _ -> internalError "parseIdent.breakEach failed"
-
-instance IsString Ident where
-  fromString = parseIdent
-
-isIdent :: String -> Bool
-isIdent (c:l) = isAlpha c && Foldable.all isIdChar l
-isIdent [] = False
-
-isCtor :: String -> Bool
-isCtor (c:l) = isUpper c && Foldable.all isIdChar l
-isCtor [] = False
-
--- | Returns true if character can appear in identifier.
-isIdChar :: Char -> Bool
-isIdChar c = isAlphaNum c || (c == '_') || (c == '\'')
 
 
 -- Sorts -----------------------------------------------------------------------
@@ -228,52 +133,6 @@ maxSort [] = propSort
 maxSort ss = maximum ss
 
 
--- External Constants ----------------------------------------------------------
-
-type VarIndex = Word64
-
--- | Descriptions of the origins of names that may be in scope
-data NameInfo
-  = -- | This name arises from an exported declaration from a module
-    ModuleIdentifier Ident
-
-  | -- | This name was imported from some other programming language/scope
-    ImportedName
-      URI      -- ^ An absolutely-qualified name, which is required to be unique
-      [Text]   -- ^ A collection of aliases for this name.  Sorter or "less-qualified"
-               --   aliases should be nearer the front of the list
-
- deriving (Eq,Ord,Show)
-
--- | An external constant with a name.
--- Names are not necessarily unique, but the var index should be.
-data ExtCns e =
-  EC
-  { ecVarIndex :: !VarIndex
-  , ecName :: !NameInfo
-  , ecType :: !e
-  }
-  deriving (Show, Functor, Foldable, Traversable)
-
-toShortName :: NameInfo -> Text
-toShortName (ModuleIdentifier i) = identBaseName i
-toShortName (ImportedName uri []) = render uri
-toShortName (ImportedName _ (x:_)) = x
-
-toAbsoluteName :: NameInfo -> Text
-toAbsoluteName (ModuleIdentifier i) = identText i
-toAbsoluteName (ImportedName uri _) = render uri
-
-instance Eq (ExtCns e) where
-  x == y = ecVarIndex x == ecVarIndex y
-
-instance Ord (ExtCns e) where
-  compare x y = compare (ecVarIndex x) (ecVarIndex y)
-
-instance Hashable (ExtCns e) where
-  hashWithSalt x ec = hashWithSalt x (ecVarIndex ec)
-
-
 -- Flat Terms ------------------------------------------------------------------
 
 -- | The "flat terms", which are the built-in atomic constructs of SAW core.
@@ -281,7 +140,8 @@ instance Hashable (ExtCns e) where
 -- NB: If you add constructors to FlatTermF, make sure you update
 --     zipWithFlatTermF!
 data FlatTermF e
-  = GlobalDef !Ident  -- ^ Global variables are referenced by label.
+    -- | A primitive or axiom without a definition.
+  = Primitive !(ExtCns e)
 
     -- Tuples are represented as nested pairs, grouped to the right,
     -- terminated with unit at the end.
@@ -312,13 +172,13 @@ data FlatTermF e
     -- | Non-dependent record types, i.e., N-ary tuple types with named
     -- fields. These are considered equal up to reordering of fields. Actual
     -- tuple types are represented with field names @"1"@, @"2"@, etc.
-  | RecordType ![(String, e)]
+  | RecordType ![(FieldName, e)]
     -- | Non-dependent records, i.e., N-ary tuples with named fields. These are
     -- considered equal up to reordering of fields. Actual tuples are
     -- represented with field names @"1"@, @"2"@, etc.
-  | RecordValue ![(String, e)]
+  | RecordValue ![(FieldName, e)]
     -- | Non-dependent record projection
-  | RecordProj e !String
+  | RecordProj e !FieldName
 
     -- | Sorts, aka universes, are the types of types; i.e., an object is a
     -- "type" iff it has type @Sort s@ for some s
@@ -330,7 +190,7 @@ data FlatTermF e
     -- | Array value includes type of elements followed by elements.
   | ArrayValue e (Vector e)
     -- | String literal
-  | StringLit !String
+  | StringLit !Text
 
     -- | An external constant with a name.
   | ExtCns !(ExtCns e)
@@ -360,7 +220,8 @@ zipWithFlatTermF :: (x -> y -> z) -> FlatTermF x -> FlatTermF y ->
                     Maybe (FlatTermF z)
 zipWithFlatTermF f = go
   where
-    go (GlobalDef x) (GlobalDef y) | x == y = Just $ GlobalDef x
+    go (Primitive (EC xi xn xt)) (Primitive (EC yi _ yt))
+      | xi == yi = Just (Primitive (EC xi xn (f xt yt)))
 
     go UnitValue UnitValue = Just UnitValue
     go UnitType UnitType = Just UnitType
@@ -409,9 +270,9 @@ data TermF e
       -- ^ The atomic, or builtin, term constructs
     | App !e !e
       -- ^ Applications of functions
-    | Lambda !String !e !e
+    | Lambda !LocalName !e !e
       -- ^ Function abstractions
-    | Pi !String !e !e
+    | Pi !LocalName !e !e
       -- ^ The type of a (possibly) dependent function
     | LocalVar !DeBruijnIndex
       -- ^ Local variables are referenced by deBruijn index.
@@ -485,7 +346,7 @@ termToPat t =
     case unwrapTermF t of
       Constant ec _             -> Net.Atom (toAbsoluteName (ecName ec))
       App t1 t2                 -> Net.App (termToPat t1) (termToPat t2)
-      FTermF (GlobalDef d)      -> Net.Atom (identText d)
+      FTermF (Primitive ec)     -> Net.Atom (toAbsoluteName (ecName ec))
       FTermF (Sort s)           -> Net.Atom (Text.pack ('*' : show s))
       FTermF (NatLit _)         -> Net.Var
       FTermF (DataTypeApp c ps ts) ->

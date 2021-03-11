@@ -115,7 +115,7 @@ RecordType__rec
 --------------------------------------------------------------------------------
 -- Equality proofs.
 
-data Eq (t : sort 1) (x : t) : t -> sort 1 where {
+data Eq (t : sort 1) (x : t) : t -> Prop where {
     Refl : Eq t x x;
   }
 
@@ -1962,7 +1962,6 @@ foldIRT As Ds D = IRTDesc__rec As (\ (D:IRTDesc As) -> (Ds:IRTSubsts As) -> Unfo
   (\ (Ds:IRTSubsts As) (x:#()) -> IRT_tt As Ds)
   (\ (Ds:IRTSubsts As) (x:EqP Bool True False) -> efq (IRT As Ds (IRT_empty As)) x)
   (\ (n:Nat) (Ds:IRTSubsts As) (x:listSortGet As n) -> IRT_elemT As Ds n x) D Ds;
-
 
 --------------------------------------------------------------------------------
 -- Computation monad
