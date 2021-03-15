@@ -1027,7 +1027,8 @@ Definition foldIRT : forall (As : @ListSort), forall (Ds : @IRTSubsts As), foral
 
 (* Prelude.bindM was skipped *)
 
-(* Prelude.composeM was skipped *)
+Definition composeM : forall (a : Type), forall (b : Type), forall (c : Type), (a -> CompM b) -> (b -> CompM c) -> a -> CompM c :=
+  fun (a : Type) (b : Type) (c : Type) (f : a -> CompM b) (g : b -> CompM c) (x : a) => @bindM CompM _ b c (f x) g.
 
 Definition tupleCompMFunBoth : forall (a : Type), forall (b : Type), forall (c : Type), (a -> CompM b) -> prod c a -> CompM (prod c b) :=
   fun (a : Type) (b : Type) (c : Type) (f : a -> CompM b) (x : prod c a) => @bindM CompM _ b (prod c b) (f (SAWCoreScaffolding.snd x)) (fun (y : b) => @returnM CompM _ (prod c b) (pair (SAWCoreScaffolding.fst x) y)).
