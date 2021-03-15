@@ -68,6 +68,7 @@ import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import Control.Monad.Trans.Writer.Strict
 import Numeric.Natural
 
@@ -205,7 +206,7 @@ scMatch sc pat term =
               | j < depth -> go (j : js) t
             _ -> Nothing
 
-    match :: Int -> [(String, Term)] -> Term -> Term -> MatchState -> MaybeT IO MatchState
+    match :: Int -> [(LocalName, Term)] -> Term -> Term -> MatchState -> MaybeT IO MatchState
     match _ _ (STApp i fv _) (STApp j _ _) s
       | fv == emptyBitSet && i == j = return s
     match depth env x y s@(MatchState m cs) =
@@ -221,7 +222,7 @@ scMatch sc pat term =
              let fvy = looseVars y `intersectBitSets` (completeBitSet depth)
              guard (fvy `unionBitSets` fvj == fvj)
              let fixVar t (nm, ty) =
-                   do v <- scFreshGlobal sc nm ty
+                   do v <- scFreshGlobal sc (Text.unpack nm) ty
                       let Just ec = R.asExtCns v
                       t' <- instantiateVar sc 0 v t
                       return (t', ec)
@@ -266,9 +267,6 @@ scMatch sc pat term =
 eqIdent :: Ident
 eqIdent = mkIdent (mkModuleName ["Prelude"]) "Eq"
 
-eqIdent' :: Ident
-eqIdent' = mkIdent (mkModuleName ["Prelude"]) "eq"
-
 ecEqIdent :: Ident
 ecEqIdent = mkIdent (mkModuleName ["Cryptol"]) "ecEq"
 
@@ -280,6 +278,9 @@ boolEqIdent = mkIdent (mkModuleName ["Prelude"]) "boolEq"
 
 vecEqIdent :: Ident
 vecEqIdent = mkIdent (mkModuleName ["Prelude"]) "vecEq"
+
+equalNatIdent :: Ident
+equalNatIdent = mkIdent (mkModuleName ["Prelude"]) "equalNat"
 
 -- | Converts a universally quantified equality proposition from a
 -- Term representation to a RewriteRule.
@@ -299,27 +300,31 @@ ruleOfTerm t =
 ruleOfTerms :: Term -> Term -> RewriteRule
 ruleOfTerms l r = RewriteRule { ctxt = [], lhs = l, rhs = r }
 
--- | Converts a parameterized equality predicate to a RewriteRule.
-ruleOfProp :: Term -> RewriteRule
+-- | Converts a parameterized equality predicate to a RewriteRule,
+-- returning 'Nothing' if the predicate is not an equation.
+ruleOfProp :: Term -> Maybe RewriteRule
 ruleOfProp (R.asPi -> Just (_, ty, body)) =
-  let rule = ruleOfProp body in rule { ctxt = ty : ctxt rule }
+  do rule <- ruleOfProp body
+     Just rule { ctxt = ty : ctxt rule }
 ruleOfProp (R.asLambda -> Just (_, ty, body)) =
-  let rule = ruleOfProp body in rule { ctxt = ty : ctxt rule }
-ruleOfProp (R.asApplyAll -> (R.isGlobalDef eqIdent' -> Just (), [_, x, y])) =
-  RewriteRule { ctxt = [], lhs = x, rhs = y }
+  do rule <- ruleOfProp body
+     Just rule { ctxt = ty : ctxt rule }
+
 ruleOfProp (R.asApplyAll -> (R.isGlobalDef ecEqIdent -> Just (), [_, _, x, y])) =
-  RewriteRule { ctxt = [], lhs = x, rhs = y }
+  Just RewriteRule { ctxt = [], lhs = x, rhs = y }
 ruleOfProp (R.asApplyAll -> (R.isGlobalDef bvEqIdent -> Just (), [_, x, y])) =
-  RewriteRule { ctxt = [], lhs = x, rhs = y }
+  Just RewriteRule { ctxt = [], lhs = x, rhs = y }
+ruleOfProp (R.asApplyAll -> (R.isGlobalDef equalNatIdent -> Just (), [x, y])) =
+  Just RewriteRule { ctxt = [], lhs = x, rhs = y }
 ruleOfProp (R.asApplyAll -> (R.isGlobalDef boolEqIdent -> Just (), [x, y])) =
-  RewriteRule { ctxt = [], lhs = x, rhs = y }
+  Just RewriteRule { ctxt = [], lhs = x, rhs = y }
 ruleOfProp (R.asApplyAll -> (R.isGlobalDef vecEqIdent -> Just (), [_, _, _, x, y])) =
-  RewriteRule { ctxt = [], lhs = x, rhs = y }
+  Just RewriteRule { ctxt = [], lhs = x, rhs = y }
 ruleOfProp (unwrapTermF -> Constant _ body) = ruleOfProp body
 ruleOfProp (R.asEq -> Just (_, x, y)) =
-  RewriteRule { ctxt = [], lhs = x, rhs = y }
+  Just RewriteRule { ctxt = [], lhs = x, rhs = y }
 ruleOfProp (R.asEqTrue -> Just body) = ruleOfProp body
-ruleOfProp t = error $ "ruleOfProp: Predicate not an equation: " ++ scPrettyTerm defaultPPOpts t
+ruleOfProp _ = Nothing
 
 -- | Generate a rewrite rule from the type of an identifier, using 'ruleOfTerm'
 scEqRewriteRule :: SharedContext -> Ident -> IO RewriteRule
@@ -478,7 +483,7 @@ listRules ss = [ r | Left r <- Net.content ss ]
 ----------------------------------------------------------------------
 -- Destructors for terms
 
-asBetaRedex :: R.Recognizer Term (String, Term, Term, Term)
+asBetaRedex :: R.Recognizer Term (LocalName, Term, Term, Term)
 asBetaRedex t =
     do (f, arg) <- R.asApp t
        (s, ty, body) <- R.asLambda f
@@ -568,7 +573,7 @@ rewriteSharedTerm sc ss t0 =
            -- print (Net.toPat conv)
            case runConversion conv t of
              Nothing -> apply rules t
-             Just tb -> rewriteAll =<< runTermBuilder tb (scTermF sc)
+             Just tb -> rewriteAll =<< runTermBuilder tb (scGlobalDef sc) (scTermF sc)
 
 -- | Type-safe rewriter for shared terms
 rewriteSharedTermTypeSafe
@@ -623,7 +628,7 @@ rewriteSharedTermTypeSafe sc ss t0 =
           Sort{}           -> return ftf -- doesn't matter
           NatLit{}         -> return ftf -- doesn't matter
           ArrayValue t es  -> ArrayValue t <$> traverse rewriteAll es
-          GlobalDef{}      -> return ftf
+          Primitive{}      -> return ftf
           StringLit{}      -> return ftf
           ExtCns{}         -> return ftf
     rewriteTop :: (?cache :: Cache IO TermIndex Term) =>
@@ -640,7 +645,7 @@ rewriteSharedTermTypeSafe sc ss t0 =
     apply (Right conv : rules) t =
       case runConversion conv t of
         Nothing -> apply rules t
-        Just tb -> rewriteAll =<< runTermBuilder tb (scTermF sc)
+        Just tb -> rewriteAll =<< runTermBuilder tb (scGlobalDef sc) (scTermF sc)
 
 -- | Generate a new SharedContext that normalizes terms as it builds them.
 rewritingSharedContext :: SharedContext -> Simpset -> SharedContext
@@ -673,7 +678,7 @@ rewritingSharedContext sc ss = sc'
     apply (Right conv : rules) t =
       case runConversion conv t of
         Nothing -> apply rules t
-        Just tb -> runTermBuilder tb (scTermF sc')
+        Just tb -> runTermBuilder tb (scGlobalDef sc) (scTermF sc')
 
 
 -- FIXME: is there some way to have sensable term replacement in the presence of loose variables
@@ -696,9 +701,9 @@ replaceTerm sc ss (pat, repl) t = do
 -- If/then/else hoisting
 
 -- | Find all instances of Prelude.ite in the given term and hoist them
---   higher.  An if/then/else floats upward until it hits a binder that
+--   higher.  An if-then-else floats upward until it hits a binder that
 --   binds one of its free variables, or until it bubbles to the top of
---   the term.  When multiple if/then/else branches bubble to the same
+--   the term.  When multiple if-then-else branches bubble to the same
 --   place, they will be nested via a canonical term ordering.  This transformation
 --   also does rewrites by basic boolean identities.
 hoistIfs :: SharedContext
@@ -709,15 +714,15 @@ hoistIfs sc t = do
 
    let app x y = join (scTermF sc <$> (pure App <*> x <*> y))
    itePat <-
-          (scFlatTermF sc $ GlobalDef $ "Prelude.ite")
+          (scGlobalDef sc "Prelude.ite")
           `app`
-          (scTermF sc $ LocalVar 0)
+          (scLocalVar sc 0)
           `app`
-          (scTermF sc $ LocalVar 1)
+          (scLocalVar sc 1)
           `app`
-          (scTermF sc $ LocalVar 2)
+          (scLocalVar sc 2)
           `app`
-          (scTermF sc $ LocalVar 3)
+          (scLocalVar sc 3)
 
    rules <- map ruleOfTerm <$> mapM (scTypeOfGlobal sc)
               [ "Prelude.ite_true"
@@ -818,7 +823,7 @@ doHoistIfs sc ss hoistCache itePat = go
        goF _ (Pi nm tp body) = goBinder scPi nm tp body
 
        goBinder close nm tp body = do
-           (ec, body') <- scOpenTerm sc nm tp 0 body
+           (ec, body') <- scOpenTerm sc (Text.unpack nm) tp 0 body
            (body'', conds) <- go body'
            let (stuck, float) = List.partition (\(_,ecs) -> Set.member ec ecs) conds
 

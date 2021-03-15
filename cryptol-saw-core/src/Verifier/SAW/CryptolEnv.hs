@@ -10,7 +10,8 @@ Stability   : provisional
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Verifier.SAW.CryptolEnv
-  ( CryptolEnv(..)
+  ( ImportVisibility(..)
+  , CryptolEnv(..)
   , initCryptolEnv
   , loadCryptolModule
   , bindCryptolModule
@@ -66,6 +67,7 @@ import qualified Cryptol.TypeCheck.Error as TE
 import qualified Cryptol.TypeCheck.Infer as TI
 import qualified Cryptol.TypeCheck.Kind as TK
 import qualified Cryptol.TypeCheck.Monad as TM
+import qualified Cryptol.TypeCheck.Solver.SMT as SMT
 --import qualified Cryptol.TypeCheck.PP as TP
 
 import qualified Cryptol.ModuleSystem as M
@@ -105,8 +107,16 @@ data InputText = InputText
 
 --------------------------------------------------------------------------------
 
+-- | Should a given import result in all symbols being visible (as they
+-- are for focused modules in the Cryptol REPL) or only public symbols?
+-- Making all symbols visible is useful for verification and code
+-- generation.
+data ImportVisibility
+  = OnlyPublic
+  | PublicAndPrivate
+
 data CryptolEnv = CryptolEnv
-  { eImports    :: [P.Import]           -- ^ Declarations of imported Cryptol modules
+  { eImports    :: [(ImportVisibility, P.Import)]           -- ^ Declarations of imported Cryptol modules
   , eModuleEnv  :: ME.ModuleEnv         -- ^ Imported modules, and state for the ModuleM monad
   , eExtraNames :: MR.NamingEnv         -- ^ Context for the Cryptol renamer
   , eExtraTypes :: Map T.Name T.Schema  -- ^ Cryptol types for extra names in scope
@@ -195,8 +205,8 @@ initCryptolEnv sc = do
   termEnv <- genTermEnv sc modEnv cryEnv0
 
   return CryptolEnv
-    { eImports    = [P.Import preludeName Nothing Nothing
-                    ,P.Import preludeReferenceName (Just preludeReferenceName) Nothing
+    { eImports    = [ (OnlyPublic, P.Import preludeName Nothing Nothing)
+                    , (OnlyPublic, P.Import preludeReferenceName (Just preludeReferenceName) Nothing)
                     ]
     , eModuleEnv  = modEnv
     , eExtraNames = mempty
@@ -236,9 +246,13 @@ getNamingEnv :: CryptolEnv -> MR.NamingEnv
 getNamingEnv env = eExtraNames env `MR.shadowing` nameEnv
   where
     nameEnv = mconcat $ fromMaybe [] $ traverse loadImport (eImports env)
-    loadImport i = do
+    loadImport (vis, i) = do
       lm <- ME.lookupModule (T.iModule i) (eModuleEnv env)
-      return $ MN.interpImport i (MI.ifPublic (ME.lmInterface lm))
+      let ifc = ME.lmInterface lm
+          syms = case vis of
+                   OnlyPublic       -> MI.ifPublic ifc
+                   PublicAndPrivate -> MI.ifPublic ifc `mappend` M.ifPrivate ifc
+      return $ MN.interpImport i syms
 
 getAllIfaceDecls :: ME.ModuleEnv -> M.IfaceDecls
 getAllIfaceDecls me = mconcat (map (both . ME.lmInterface) (ME.getLoadedModules (ME.meLoadedModules me)))
@@ -384,9 +398,10 @@ importModule ::
   CryptolEnv                {- ^ Extend this environment -} ->
   Either FilePath P.ModName {- ^ Where to find the module -} ->
   Maybe P.ModName           {- ^ Name qualifier -} ->
+  ImportVisibility          {- ^ What visibility to give symbols from this module -} ->
   Maybe P.ImportSpec        {- ^ What to import -} ->
   IO CryptolEnv
-importModule sc env src as imps = do
+importModule sc env src as vis imps = do
   let modEnv = eModuleEnv env
   (m, modEnv') <-
     liftModuleM modEnv $
@@ -404,7 +419,7 @@ importModule sc env src as imps = do
   newCryEnv <- C.importTopLevelDeclGroups sc oldCryEnv newDeclGroups
   newTermEnv <- traverse (\(t, j) -> incVars sc 0 j t) (C.envE newCryEnv)
 
-  return env { eImports = P.Import (T.mName m) as imps : eImports env
+  return env { eImports = (vis, P.Import (T.mName m) as imps) : eImports env
              , eModuleEnv = modEnv'
              , eTermEnv = newTermEnv }
 
@@ -460,12 +475,14 @@ resolveIdentifier env nm =
     [i] -> doResolve (P.UnQual (C.mkIdent i))
     xs  -> let (qs,i) = (init xs, last xs)
             in doResolve (P.Qual (C.packModName qs) (C.mkIdent i))
- where
- modEnv = eModuleEnv env
- nameEnv = getNamingEnv env
+  where
+  modEnv = eModuleEnv env
+  nameEnv = getNamingEnv env
 
- doResolve pnm =
-    do (res, _ws) <- MM.runModuleM (defaultEvalOpts, ?fileReader, modEnv) $
+  doResolve pnm =
+    SMT.withSolver (ME.meSolverConfig modEnv) $ \s ->
+    do let minp = MM.ModuleInput True (pure defaultEvalOpts) ?fileReader modEnv
+       (res, _ws) <- MM.runModuleM (minp s) $
           MM.interactive (MB.rename interactiveName nameEnv (MR.renameVar pnm))
        case res of
          Left _ -> pure Nothing
@@ -617,6 +634,7 @@ typeNoUser t =
     T.TVar {}      -> t
     T.TUser _ _ ty -> typeNoUser ty
     T.TRec fields  -> T.TRec (fmap typeNoUser fields)
+    T.TNewtype nt ts -> T.TNewtype nt (fmap typeNoUser ts)
 
 schemaNoUser :: T.Schema -> T.Schema
 schemaNoUser (T.Forall params props ty) = T.Forall params props (typeNoUser ty)
@@ -627,7 +645,9 @@ liftModuleM ::
   (?fileReader :: FilePath -> IO ByteString) =>
   ME.ModuleEnv -> MM.ModuleM a -> IO (a, ME.ModuleEnv)
 liftModuleM env m =
-  MM.runModuleM (defaultEvalOpts, ?fileReader, env) m >>= moduleCmdResult
+  do let minp = MM.ModuleInput True (pure defaultEvalOpts) ?fileReader env
+     SMT.withSolver (ME.meSolverConfig env) $ \s ->
+       MM.runModuleM (minp s) m >>= moduleCmdResult
 
 defaultEvalOpts :: E.EvalOpts
 defaultEvalOpts = E.EvalOpts quietLogger E.defaultPPOpts

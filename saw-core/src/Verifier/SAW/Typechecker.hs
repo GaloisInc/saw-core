@@ -35,6 +35,7 @@ import Control.Applicative
 #endif
 import Control.Monad.State
 import Data.List (findIndex)
+import Data.Text (Text)
 import qualified Data.Vector as V
 
 import Prettyprinter hiding (Doc)
@@ -42,6 +43,7 @@ import Prettyprinter hiding (Doc)
 import Verifier.SAW.Utils (internalError)
 
 import Verifier.SAW.Module
+import Verifier.SAW.Name (mkIdentText)
 import Verifier.SAW.Position
 import Verifier.SAW.Term.Functor
 import Verifier.SAW.Term.CtxTerm
@@ -61,8 +63,9 @@ inferCompleteTerm sc mnm t = inferCompleteTermCtx sc mnm [] t
 
 -- | Infer the type of an untyped term and complete it to a 'Term' in a given
 -- typing context
-inferCompleteTermCtx :: SharedContext -> Maybe ModuleName -> [(String,Term)] ->
-                        Un.Term -> IO (Either SawDoc Term)
+inferCompleteTermCtx ::
+  SharedContext -> Maybe ModuleName -> [(LocalName, Term)] ->
+  Un.Term -> IO (Either SawDoc Term)
 inferCompleteTermCtx sc mnm ctx t =
   do res <- runTCM (typeInferComplete t) sc mnm ctx
      case res of
@@ -91,7 +94,7 @@ inferApplyAll t (arg:args) =
      inferApplyAll app1 args
 
 -- | Resolve a name in the current module and apply it to some arguments
-inferResolveNameApp :: String -> [TypedTerm] -> TCM TypedTerm
+inferResolveNameApp :: Text -> [TypedTerm] -> TCM TypedTerm
 inferResolveNameApp n args =
   do ctx <- askCtx
      m <- getModule
@@ -110,14 +113,14 @@ inferResolveNameApp n args =
          -- of indices
          typeInferComplete (DataTypeApp (dtName dt) params ixs)
        (_, Just (ResolvedDef d)) ->
-         do f <- typeInferComplete (GlobalDef (defIdent d)
-                                    :: FlatTermF TypedTerm)
+         do t <- liftTCM scGlobalDef (defIdent d)
+            f <- TypedTerm t <$> liftTCM scTypeOf t
             inferApplyAll f args
        (Nothing, Nothing) ->
          throwTCError $ UnboundName n
 
 -- | Match an untyped term as a name applied to 0 or more arguments
-matchAppliedName :: Un.Term -> Maybe (String, [Un.Term])
+matchAppliedName :: Un.Term -> Maybe (Text, [Un.Term])
 matchAppliedName (Un.Name (PosPair _ n)) = Just (n, [])
 matchAppliedName (Un.App f arg) =
   do (n, args) <- matchAppliedName f
@@ -125,7 +128,7 @@ matchAppliedName (Un.App f arg) =
 matchAppliedName _ = Nothing
 
 -- | Match an untyped term as a recursor applied to 0 or more arguments
-matchAppliedRecursor :: Un.Term -> Maybe (Maybe ModuleName, String, [Un.Term])
+matchAppliedRecursor :: Un.Term -> Maybe (Maybe ModuleName, Text, [Un.Term])
 matchAppliedRecursor (Un.Recursor mnm (PosPair _ n)) = Just (mnm, n, [])
 matchAppliedRecursor (Un.App f arg) =
   do (mnm, n, args) <- matchAppliedRecursor f
@@ -175,7 +178,7 @@ typeInferCompleteTerm (matchAppliedRecursor -> Just (maybe_mnm, str, args)) =
          Just mnm -> return mnm
          Nothing -> getModuleName
      m <- liftTCM scFindModule mnm
-     let dt_ident = mkIdent mnm str
+     let dt_ident = mkIdentText mnm str
      dt <- case findDataType m str of
        Just d -> return d
        Nothing -> throwTCError $ NoSuchDataType dt_ident
@@ -201,7 +204,7 @@ typeInferCompleteTerm (Un.App f arg) =
   (App <$> typeInferComplete f <*> typeInferComplete arg)
   >>= typeInferComplete
 typeInferCompleteTerm (Un.Lambda _ [] t) = typeInferComplete t
-typeInferCompleteTerm (Un.Lambda p ((Un.termVarString -> x,tp):ctx) t) =
+typeInferCompleteTerm (Un.Lambda p ((Un.termVarLocalName -> x, tp) : ctx) t) =
   do tp_trm <- typeInferCompleteWHNF tp
      -- Normalize (the Term value of) tp before putting it into the context. See
      -- the documentation for withVar.
@@ -209,7 +212,7 @@ typeInferCompleteTerm (Un.Lambda p ((Un.termVarString -> x,tp):ctx) t) =
        typeInferComplete $ Un.Lambda p ctx t
      typeInferComplete (Lambda x tp_trm body)
 typeInferCompleteTerm (Un.Pi _ [] t) = typeInferComplete t
-typeInferCompleteTerm (Un.Pi p ((Un.termVarString -> x,tp):ctx) t) =
+typeInferCompleteTerm (Un.Pi p ((Un.termVarLocalName -> x, tp) : ctx) t) =
   do tp_trm <- typeInferComplete tp
      -- NOTE: we need the type of x to be normalized when we add it to the
      -- context in withVar, but we do not want to normalize this type in the
@@ -281,7 +284,7 @@ typeInferCompleteTerm (Un.BadTerm _) =
 
 instance TypeInferCtx Un.TermVar Un.Term where
   typeInferCompleteCtx =
-    typeInferCompleteCtx . map (\(x,tp) -> (Un.termVarString x, tp))
+    typeInferCompleteCtx . map (\(x,tp) -> (Un.termVarLocalName x, tp))
 
 
 --
@@ -309,7 +312,7 @@ processDecls (Un.TypeDecl NoQualifier (PosPair p nm) tp :
      -- peeling off the pi-abstraction variables in the type annotation. Any
      -- remaining body of the pi-type is the required type for the def body.
      (ctx, req_body_tp) <-
-       case matchPiWithNames (map Un.termVarString vars) def_tp_whnf of
+       case matchPiWithNames (map Un.termVarLocalName vars) def_tp_whnf of
          Just x -> return x
          Nothing ->
              throwTCError $
@@ -327,8 +330,11 @@ processDecls (Un.TypeDecl NoQualifier (PosPair p nm) tp :
 
      -- Step 4: add the definition to the current module
      mnm <- getModuleName
+     let ident = mkIdentText mnm nm
+     t <- liftTCM scConstant' (ModuleIdentifier ident) def_tm def_tp
+     liftTCM scRegisterGlobal ident t
      liftTCM scModifyModule mnm $ \m ->
-       insDef m $ Def { defIdent = mkIdent mnm nm,
+       insDef m $ Def { defIdent = ident,
                         defQualifier = NoQualifier,
                         defType = def_tp,
                         defBody = Just def_tm }) >>
@@ -344,8 +350,16 @@ processDecls (Un.TypeDecl q (PosPair p nm) tp : rest) =
    do typed_tp <- typeInferComplete tp
       void $ ensureSort $ typedType typed_tp
       mnm <- getModuleName
+      let ident = mkIdentText mnm nm
+      let nmi = ModuleIdentifier ident
+      i <- liftTCM scFreshGlobalVar
+      liftTCM scRegisterName i nmi
+      let def_tp = typedVal typed_tp
+      let ec = EC i nmi def_tp
+      t <- liftTCM scFlatTermF (Primitive ec)
+      liftTCM scRegisterGlobal ident t
       liftTCM scModifyModule mnm $ \m ->
-        insDef m $ Def { defIdent = mkIdent mnm nm,
+        insDef m $ Def { defIdent = ident,
                          defQualifier = q,
                          defType = typedVal typed_tp,
                          defBody = Nothing }) >>
@@ -392,7 +406,7 @@ processDecls (Un.DataDecl (PosPair p nm) param_ctx dt_tp c_decls : rest) =
 
   -- Step 4: Add d as an empty datatype, so we can typecheck the constructors
   mnm <- getModuleName
-  let dtName = mkIdent mnm nm
+  let dtName = mkIdentText mnm nm
   let dt = DataType { dtCtors = [], .. }
   liftTCM scModifyModule mnm (\m -> beginDataType m dt)
 
@@ -418,10 +432,10 @@ processDecls (Un.DataDecl (PosPair p nm) param_ctx dt_tp c_decls : rest) =
             let tp = typedVal typed_tp in
             case mkCtorArgStruct dtName p_ctx ix_ctx tp of
               Just arg_struct ->
-                liftTCM scBuildCtor dtName (mkIdent mnm c)
-                (map (mkIdent mnm . fst) typed_ctors)
+                liftTCM scBuildCtor dtName (mkIdentText mnm c)
+                (map (mkIdentText mnm . fst) typed_ctors)
                 arg_struct
-              Nothing -> err ("Malformed type form constructor: " ++ c)
+              Nothing -> err ("Malformed type form constructor: " ++ show c)
 
   -- Step 6: complete the datatype with the given ctors
   liftTCM scModifyModule mnm (\m -> completeDataType m dtName ctors)
@@ -455,7 +469,7 @@ tcInsertModule sc (Un.Module (PosPair _ mnm) imports decls) = do
 
 -- | Pattern match a nested pi-abstraction, like 'asPiList', but only match as
 -- far as the supplied list of variables, and use them as the new names
-matchPiWithNames :: [String] -> Term -> Maybe ([(String,Term)],Term)
+matchPiWithNames :: [LocalName] -> Term -> Maybe ([(LocalName, Term)], Term)
 matchPiWithNames [] tp = return ([], tp)
 matchPiWithNames (var:vars) (asPi -> Just (_, arg_tp, body_tp)) =
   do (ctx,body) <- matchPiWithNames vars body_tp

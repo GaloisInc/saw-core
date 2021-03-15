@@ -31,6 +31,7 @@ import Control.Monad.Fix (MonadFix(mfix))
 import Data.Bits
 import Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Text as Text
 import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -252,7 +253,6 @@ constMap bp = Map.fromList
   , ("Prelude.error", errorOp)
   , ("Prelude.fix", fixOp)
   -- Overloaded
-  , ("Prelude.eq", eqOp bp)
   , ("Prelude.ite", iteOp bp)
   , ("Prelude.iteDep", iteOp bp)
   -- SMT Arrays
@@ -260,6 +260,7 @@ constMap bp = Map.fromList
   , ("Prelude.arrayConstant", arrayConstantOp bp)
   , ("Prelude.arrayLookup", arrayLookupOp bp)
   , ("Prelude.arrayUpdate", arrayUpdateOp bp)
+  , ("Prelude.arrayEq", arrayEqOp bp)
   ]
 
 -- | Call this function to indicate that a programming error has
@@ -1209,7 +1210,7 @@ errorOp =
   constFun $
   strictFun $ \x ->
   case x of
-    VString s -> Prim.userError s
+    VString s -> Prim.userError (Text.unpack s)
     _ -> Prim.userError "unknown error"
 
 ------------------------------------------------------------
@@ -1336,3 +1337,14 @@ arrayUpdateOp bp =
   strictFun $ \e -> do
     f' <- toArray f
     VArray <$> (bpArrayUpdate bp) f' i e
+
+-- arrayEq : (a b : sort 0) -> (Array a b) -> (Array a b) -> Bool;
+arrayEqOp :: (VMonad l, Show (Extra l)) => BasePrims l -> Value l
+arrayEqOp bp =
+  constFun $
+  constFun $
+  pureFun $ \x ->
+  strictFun $ \y -> do
+    x' <- toArray x
+    y' <- toArray y
+    VBool <$> bpArrayEq bp x' y'
