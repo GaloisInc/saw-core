@@ -446,12 +446,6 @@ sawCorePreludeSpecialTreatmentMap configuration =
   , ("List__rec", replace (Coq.ExplVar "Datatypes.list_rect"))
   ]
 
-  -- Definitions that depend on axioms currently skipped
-  ++
-  [ ("composeM",   skip)
-  , ("letRecFuns", skip)
-  ]
-
 constantsRenamingMap :: [(String, String)] -> Map.Map String String
 constantsRenamingMap notations = Map.fromList notations
 

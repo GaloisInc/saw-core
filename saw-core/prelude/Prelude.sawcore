@@ -1578,6 +1578,11 @@ axiom at_gen_BVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
                      (ix : bitvector n) -> (pf : is_bvult n ix len) ->
                      EqP a (atBVVec n len a (genBVVec n len a f) ix pf) (f ix pf);
 
+-- Generating a BVVec by indexing another just returns the other BVVec
+axiom gen_at_BVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
+                     (x : BVVec n len a) ->
+                     EqP (BVVec n len a) (genBVVec n len a (atBVVec n len a x)) x;
+
 -- Update the value at a specific index in a BVVec
 updBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
            BVVec n len a -> (ix : bitvector n) ->
@@ -1763,29 +1768,32 @@ foldW64List =
 -- Iso-recursive types
 
 data IRTDesc (As:ListSort) : sort 0 where {
-  IRT_varD   : Nat -> IRTDesc As; -- a IRTDesc var
+  IRT_varD   : Nat -> IRTDesc As; -- an IRTDesc var
   IRT_mu     : IRTDesc As -> IRTDesc As; -- binds a varD
   IRT_Either : IRTDesc As -> IRTDesc As -> IRTDesc As;
   IRT_prod   : IRTDesc As -> IRTDesc As -> IRTDesc As;
-  IRT_sigT   : (n:Nat) -> (listSortGet As n -> IRTDesc As) -> IRTDesc As;
+  IRT_sigT   : (i:Nat) -> (listSortGet As i -> IRTDesc As) -> IRTDesc As;
+  IRT_BVVec  : (n:Nat) -> bitvector n -> (D:IRTDesc As) -> IRTDesc As;
   IRT_unit   : IRTDesc As;
   IRT_empty  : IRTDesc As;
-  IRT_varT   : Nat -> IRTDesc As; -- a sort var, i.e. an index into `As`
+  IRT_varT   : (i:Nat) -> IRTDesc As; -- a sort var, i.e. an index into `As`
 }
 
 IRTDesc__rec : (As:ListSort) -> (P : IRTDesc As -> sort 1) ->
-               ((n:Nat) -> P (IRT_varD As n)) ->
+               ((i:Nat) -> P (IRT_varD As i)) ->
                ((D:IRTDesc As) -> P D -> P (IRT_mu As D)) ->
                ((Dl:IRTDesc As) -> P Dl -> (Dr:IRTDesc As) -> P Dr ->
                   P (IRT_Either As Dl Dr)) ->
                ((Dl:IRTDesc As) -> P Dl -> (Dr:IRTDesc As) -> P Dr ->
                   P (IRT_prod As Dl Dr)) ->
-               ((n:Nat) -> (Df : listSortGet As n -> IRTDesc As) ->
-                  ((a:listSortGet As n) -> P (Df a)) -> P (IRT_sigT As n Df)) ->
+               ((i:Nat) -> (Df : listSortGet As i -> IRTDesc As) ->
+                  ((a:listSortGet As i) -> P (Df a)) -> P (IRT_sigT As i Df)) ->
+               ((n:Nat) -> (len:bitvector n) -> (D:IRTDesc As) -> P D ->
+                  P (IRT_BVVec As n len D)) ->
                P (IRT_unit As) -> P (IRT_empty As) ->
-               ((n:Nat) -> P (IRT_varT As n)) ->
+               ((i:Nat) -> P (IRT_varT As i)) ->
                (D:IRTDesc As) -> P D;
-IRTDesc__rec As P f1 f2 f3 f4 f5 f6 f7 f8 D = IRTDesc#rec As P f1 f2 f3 f4 f5 f6 f7 f8 D;
+IRTDesc__rec As P f1 f2 f3 f4 f5 f6 f7 f8 f9 D = IRTDesc#rec As P f1 f2 f3 f4 f5 f6 f7 f8 f9 D;
 
 -- A list of substitutions for a context of iso-recursive type descriptions
 data IRTSubsts (As:ListSort) : sort 0 where {
@@ -1815,29 +1823,31 @@ dropIRTs As = IRTSubsts__rec As (\ (_:IRTSubsts As) -> Nat -> IRTSubsts As)
 
 -- The type corresponding to an iso-recursive type description
 data IRT (As:ListSort) : IRTSubsts As -> IRTDesc As -> sort 0 where {
-  IRT_elemD  : (Ds:IRTSubsts As) -> (n:Nat) ->
-               IRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n) ->
-               IRT As Ds (IRT_varD As n);
-  IRT_fold   : (Ds:IRTSubsts As) -> (D:IRTDesc As) ->
-               IRT As (IRTs_Cons As (IRT_mu As D) Ds) D -> IRT As Ds (IRT_mu As D);
-  IRT_Left   : (Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) ->
-               IRT As Ds Dl -> IRT As Ds (IRT_Either As Dl Dr);
-  IRT_Right  : (Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) ->
-               IRT As Ds Dr -> IRT As Ds (IRT_Either As Dl Dr);
-  IRT_pair   : (Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) ->
-               IRT As Ds Dl -> IRT As Ds Dr -> IRT As Ds (IRT_prod As Dl Dr);
-  IRT_existT : (Ds:IRTSubsts As) -> (n:Nat) -> (Df : listSortGet As n -> IRTDesc As) ->
-               (a:listSortGet As n) -> IRT As Ds (Df a) -> IRT As Ds (IRT_sigT As n Df);
-  IRT_tt     : (Ds:IRTSubsts As) -> IRT As Ds (IRT_unit As);
-  IRT_elemT  : (Ds:IRTSubsts As) -> (n:Nat) ->
-               listSortGet As n -> IRT As Ds (IRT_varT As n);
+  IRT_elemD    : (Ds:IRTSubsts As) -> (i:Nat) ->
+                 IRT As (dropIRTs As Ds (Succ i)) (atIRTs As Ds i) ->
+                 IRT As Ds (IRT_varD As i);
+  IRT_fold     : (Ds:IRTSubsts As) -> (D:IRTDesc As) ->
+                 IRT As (IRTs_Cons As (IRT_mu As D) Ds) D -> IRT As Ds (IRT_mu As D);
+  IRT_Left     : (Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) ->
+                 IRT As Ds Dl -> IRT As Ds (IRT_Either As Dl Dr);
+  IRT_Right    : (Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) ->
+                 IRT As Ds Dr -> IRT As Ds (IRT_Either As Dl Dr);
+  IRT_pair     : (Ds:IRTSubsts As) -> (Dl:IRTDesc As) -> (Dr:IRTDesc As) ->
+                 IRT As Ds Dl -> IRT As Ds Dr -> IRT As Ds (IRT_prod As Dl Dr);
+  IRT_existT   : (Ds:IRTSubsts As) -> (i:Nat) -> (Df : listSortGet As i -> IRTDesc As) ->
+                 (a:listSortGet As i) -> IRT As Ds (Df a) -> IRT As Ds (IRT_sigT As i Df);
+  IRT_genBVVec : (Ds:IRTSubsts As) -> (n:Nat) -> (len:bitvector n) -> (D:IRTDesc As) ->
+                 ((i:bitvector n) -> is_bvult n i len -> IRT As Ds D) -> IRT As Ds (IRT_BVVec As n len D);
+  IRT_tt       : (Ds:IRTSubsts As) -> IRT As Ds (IRT_unit As);
+  IRT_elemT    : (Ds:IRTSubsts As) -> (i:Nat) ->
+                 listSortGet As i -> IRT As Ds (IRT_varT As i);
 }
 
 IRT__rec : (As:ListSort) -> (P : (Ds:IRTSubsts As) -> (D:IRTDesc As) -> IRT As Ds D -> sort 1) ->
-           ((Ds:IRTSubsts As) -> (n:Nat) ->
-              (x:IRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n)) ->
-              P (dropIRTs As Ds (Succ n)) (atIRTs As Ds n) x ->
-              P Ds (IRT_varD As n) (IRT_elemD As Ds n x)) ->
+           ((Ds:IRTSubsts As) -> (i:Nat) ->
+              (x:IRT As (dropIRTs As Ds (Succ i)) (atIRTs As Ds i)) ->
+              P (dropIRTs As Ds (Succ i)) (atIRTs As Ds i) x ->
+              P Ds (IRT_varD As i) (IRT_elemD As Ds i x)) ->
            ((Ds:IRTSubsts As) -> (D:IRTDesc As) ->
               (x:IRT As (IRTs_Cons As (IRT_mu As D) Ds) D) ->
               P (IRTs_Cons As (IRT_mu As D) Ds) D x ->
@@ -1850,20 +1860,24 @@ IRT__rec : (As:ListSort) -> (P : (Ds:IRTSubsts As) -> (D:IRTDesc As) -> IRT As D
               (xl:IRT As Ds Dl) -> P Ds Dl xl ->
               (xr:IRT As Ds Dr) -> P Ds Dr xr ->
               P Ds (IRT_prod As Dl Dr) (IRT_pair As Ds Dl Dr xl xr)) ->
-           ((Ds:IRTSubsts As) -> (n:Nat) -> (Df : listSortGet As n -> IRTDesc As) ->
-              (a:listSortGet As n) -> (xf:IRT As Ds (Df a)) -> P Ds (Df a) xf ->
-              P Ds (IRT_sigT As n Df) (IRT_existT As Ds n Df a xf)) ->
+           ((Ds:IRTSubsts As) -> (i:Nat) -> (Df : listSortGet As i -> IRTDesc As) ->
+              (a:listSortGet As i) -> (xf:IRT As Ds (Df a)) -> P Ds (Df a) xf ->
+              P Ds (IRT_sigT As i Df) (IRT_existT As Ds i Df a xf)) ->
+           ((Ds:IRTSubsts As) -> (n:Nat) -> (len:bitvector n) -> (D:IRTDesc As) ->
+              (xg : (i:bitvector n) -> is_bvult n i len -> IRT As Ds D) ->
+              ((i:bitvector n) -> (pf:is_bvult n i len) -> P Ds D (xg i pf)) ->
+              P Ds (IRT_BVVec As n len D) (IRT_genBVVec As Ds n len D xg)) ->
            ((Ds:IRTSubsts As) -> P Ds (IRT_unit As) (IRT_tt As Ds)) ->
-           ((Ds:IRTSubsts As) -> (n:Nat) -> (a:listSortGet As n) ->
-              P Ds (IRT_varT As n) (IRT_elemT As Ds n a)) ->
+           ((Ds:IRTSubsts As) -> (i:Nat) -> (a:listSortGet As i) ->
+              P Ds (IRT_varT As i) (IRT_elemT As Ds i a)) ->
            (Ds:IRTSubsts As) -> (D:IRTDesc As) -> (x:IRT As Ds D) -> P Ds D x;
-IRT__rec As P f1 f2 f3 f4 f5 f6 f7 f8 Ds D x = IRT#rec As P f1 f2 f3 f4 f5 f6 f7 f8 Ds D x;
+IRT__rec As P f1 f2 f3 f4 f5 f6 f7 f8 f9 Ds D x = IRT#rec As P f1 f2 f3 f4 f5 f6 f7 f8 f9 Ds D x;
 
 -- The type of a once-unfolded iso-recursive type
 UnfoldedIRT : (As:ListSort) -> IRTSubsts As -> IRTDesc As -> sort 0;
 UnfoldedIRT As Ds D = IRTDesc__rec As (\ (_:IRTDesc As) -> IRTSubsts As -> sort 0)
-  (\ (n:Nat) (Ds:IRTSubsts As) ->
-      IRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n))
+  (\ (i:Nat) (Ds:IRTSubsts As) ->
+      IRT As (dropIRTs As Ds (Succ i)) (atIRTs As Ds i))
   (\ (D:IRTDesc As) (rec : IRTSubsts As -> sort 0) (Ds:IRTSubsts As) ->
       rec (IRTs_Cons As (IRT_mu As D) Ds))
   (\ (_:IRTDesc As) (recl : IRTSubsts As -> sort 0)
@@ -1872,20 +1886,23 @@ UnfoldedIRT As Ds D = IRTDesc__rec As (\ (_:IRTDesc As) -> IRTSubsts As -> sort 
   (\ (_:IRTDesc As) (recl : IRTSubsts As -> sort 0)
      (_:IRTDesc As) (recr : IRTSubsts As -> sort 0) (Ds:IRTSubsts As) ->
       recl Ds * recr Ds)
-  (\ (n:Nat) (_ : listSortGet As n -> IRTDesc As)
-     (recf : listSortGet As n -> IRTSubsts As -> sort 0) (Ds:IRTSubsts As) ->
-      Sigma (listSortGet As n) (\ (a:listSortGet As n) -> recf a Ds))
+  (\ (i:Nat) (_ : listSortGet As i -> IRTDesc As)
+     (recf : listSortGet As i -> IRTSubsts As -> sort 0) (Ds:IRTSubsts As) ->
+      Sigma (listSortGet As i) (\ (a:listSortGet As i) -> recf a Ds))
+  (\ (n:Nat) (len:bitvector n) (_:IRTDesc As)
+     (rec : IRTSubsts As -> sort 0) (Ds:IRTSubsts As) ->
+      BVVec n len (rec Ds))
   (\ (_:IRTSubsts As) -> #())
   (\ (_:IRTSubsts As) -> EqP Bool True False)
-  (\ (n:Nat) (_:IRTSubsts As) -> listSortGet As n) D Ds;
+  (\ (i:Nat) (_:IRTSubsts As) -> listSortGet As i) D Ds;
 
 -- `fold` and `unfold` for IRTs
 
 unfoldIRT : (As:ListSort) -> (Ds:IRTSubsts As) -> (D:IRTDesc As) ->
             IRT As Ds D -> UnfoldedIRT As Ds D;
 unfoldIRT As = IRT__rec As (\ (Ds:IRTSubsts As) (D:IRTDesc As) (_:IRT As Ds D) -> UnfoldedIRT As Ds D)
-  (\ (Ds:IRTSubsts As) (n:Nat) (x:IRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n))
-     (_:UnfoldedIRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n)) -> x)
+  (\ (Ds:IRTSubsts As) (i:Nat) (x:IRT As (dropIRTs As Ds (Succ i)) (atIRTs As Ds i))
+     (_:UnfoldedIRT As (dropIRTs As Ds (Succ i)) (atIRTs As Ds i)) -> x)
   (\ (Ds:IRTSubsts As) (D:IRTDesc As) (_:IRT As (IRTs_Cons As (IRT_mu As D) Ds) D)
      (rec: UnfoldedIRT As (IRTs_Cons As (IRT_mu As D) Ds) D) -> rec)
   (\ (Ds:IRTSubsts As) (Dl:IRTDesc As) (Dr:IRTDesc As)
@@ -1898,17 +1915,21 @@ unfoldIRT As = IRT__rec As (\ (Ds:IRTSubsts As) (D:IRTDesc As) (_:IRT As Ds D) -
      (_:IRT As Ds Dl) (recl:UnfoldedIRT As Ds Dl)
      (_:IRT As Ds Dr) (recr:UnfoldedIRT As Ds Dr) ->
       (recl, recr))
-  (\ (Ds:IRTSubsts As) (n:Nat) (Df : listSortGet As n -> IRTDesc As) (a:listSortGet As n)
+  (\ (Ds:IRTSubsts As) (i:Nat) (Df : listSortGet As i -> IRTDesc As) (a:listSortGet As i)
      (_:IRT As Ds (Df a)) (recf:UnfoldedIRT As Ds (Df a)) ->
-      exists (listSortGet As n) (\ (a:listSortGet As n) -> UnfoldedIRT As Ds (Df a)) a recf)
+      exists (listSortGet As i) (\ (a:listSortGet As i) -> UnfoldedIRT As Ds (Df a)) a recf)
+  (\ (Ds:IRTSubsts As) (n:Nat) (len:bitvector n) (D:IRTDesc As)
+     (_ : (i:bitvector n) -> is_bvult n i len -> IRT As Ds D)
+     (recg : (i:bitvector n) -> is_bvult n i len -> UnfoldedIRT As Ds D) ->
+      genBVVec n len (UnfoldedIRT As Ds D) recg)
   (\ (Ds:IRTSubsts As) -> ())
-  (\ (Ds:IRTSubsts As) (n:Nat) (a:listSortGet As n) -> a);
+  (\ (Ds:IRTSubsts As) (i:Nat) (a:listSortGet As i) -> a);
 
 foldIRT : (As:ListSort) -> (Ds:IRTSubsts As) -> (D:IRTDesc As) ->
           UnfoldedIRT As Ds D -> IRT As Ds D;
 foldIRT As Ds D = IRTDesc__rec As (\ (D:IRTDesc As) -> (Ds:IRTSubsts As) -> UnfoldedIRT As Ds D -> IRT As Ds D)
-  (\ (n:Nat) (Ds:IRTSubsts As) (x:IRT As (dropIRTs As Ds (Succ n)) (atIRTs As Ds n)) ->
-      IRT_elemD As Ds n x)
+  (\ (i:Nat) (Ds:IRTSubsts As) (x:IRT As (dropIRTs As Ds (Succ i)) (atIRTs As Ds i)) ->
+      IRT_elemD As Ds i x)
   (\ (D:IRTDesc As) (rec : (Ds:IRTSubsts As) -> UnfoldedIRT As Ds D -> IRT As Ds D)
      (Ds:IRTSubsts As) (x:UnfoldedIRT As (IRTs_Cons As (IRT_mu As D) Ds) D) ->
       IRT_fold As Ds D (rec (IRTs_Cons As (IRT_mu As D) Ds) x))
@@ -1924,15 +1945,19 @@ foldIRT As Ds D = IRTDesc__rec As (\ (D:IRTDesc As) -> (Ds:IRTSubsts As) -> Unfo
       uncurry (UnfoldedIRT As Ds Dl) (UnfoldedIRT As Ds Dr) (IRT As Ds (IRT_prod As Dl Dr))
               (\ (xl:UnfoldedIRT As Ds Dl) (xr:UnfoldedIRT As Ds Dr) ->
                   IRT_pair As Ds Dl Dr (recl Ds xl) (recr Ds xr)) x)
-  (\ (n:Nat) (Df : listSortGet As n -> IRTDesc As)
-     (recf : (a:listSortGet As n) -> (Ds:IRTSubsts As) -> UnfoldedIRT As Ds (Df a) -> IRT As Ds (Df a))
-     (Ds:IRTSubsts As) (x:Sigma (listSortGet As n) (\ (a:listSortGet As n) -> UnfoldedIRT As Ds (Df a))) ->
-      uncurrySigma (listSortGet As n) (\ (a:listSortGet As n) -> UnfoldedIRT As Ds (Df a)) (IRT As Ds (IRT_sigT As n Df))
-                   (\ (a:listSortGet As n) (xf:UnfoldedIRT As Ds (Df a)) ->
-                       IRT_existT As Ds n Df a (recf a Ds xf)) x)
+  (\ (i:Nat) (Df : listSortGet As i -> IRTDesc As)
+     (recf : (a:listSortGet As i) -> (Ds:IRTSubsts As) -> UnfoldedIRT As Ds (Df a) -> IRT As Ds (Df a))
+     (Ds:IRTSubsts As) (x:Sigma (listSortGet As i) (\ (a:listSortGet As i) -> UnfoldedIRT As Ds (Df a))) ->
+      uncurrySigma (listSortGet As i) (\ (a:listSortGet As i) -> UnfoldedIRT As Ds (Df a)) (IRT As Ds (IRT_sigT As i Df))
+                   (\ (a:listSortGet As i) (xf:UnfoldedIRT As Ds (Df a)) ->
+                       IRT_existT As Ds i Df a (recf a Ds xf)) x)
+  (\ (n:Nat) (len:bitvector n) (D:IRTDesc As) (recg : (Ds:IRTSubsts As) -> UnfoldedIRT As Ds D -> IRT As Ds D)
+     (Ds:IRTSubsts As) (x : BVVec n len (UnfoldedIRT As Ds D)) ->
+      IRT_genBVVec As Ds n len D (\ (i:bitvector n) (pf:is_bvult n i len) ->
+                                     recg Ds (atBVVec n len (UnfoldedIRT As Ds D) x i pf)))
   (\ (Ds:IRTSubsts As) (x:#()) -> IRT_tt As Ds)
   (\ (Ds:IRTSubsts As) (x:EqP Bool True False) -> efq (IRT As Ds (IRT_empty As)) x)
-  (\ (n:Nat) (Ds:IRTSubsts As) (x:listSortGet As n) -> IRT_elemT As Ds n x) D Ds;
+  (\ (i:Nat) (Ds:IRTSubsts As) (x:listSortGet As i) -> IRT_elemT As Ds i x) D Ds;
 
 
 --------------------------------------------------------------------------------
