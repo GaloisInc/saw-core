@@ -1038,12 +1038,6 @@ Definition tupleCompMFunBoth : forall (a : Type), forall (b : Type), forall (c :
 Definition tupleCompMFunOut : forall (a : Type), forall (b : Type), forall (c : Type), c -> (a -> CompM b) -> a -> CompM (prod c b) :=
   fun (a : Type) (b : Type) (c : Type) (x : c) (f : a -> CompM b) (y : a) => @bindM CompM _ b (prod c b) (f y) (fun (z : b) => @returnM CompM _ (prod c b) (pair x z)).
 
-Definition tupleCompMFunBoth : forall (a : Type), forall (b : Type), forall (c : Type), (a -> CompM b) -> prod c a -> CompM (prod c b) :=
-  fun (a : Type) (b : Type) (c : Type) (f : a -> CompM b) (x : prod c a) => @bindM CompM _ b (prod c b) (f (SAWCoreScaffolding.snd x)) (fun (y : b) => @returnM CompM _ (prod c b) (pair (SAWCoreScaffolding.fst x) y)).
-
-Definition tupleCompMFunOut : forall (a : Type), forall (b : Type), forall (c : Type), c -> (a -> CompM b) -> a -> CompM (prod c b) :=
-  fun (a : Type) (b : Type) (c : Type) (x : c) (f : a -> CompM b) (y : a) => @bindM CompM _ b (prod c b) (f y) (fun (z : b) => @returnM CompM _ (prod c b) (pair x z)).
-
 (* Prelude.errorM was skipped *)
 
 (* Prelude.fixM was skipped *)
