@@ -509,23 +509,23 @@ Hint Extern 1 (IntroArg _ (~ (@eq (bitvector _) ?x ?y)) _) =>
   end : refinesFun.
 
 (* these show up as the unfolded versions of `bvultWithProof` and `bvuleWithProof` *)
-Lemma IntroArg_iteDep_Maybe_EqP_true n t f x (goal : Prop)
+Lemma IntroArg_iteDep_Maybe_Eq_true n t f x (goal : Prop)
   : IntroArg n (t = x) (fun _ => goal) ->
     IntroArg n (iteDep (fun b => Maybe (b = true)) true t f = x) (fun _ => goal).
 Proof. intros H eq; apply H; eauto. Qed.
-Lemma IntroArg_iteDep_Maybe_EqP_false n t f x (goal : Prop)
+Lemma IntroArg_iteDep_Maybe_Eq_false n t f x (goal : Prop)
   : IntroArg n (f = x) (fun _ => goal) ->
     IntroArg n (iteDep (fun b => Maybe (b = true)) false t f = x) (fun _ => goal).
 Proof. intros H eq; apply H; eauto. Qed.
 
-Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (EqP _ _ _)) true _ _ = _) _) =>
-   simple apply IntroArg_iteDep_Maybe_EqP_true : refinesFun.
-Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (EqP _ _ _)) false _ _ = _) _) =>
-simple apply IntroArg_iteDep_Maybe_EqP_false : refinesFun.
-Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (EqP _ _ _)) Datatypes.true _ _ = _) _) =>
-   simple apply IntroArg_iteDep_Maybe_EqP_true : refinesFun.
-Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (EqP _ _ _)) Datatypes.false _ _ = _) _) =>
-   simple apply IntroArg_iteDep_Maybe_EqP_false : refinesFun.
+Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (Eq _ _ _)) true _ _ = _) _) =>
+   simple apply IntroArg_iteDep_Maybe_Eq_true : refinesFun.
+Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (Eq _ _ _)) false _ _ = _) _) =>
+simple apply IntroArg_iteDep_Maybe_Eq_false : refinesFun.
+Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (Eq _ _ _)) Datatypes.true _ _ = _) _) =>
+   simple apply IntroArg_iteDep_Maybe_Eq_true : refinesFun.
+Hint Extern 1 (IntroArg _ (iteDep (fun _ => Maybe (Eq _ _ _)) Datatypes.false _ _ = _) _) =>
+   simple apply IntroArg_iteDep_Maybe_Eq_false : refinesFun.
 
 Lemma IntroArg_isBvsle_def n w a b goal
   : IntroArg n (isBvsle w a b) (fun _ => goal) ->

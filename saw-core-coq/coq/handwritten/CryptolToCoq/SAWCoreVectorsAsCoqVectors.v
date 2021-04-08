@@ -127,10 +127,10 @@ Definition EmptyVec := Vector.nil.
 
 Definition coerceVec (a : sort 0) (m n : Nat) (eq : Eq Nat m n) (v : Vec m a) : Vec n a :=
   match
-    identity_sym eq in identity _ n'
+    eq_sym eq in eq _ n'
     return Vec n' a -> Vec n a
   with
-  | identity_refl => fun x => x
+  | eq_refl => fun x => x
   end v.
 
 Theorem gen_add m n T : forall f, gen (m + n) T f = Vector.append (gen m T f) (gen n T (fun x => f (m + x))).

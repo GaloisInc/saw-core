@@ -266,9 +266,6 @@ sawCorePreludeSpecialTreatmentMap configuration =
   [ ("Eq",      mapsTo sawDefinitionsModule "Eq")
   , ("Eq__rec", mapsTo sawDefinitionsModule "Eq__rec")
   , ("Refl",    mapsTo sawDefinitionsModule "Refl")
-  , ("EqP",      mapsTo sawDefinitionsModule "EqP")
-  , ("EqP__rec", mapsTo sawDefinitionsModule "EqP__rec")
-  , ("ReflP",    mapsTo sawDefinitionsModule "ReflP")
   ]
 
   -- Strings

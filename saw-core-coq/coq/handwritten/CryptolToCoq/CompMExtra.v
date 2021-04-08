@@ -686,7 +686,7 @@ Ltac prove_refinement_core := prove_refinement_core with Default.
    form` P |= Q`, where P,Q may contain matching calls to `letRecM`. *)
 
 Tactic Notation "prove_refinement" "with" constr(opts) :=
-  unfold_projs; unfold EqP, ReflP, SAWCoreScaffolding.Bool;
+  unfold_projs; unfold Eq, Refl, SAWCoreScaffolding.Bool;
   apply StartAutomation_fold;
   prove_refinement_core with opts.
 

@@ -117,13 +117,6 @@ data Eq (t : sort 1) (x : t) : t -> Prop where {
     Refl : Eq t x x;
   }
 
--- The version of Eq in Prop
--- FIXME: this should replace the predicative Eq when we are sure everything
--- works ok with it
-data EqP (t : sort 1) (x : t) : t -> Prop where {
-    ReflP : EqP t x x;
-  }
-
 
 -- The eliminator for the Eq type at sort 1, assuming the usual parameter-index
 -- structure of the Eq type
@@ -138,38 +131,13 @@ eq_cong t x y eq u f =
   Eq__rec t x (\ (y':t) -> \ (eq':Eq t x y') -> Eq u (f x) (f y'))
           (Refl u (f x)) y eq;
 
--- Eq implies EqP
-eq_eqP : (t : sort 1) -> (x y : t) -> Eq t x y -> EqP t x y;
-eq_eqP t x = Eq__rec t x (\ (y:t) (_:Eq t x y) -> EqP t x y) (ReflP t x);
-
--- The eliminator for the Eq type at sort 1, assuming the usual parameter-index
--- structure of the Eq type
-EqP__rec : (t : sort 1) -> (x : t) -> (p : (y : t) -> EqP t x y -> sort 1) ->
-            p x (ReflP t x) -> (y : t) -> (pf : EqP t x y) -> p y pf;
-EqP__rec t x p f1 y pf = EqP#rec t x p f1 y pf;
-
--- Congruence closure for equality
-eqP_cong : (t : sort 1) -> (x : t) -> (y : t) -> EqP t x y ->
-           (u : sort 1) -> (f : t -> u) -> EqP u (f x) (f y);
-eqP_cong t x y eq u f =
-  EqP__rec t x (\ (y':t) -> \ (eq':EqP t x y') -> EqP u (f x) (f y'))
-          (ReflP u (f x)) y eq;
-
 sym : (a : sort 1) -> (x y : a) -> Eq a x y -> Eq a y x;
 sym a x y eq =
   Eq__rec a x (\ (y':a) -> \ (eq':Eq a x y') -> Eq a y' x) (Refl a x) y eq;
 
-symP : (a : sort 1) -> (x y : a) -> EqP a x y -> EqP a y x;
-symP a x y eq =
-  EqP__rec a x (\ (y':a) -> \ (eq':EqP a x y') -> EqP a y' x) (ReflP a x) y eq;
-
 trans : (a : sort 1) -> (x y z : a) -> Eq a x y -> Eq a y z -> Eq a x z;
 trans a x y z eq1 eq2 =
   Eq__rec a y (\ (y':a) -> \ (eq':Eq a y y') -> Eq a x y') eq1 z eq2;
-
-transP : (a : sort 1) -> (x y z : a) -> EqP a x y -> EqP a y z -> EqP a x z;
-transP a x y z eq1 eq2 =
-  EqP__rec a y (\ (y':a) -> \ (eq':EqP a y y') -> EqP a x y') eq1 z eq2;
 
 trans2 : (a : sort 1) -> (x y z : a) -> Eq a x z -> Eq a y z -> Eq a x y;
 trans2 a x y z eq1 eq2 = trans a x z y eq1 (sym a y z eq2);
@@ -201,10 +169,6 @@ coerce__def a b eq x =
 
 axiom coerce__eq :
   Eq ((a b : sort 0) -> Eq (sort 0) a b -> a -> b) coerce coerce__def;
-
-coerceP : (a b : sort 0) -> EqP (sort 0) a b -> a -> b;
-coerceP a b eq x =
-  EqP__rec (sort 0) a (\ (b':sort 0) -> \ (eq':EqP (sort 0) a b') -> b') x b eq;
 
 -- NOTE: this is equivalent to UIP / Axiom K
 {-
@@ -298,12 +262,6 @@ ite_true (a : sort 1) (x y : a) : Eq a (ite a True x y) x =
 ite_false (a : sort 1) (x y : a) : Eq a (ite a False x y) y =
   trans a (ite a False x y) (iteDep (\ (b:Bool) -> a) False x y) y
         (ite_eq_iteDep a False x y) (iteDep_False (\ (_:Bool) -> a) x y);
-
-ite_trueP (a : sort 1) (x y : a) : EqP a (ite a True x y) x =
-  eq_eqP a (ite a True x y) x (ite_true a x y);
-
-ite_falseP (a : sort 1) (x y : a) : EqP a (ite a False x y) y =
-  eq_eqP a (ite a False x y) y (ite_false a x y);
 
 
 --
@@ -809,7 +767,7 @@ primitive natCompareLe : (m n : Nat) -> Either (IsLtNat m n) (IsLeNat n m);
 
 -- | Test if m = n
 -- FIXME: implement this!
-primitive proveEqNat : (m n : Nat) -> Maybe (EqP Nat m n);
+primitive proveEqNat : (m n : Nat) -> Maybe (Eq Nat m n);
 
 -- | Try to prove x <= y (FIXME: implement this from natCompareLe!)
 primitive proveLeNat : (x y : Nat) -> Maybe (IsLeNat x y);
@@ -1453,32 +1411,32 @@ primitive mkDouble : Integer -> Integer -> Float;
 
 -- Decide equality on two bitvectors, returning a proof if they are equal
 primitive bvEqWithProof : (n : Nat) -> (v1 v2 : bitvector n) ->
-                          Maybe (EqP (bitvector n) v1 v2);
+                          Maybe (Eq (bitvector n) v1 v2);
 
 -- Compare two bitvectors with bvult, returning a proof if bvult succeeds
 bvultWithProof : (n : Nat) -> (v1 v2 : bitvector n) ->
-                 Maybe (EqP Bool (bvult n v1 v2) True);
+                 Maybe (Eq Bool (bvult n v1 v2) True);
 bvultWithProof n v1 v2 =
-  iteDep (\ (b:Bool) -> Maybe (EqP Bool b True)) (bvult n v1 v2)
-         (Just (EqP Bool True True) (ReflP Bool True))
-         (Nothing (EqP Bool False True));
+  iteDep (\ (b:Bool) -> Maybe (Eq Bool b True)) (bvult n v1 v2)
+         (Just (Eq Bool True True) (Refl Bool True))
+         (Nothing (Eq Bool False True));
 
 -- Compare two bitvectors with bvule, returning a proof if bvule succeeds
 bvuleWithProof : (n : Nat) -> (v1 v2 : bitvector n) ->
-                 Maybe (EqP Bool (bvule n v1 v2) True);
+                 Maybe (Eq Bool (bvule n v1 v2) True);
 bvuleWithProof n v1 v2 =
-  iteDep (\ (b:Bool) -> Maybe (EqP Bool b True)) (bvule n v1 v2)
-         (Just (EqP Bool True True) (ReflP Bool True))
-         (Nothing (EqP Bool False True));
+  iteDep (\ (b:Bool) -> Maybe (Eq Bool b True)) (bvule n v1 v2)
+         (Just (Eq Bool True True) (Refl Bool True))
+         (Nothing (Eq Bool False True));
 
 -- Convert a proof of bitvector equality to one of Nat equality
 primitive bvEqToEqNat : (n : Nat) -> (v1 v2 : bitvector n) ->
-                        EqP (bitvector n) v1 v2 ->
+                        Eq (bitvector n) v1 v2 ->
                         eqNat (bvToNat n v1) (bvToNat n v2);
 
 -- Convert a proof of bitvector less-than to one of Nat less-than
 primitive bvultToIsLtNat : (n : Nat) -> (v1 v2 : bitvector n) ->
-                           EqP Bool (bvult n v1 v2) True ->
+                           Eq Bool (bvult n v1 v2) True ->
                            IsLtNat (bvToNat n v1) (bvToNat n v2);
 
 -- | Index a vector using a proof that the index is in the range of the vector
@@ -1505,15 +1463,15 @@ primitive updSliceWithProof : (a : sort 0) -> (n off len : Nat) ->
 
 -- Helper definition to write the proposition that x <u y
 is_bvult : (n:Nat) -> (x y:bitvector n) -> Prop;
-is_bvult n x y = EqP Bool (bvult n x y) True;
+is_bvult n x y = Eq Bool (bvult n x y) True;
 
 -- Helper definition to write the proposition that x <=u y
 is_bvule : (n:Nat) -> (x y:bitvector n) -> Prop;
-is_bvule n x y = EqP Bool (bvule n x y) True;
+is_bvule n x y = Eq Bool (bvule n x y) True;
 
 -- Axiom: x <u 0 never hold
 axiom not_bvult_zero : (n:Nat) -> (x:bitvector n) ->
-                       EqP Bool (bvult n x (bvNat n 0)) False;
+                       Eq Bool (bvult n x (bvNat n 0)) False;
 
 -- Axiom: x <=u y <u z implies x <u z
 axiom trans_bvult_bvule : (n:Nat) -> (x y z:bitvector n) ->
@@ -1532,19 +1490,19 @@ primitive genBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
                      BVVec n len a;
 
 -- Ex Falso Quodlibet: if True = False then anything is possible
-efq : (a : sort 0) -> EqP Bool True False -> a;
+efq : (a : sort 0) -> Eq Bool True False -> a;
 efq a contra =
-  coerceP
+  coerce
     #() a
-    (transP
+    (trans
      (sort 0) #() (ite (sort 0) True #() a) a
-     (symP (sort 0) (ite (sort 0) True #() a) #()
-           (ite_trueP (sort 0) #() a))
-     (transP
+     (sym (sort 0) (ite (sort 0) True #() a) #()
+           (ite_true (sort 0) #() a))
+     (trans
       (sort 0) (ite (sort 0) True #() a) (ite (sort 0) False #() a) a
-      (eqP_cong Bool True False contra (sort 0)
-                (\ (b:Bool) -> ite (sort 0) b #() a))
-      (ite_falseP (sort 0) #() a)
+      (eq_cong Bool True False contra (sort 0)
+               (\ (b:Bool) -> ite (sort 0) b #() a))
+      (ite_false (sort 0) #() a)
       ))
     ();
 
@@ -1553,8 +1511,8 @@ emptyBVVec : (n : Nat) -> (a : sort 0) -> BVVec n (bvNat n 0) a;
 emptyBVVec n a =
   genBVVec n (bvNat n 0) a
            (\ (i:bitvector n) (pf:is_bvult n i (bvNat n 0)) ->
-              efq a (transP Bool True (bvult n i (bvNat n 0)) False
-                            (symP Bool (bvult n i (bvNat n 0)) True pf)
+              efq a (trans Bool True (bvult n i (bvNat n 0)) False
+                            (sym Bool (bvult n i (bvNat n 0)) True pf)
                             (not_bvult_zero n i)));
 
 -- Generate a BVVec by repeating a single element
@@ -1576,12 +1534,12 @@ primitive atBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
 axiom at_gen_BVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
                      (f : (i:bitvector n) -> is_bvult n i len -> a) ->
                      (ix : bitvector n) -> (pf : is_bvult n ix len) ->
-                     EqP a (atBVVec n len a (genBVVec n len a f) ix pf) (f ix pf);
+                     Eq a (atBVVec n len a (genBVVec n len a f) ix pf) (f ix pf);
 
 -- Generating a BVVec by indexing another just returns the other BVVec
 axiom gen_at_BVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
                      (x : BVVec n len a) ->
-                     EqP (BVVec n len a) (genBVVec n len a (atBVVec n len a x)) x;
+                     Eq (BVVec n len a) (genBVVec n len a (atBVVec n len a x)) x;
 
 -- Update the value at a specific index in a BVVec
 updBVVec : (n : Nat) -> (len : bitvector n) -> (a : sort 0) ->
@@ -1713,11 +1671,11 @@ ListSort__rec : (P : ListSort -> sort 1) -> P LS_Nil ->
                 (l:ListSort) -> P l;
 ListSort__rec P f1 f2 l = ListSort#rec P f1 f2 l;
 
--- The sort at the given index in a ListSort or `EqP Bool True False` if
+-- The sort at the given index in a ListSort or `Eq Bool True False` if
 --  the index is out of bounds
 listSortGet : ListSort -> Nat -> sort 0;
 listSortGet = ListSort__rec (\ (_:ListSort) -> Nat -> sort 0)
-  (\ (_:Nat) -> EqP Bool True False)
+  (\ (_:Nat) -> Eq Bool True False)
   (\ (A:sort 0) (_:ListSort) (rec : Nat -> sort 0) ->
      Nat_cases (sort 0) A (\ (n:Nat) (_:sort 0) -> rec n));
 
@@ -1893,7 +1851,7 @@ UnfoldedIRT As Ds D = IRTDesc__rec As (\ (_:IRTDesc As) -> IRTSubsts As -> sort 
      (rec : IRTSubsts As -> sort 0) (Ds:IRTSubsts As) ->
       BVVec n len (rec Ds))
   (\ (_:IRTSubsts As) -> #())
-  (\ (_:IRTSubsts As) -> EqP Bool True False)
+  (\ (_:IRTSubsts As) -> Eq Bool True False)
   (\ (i:Nat) (_:IRTSubsts As) -> listSortGet As i) D Ds;
 
 -- `fold` and `unfold` for IRTs
@@ -1956,7 +1914,7 @@ foldIRT As Ds D = IRTDesc__rec As (\ (D:IRTDesc As) -> (Ds:IRTSubsts As) -> Unfo
       IRT_genBVVec As Ds n len D (\ (i:bitvector n) (pf:is_bvult n i len) ->
                                      recg Ds (atBVVec n len (UnfoldedIRT As Ds D) x i pf)))
   (\ (Ds:IRTSubsts As) (x:#()) -> IRT_tt As Ds)
-  (\ (Ds:IRTSubsts As) (x:EqP Bool True False) -> efq (IRT As Ds (IRT_empty As)) x)
+  (\ (Ds:IRTSubsts As) (x:Eq Bool True False) -> efq (IRT As Ds (IRT_empty As)) x)
   (\ (i:Nat) (Ds:IRTSubsts As) (x:listSortGet As i) -> IRT_elemT As Ds i x) D Ds;
 
 
