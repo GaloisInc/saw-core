@@ -43,8 +43,6 @@ Definition uncurry : forall (a : Type), forall (b : Type), forall (c : Type), fo
 
 (* Prelude.error was skipped *)
 
-(* Prelude.appendString was skipped *)
-
 (* Prelude.EmptyType was skipped *)
 
 (* Prelude.EmptyType__rec was skipped *)
@@ -814,6 +812,58 @@ Definition updBvFun : forall (n : @SAWCoreScaffolding.Nat), forall (a : Type), (
 
 (* Prelude.mkDouble was skipped *)
 
+(* Prelude.Sigma was skipped *)
+
+(* Prelude.Sigma__rec was skipped *)
+
+(* Prelude.Sigma_proj1 was skipped *)
+
+(* Prelude.Sigma_proj2 was skipped *)
+
+Definition uncurrySigma : forall (a : Type), forall (b : a -> Type), forall (c : Type), (forall (pa : a), b pa -> c) -> @sigT a b -> c :=
+  fun (a : Type) (b : a -> Type) (c : Type) => @sigT_rect a b (fun (_1 : @sigT a b) => c).
+
+(* Prelude.List was skipped *)
+
+Definition List_def : forall (a : Type), Type :=
+  fun (a : Type) => @Datatypes.list a.
+
+(* Prelude.List__rec was skipped *)
+
+Definition unfoldList : forall (a : Type), @Datatypes.list a -> @Either unit (prod a (prod (@Datatypes.list a) unit)) :=
+  fun (a : Type) (l : @Datatypes.list a) => @Datatypes.list_rect a (fun (_1 : @Datatypes.list a) => @Either unit (prod a (prod (@Datatypes.list a) unit))) (@Left unit (prod a (prod (@Datatypes.list a) unit)) tt) (fun (x : a) (l1 : @Datatypes.list a) (_1 : @Either unit (prod a (prod (@Datatypes.list a) unit))) => @Right unit (prod a (prod (@Datatypes.list a) unit)) (pair x (pair l1 tt))) l.
+
+Definition foldList : forall (a : Type), @Either unit (prod a (prod (@Datatypes.list a) unit)) -> @Datatypes.list a :=
+  fun (a : Type) => @either unit (prod a (prod (@Datatypes.list a) unit)) (@Datatypes.list a) (fun (_1 : unit) => @Datatypes.nil a) (fun (tup : prod a (prod (@Datatypes.list a) unit)) => @Datatypes.cons a (SAWCoreScaffolding.fst tup) (SAWCoreScaffolding.fst (SAWCoreScaffolding.snd tup))).
+
+Inductive ListSort : Type :=
+| LS_Nil : @ListSort
+| LS_Cons : Type -> @ListSort -> @ListSort
+.
+
+Definition ListSort__rec : forall (P : @ListSort -> Type), P (@LS_Nil) -> (forall (A : Type), forall (l : @ListSort), P l -> P (@LS_Cons A l)) -> forall (l : @ListSort), P l :=
+  fun (P : @ListSort -> Type) (f1 : P (@LS_Nil)) (f2 : forall (A : Type), forall (l : @ListSort), P l -> P (@LS_Cons A l)) (l : @ListSort) => SAWCorePrelude.ListSort_rect P f1 f2 l.
+
+Definition listSortGet : @ListSort -> @SAWCoreScaffolding.Nat -> Type :=
+  @ListSort__rec (fun (_1 : @ListSort) => @SAWCoreScaffolding.Nat -> Type) (fun (_1 : @SAWCoreScaffolding.Nat) => @SAWCoreScaffolding.Eq (@SAWCoreScaffolding.Bool) (@SAWCoreScaffolding.true) (@SAWCoreScaffolding.false)) (fun (A : Type) (_1 : @ListSort) (rec : @SAWCoreScaffolding.Nat -> Type) => @Nat_cases Type A (fun (n : @SAWCoreScaffolding.Nat) (_2 : Type) => rec n)).
+
+Definition listSortDrop : @ListSort -> @SAWCoreScaffolding.Nat -> @ListSort :=
+  @ListSort__rec (fun (_1 : @ListSort) => @SAWCoreScaffolding.Nat -> @ListSort) (fun (_1 : @SAWCoreScaffolding.Nat) => @LS_Nil) (fun (_1 : Type) (Ds : @ListSort) (rec : @SAWCoreScaffolding.Nat -> @ListSort) => @Nat_cases (@ListSort) Ds (fun (n : @SAWCoreScaffolding.Nat) (_2 : @ListSort) => rec n)).
+
+Inductive W64List : Type :=
+| W64Nil : @W64List
+| W64Cons : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool) -> @W64List -> @W64List
+.
+
+Definition unfoldedW64List : Type :=
+  @Either unit (prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit)).
+
+Definition unfoldW64List : @W64List -> unfoldedW64List :=
+  fun (l : @W64List) => SAWCorePrelude.W64List_rect (fun (_1 : @W64List) => unfoldedW64List) (@Left unit (prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit)) tt) (fun (bv : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (l' : @W64List) (_1 : @Either unit (prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit))) => @Right unit (prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_2 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit)) (pair (@existT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_2 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit) bv tt) (pair l' tt))) l.
+
+Definition foldW64List : unfoldedW64List -> @W64List :=
+  @either unit (prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit)) (@W64List) (fun (_1 : unit) => @W64Nil) (fun (bv_l : prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit)) => @W64Cons (@projT1 (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit) (SAWCoreScaffolding.fst bv_l)) (SAWCoreScaffolding.fst (SAWCoreScaffolding.snd bv_l))).
+
 Axiom bvEqWithProof : forall (n : @SAWCoreScaffolding.Nat), forall (v1 : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)), forall (v2 : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)), @Maybe (@SAWCoreScaffolding.Eq (@SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)) v1 v2) .
 
 Definition bvultWithProof : forall (n : @SAWCoreScaffolding.Nat), forall (v1 : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)), forall (v2 : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)), @Maybe (@SAWCoreScaffolding.Eq (@SAWCoreScaffolding.Bool) (@SAWCoreVectorsAsCoqVectors.bvult n v1 v2) (@SAWCoreScaffolding.true)) :=
@@ -887,58 +937,6 @@ Definition sliceBVVec : forall (n : @SAWCoreScaffolding.Nat), forall (len : @SAW
 
 Definition updSliceBVVec : forall (n : @SAWCoreScaffolding.Nat), forall (len : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)), forall (a : Type), @BVVec n len a -> forall (start' : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)), forall (len' : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)), @BVVec n len' a -> @BVVec n len a :=
   fun (n : @SAWCoreScaffolding.Nat) (len : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)) (a : Type) (v : @BVVec n len a) (start' : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)) (len' : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)) (v_sub : @BVVec n len' a) => @genBVVec n len a (fun (i : @SAWCoreVectorsAsCoqVectors.Vec n (@SAWCoreScaffolding.Bool)) (pf : @SAWCoreScaffolding.Eq (@SAWCoreScaffolding.Bool) (@SAWCoreVectorsAsCoqVectors.bvult n i len) (@SAWCoreScaffolding.true)) => if @SAWCoreVectorsAsCoqVectors.bvule n start' i then @maybe (@is_bvult n (@SAWCoreVectorsAsCoqVectors.bvSub n i start') len') a (@atBVVec n len a v i pf) (fun (pf_sub : @SAWCoreScaffolding.Eq (@SAWCoreScaffolding.Bool) (@SAWCoreVectorsAsCoqVectors.bvult n (@SAWCoreVectorsAsCoqVectors.bvSub n i start') len') (@SAWCoreScaffolding.true)) => @atBVVec n len' a v_sub (@SAWCoreVectorsAsCoqVectors.bvSub n i start') pf_sub) (@bvultWithProof n (@SAWCoreVectorsAsCoqVectors.bvSub n i start') len') else @atBVVec n len a v i pf).
-
-(* Prelude.Sigma was skipped *)
-
-(* Prelude.Sigma__rec was skipped *)
-
-(* Prelude.Sigma_proj1 was skipped *)
-
-(* Prelude.Sigma_proj2 was skipped *)
-
-Definition uncurrySigma : forall (a : Type), forall (b : a -> Type), forall (c : Type), (forall (pa : a), b pa -> c) -> @sigT a b -> c :=
-  fun (a : Type) (b : a -> Type) (c : Type) => @sigT_rect a b (fun (_1 : @sigT a b) => c).
-
-(* Prelude.List was skipped *)
-
-Definition List_def : forall (a : Type), Type :=
-  fun (a : Type) => @Datatypes.list a.
-
-(* Prelude.List__rec was skipped *)
-
-Definition unfoldList : forall (a : Type), @Datatypes.list a -> @Either unit (prod a (prod (@Datatypes.list a) unit)) :=
-  fun (a : Type) (l : @Datatypes.list a) => @Datatypes.list_rect a (fun (_1 : @Datatypes.list a) => @Either unit (prod a (prod (@Datatypes.list a) unit))) (@Left unit (prod a (prod (@Datatypes.list a) unit)) tt) (fun (x : a) (l1 : @Datatypes.list a) (_1 : @Either unit (prod a (prod (@Datatypes.list a) unit))) => @Right unit (prod a (prod (@Datatypes.list a) unit)) (pair x (pair l1 tt))) l.
-
-Definition foldList : forall (a : Type), @Either unit (prod a (prod (@Datatypes.list a) unit)) -> @Datatypes.list a :=
-  fun (a : Type) => @either unit (prod a (prod (@Datatypes.list a) unit)) (@Datatypes.list a) (fun (_1 : unit) => @Datatypes.nil a) (fun (tup : prod a (prod (@Datatypes.list a) unit)) => @Datatypes.cons a (SAWCoreScaffolding.fst tup) (SAWCoreScaffolding.fst (SAWCoreScaffolding.snd tup))).
-
-Inductive ListSort : Type :=
-| LS_Nil : @ListSort
-| LS_Cons : Type -> @ListSort -> @ListSort
-.
-
-Definition ListSort__rec : forall (P : @ListSort -> Type), P (@LS_Nil) -> (forall (A : Type), forall (l : @ListSort), P l -> P (@LS_Cons A l)) -> forall (l : @ListSort), P l :=
-  fun (P : @ListSort -> Type) (f1 : P (@LS_Nil)) (f2 : forall (A : Type), forall (l : @ListSort), P l -> P (@LS_Cons A l)) (l : @ListSort) => SAWCorePrelude.ListSort_rect P f1 f2 l.
-
-Definition listSortGet : @ListSort -> @SAWCoreScaffolding.Nat -> Type :=
-  @ListSort__rec (fun (_1 : @ListSort) => @SAWCoreScaffolding.Nat -> Type) (fun (_1 : @SAWCoreScaffolding.Nat) => @SAWCoreScaffolding.Eq (@SAWCoreScaffolding.Bool) (@SAWCoreScaffolding.true) (@SAWCoreScaffolding.false)) (fun (A : Type) (_1 : @ListSort) (rec : @SAWCoreScaffolding.Nat -> Type) => @Nat_cases Type A (fun (n : @SAWCoreScaffolding.Nat) (_2 : Type) => rec n)).
-
-Definition listSortDrop : @ListSort -> @SAWCoreScaffolding.Nat -> @ListSort :=
-  @ListSort__rec (fun (_1 : @ListSort) => @SAWCoreScaffolding.Nat -> @ListSort) (fun (_1 : @SAWCoreScaffolding.Nat) => @LS_Nil) (fun (_1 : Type) (Ds : @ListSort) (rec : @SAWCoreScaffolding.Nat -> @ListSort) => @Nat_cases (@ListSort) Ds (fun (n : @SAWCoreScaffolding.Nat) (_2 : @ListSort) => rec n)).
-
-Inductive W64List : Type :=
-| W64Nil : @W64List
-| W64Cons : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool) -> @W64List -> @W64List
-.
-
-Definition unfoldedW64List : Type :=
-  @Either unit (prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit)).
-
-Definition unfoldW64List : @W64List -> unfoldedW64List :=
-  fun (l : @W64List) => SAWCorePrelude.W64List_rect (fun (_1 : @W64List) => unfoldedW64List) (@Left unit (prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit)) tt) (fun (bv : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (l' : @W64List) (_1 : @Either unit (prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit))) => @Right unit (prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_2 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit)) (pair (@existT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_2 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit) bv tt) (pair l' tt))) l.
-
-Definition foldW64List : unfoldedW64List -> @W64List :=
-  @either unit (prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit)) (@W64List) (fun (_1 : unit) => @W64Nil) (fun (bv_l : prod (@sigT (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit)) (prod (@W64List) unit)) => @W64Cons (@projT1 (@SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) (fun (_1 : @SAWCoreVectorsAsCoqVectors.Vec 64 (@SAWCoreScaffolding.Bool)) => unit) (SAWCoreScaffolding.fst bv_l)) (SAWCoreScaffolding.fst (SAWCoreScaffolding.snd bv_l))).
 
 Inductive IRTDesc (As : @ListSort) : Type :=
 | IRT_varD : @SAWCoreScaffolding.Nat -> @IRTDesc As

@@ -78,9 +78,6 @@ primitive String : sort 0;
 
 primitive error : (a : sort 1) -> String -> a;
 
-primitive appendString : String -> String -> String;
-
-
 
 --------------------------------------------------------------------------------
 -- Record types
@@ -1404,6 +1401,129 @@ primitive mkDouble : Integer -> Integer -> Float;
 -- primitive doubleToBV : Double -> Vec 64 Bool;
 
 
+-------------------------------------------------------------------------------
+-- Dependent sums
+
+data Sigma (a : sort 0) (b : a -> sort 0) : sort 0
+  where {
+    exists : (pa : a) -> b pa -> Sigma a b;
+  }
+
+Sigma__rec
+  (a : sort 0) (b : a -> sort 0) (p : Sigma a b -> sort 0)
+  (f1 : (pa : a) -> (pb : b pa) -> p (exists a b pa pb)) (u : Sigma a b) : p u
+  = Sigma#rec a b p f1 u;
+
+Sigma_proj1 (a : sort 0) (b : a -> sort 0) : Sigma a b -> a
+  = Sigma__rec a b (\ (_ : Sigma a b) -> a) (\ (pa : a) (_ : b pa) -> pa);
+
+Sigma_proj2 (a : sort 0) (b : a -> sort 0)
+  : (p : Sigma a b) -> b (Sigma_proj1 a b p)
+  = Sigma__rec a b
+      (\ (p : Sigma a b) -> b (Sigma_proj1 a b p))
+      (\ (pa : a) (pb : b pa) -> pb);
+
+uncurrySigma : (a : sort 0) -> (b : a -> sort 0) -> (c : sort 0) ->
+               ((pa : a) -> b pa -> c) -> Sigma a b -> c;
+uncurrySigma a b c = Sigma__rec a b (\ (_:Sigma a b) -> c);
+
+
+--------------------------------------------------------------------------------
+-- Lists
+
+data List (a : sort 0) : sort 0
+  where {
+    Nil : List a;
+    Cons : a -> List a -> List a;
+  }
+
+-- A definition for the List datatype; currently needed as a workaround in Heapster
+List_def : (a:sort 0) -> sort 0;
+List_def a = List a;
+
+List__rec :
+  (a : sort 0) -> (P : List a -> sort 0) -> P (Nil a) ->
+  ((x : a) -> (l : List a) -> P l -> P (Cons a x l)) ->
+  (l : List a) -> P l;
+List__rec a P f1 f2 l = List#rec a P f1 f2 l;
+
+unfoldList : (a:sort 0) -> List a -> Either #() (a * List a * #());
+unfoldList a l =
+  List__rec a (\ (_:List a) -> Either #() (a * List a * #()))
+  (Left #() (a * List a * #()) ())
+  (\ (x:a) (l:List a) (_:Either #() (a * List a * #())) ->
+     Right #() (a * List a * #()) (x, l, ()))
+  l;
+
+foldList : (a:sort 0) -> Either #() (a * List a * #()) -> List a;
+foldList a =
+  either #() (a * List a * #()) (List a)
+         (\ (_ : #()) -> Nil a)
+         (\ (tup : (a * List a * #())) ->
+            Cons a tup.(1) tup.(2).(1));
+
+-- A list of types, i.e. `List (sort 0)` if `List` was universe polymorphic
+data ListSort : sort 1 where {
+  LS_Nil : ListSort;
+  LS_Cons : sort 0 -> ListSort -> ListSort;
+}
+
+ListSort__rec : (P : ListSort -> sort 1) -> P LS_Nil ->
+                ((A:sort 0) -> (l:ListSort) -> P l -> P (LS_Cons A l)) ->
+                (l:ListSort) -> P l;
+ListSort__rec P f1 f2 l = ListSort#rec P f1 f2 l;
+
+-- The sort at the given index in a ListSort or `Eq Bool True False` if
+--  the index is out of bounds
+listSortGet : ListSort -> Nat -> sort 0;
+listSortGet = ListSort__rec (\ (_:ListSort) -> Nat -> sort 0)
+  (\ (_:Nat) -> Eq Bool True False)
+  (\ (A:sort 0) (_:ListSort) (rec : Nat -> sort 0) ->
+     Nat_cases (sort 0) A (\ (n:Nat) (_:sort 0) -> rec n));
+
+-- A ListSort with the first n (or all, if n > length) entries removed
+listSortDrop : ListSort -> Nat -> ListSort;
+listSortDrop = ListSort__rec (\ (_:ListSort) -> Nat -> ListSort)
+  (\ (_:Nat) -> LS_Nil)
+  (\ (_:sort 0) (Ds:ListSort) (rec : Nat -> ListSort) ->
+     Nat_cases ListSort Ds (\ (n:Nat) (_ : ListSort) -> rec n));
+
+
+--------------------------------------------------------------------------------
+-- Lists of 64-bit words (for testing Heapster)
+
+data W64List : sort 0 where {
+  W64Nil : W64List;
+  W64Cons : Vec 64 Bool -> W64List -> W64List;
+}
+
+unfoldedW64List : sort 0;
+unfoldedW64List =
+  Either #()
+  (Sigma (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #()) * W64List * #());
+
+unfoldW64List : W64List -> unfoldedW64List;
+unfoldW64List l =
+  W64List#rec (\ (_:W64List) -> unfoldedW64List)
+  (Left #() (Sigma (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #()) * W64List * #()) ())
+  (\ (bv:Vec 64 Bool) (l':W64List) (_:unfoldedW64List) ->
+     Right #() (Sigma (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #()) * W64List * #())
+               (exists (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #()) bv (),
+                l', ()))
+  l;
+
+foldW64List : unfoldedW64List -> W64List;
+foldW64List =
+  either #() (Sigma (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #()) * W64List * #())
+         W64List
+         (\ (_:#()) -> W64Nil)
+         (\ (bv_l:(Sigma (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #())
+                   * W64List * #())) ->
+            W64Cons (Sigma_proj1 (Vec 64 Bool)
+                                 (\ (_:Vec 64 Bool) -> #()) bv_l.(1))
+                    bv_l.(2).(1));
+
+
 --------------------------------------------------------------------------------
 -- Vector operations that use proof objects
 
@@ -1598,129 +1718,6 @@ updSliceBVVec n len a v start' len' v_sub =
                  atBVVec n len' a v_sub (bvSub n i start') pf_sub)
               (bvultWithProof n (bvSub n i start') len'))
            (atBVVec n len a v i pf));
-
-
--------------------------------------------------------------------------------
--- Dependent sums
-
-data Sigma (a : sort 0) (b : a -> sort 0) : sort 0
-  where {
-    exists : (pa : a) -> b pa -> Sigma a b;
-  }
-
-Sigma__rec
-  (a : sort 0) (b : a -> sort 0) (p : Sigma a b -> sort 0)
-  (f1 : (pa : a) -> (pb : b pa) -> p (exists a b pa pb)) (u : Sigma a b) : p u
-  = Sigma#rec a b p f1 u;
-
-Sigma_proj1 (a : sort 0) (b : a -> sort 0) : Sigma a b -> a
-  = Sigma__rec a b (\ (_ : Sigma a b) -> a) (\ (pa : a) (_ : b pa) -> pa);
-
-Sigma_proj2 (a : sort 0) (b : a -> sort 0)
-  : (p : Sigma a b) -> b (Sigma_proj1 a b p)
-  = Sigma__rec a b
-      (\ (p : Sigma a b) -> b (Sigma_proj1 a b p))
-      (\ (pa : a) (pb : b pa) -> pb);
-
-uncurrySigma : (a : sort 0) -> (b : a -> sort 0) -> (c : sort 0) ->
-               ((pa : a) -> b pa -> c) -> Sigma a b -> c;
-uncurrySigma a b c = Sigma__rec a b (\ (_:Sigma a b) -> c);
-
-
---------------------------------------------------------------------------------
--- Lists
-
-data List (a : sort 0) : sort 0
-  where {
-    Nil : List a;
-    Cons : a -> List a -> List a;
-  }
-
--- A definition for the List datatype; currently needed as a workaround in Heapster
-List_def : (a:sort 0) -> sort 0;
-List_def a = List a;
-
-List__rec :
-  (a : sort 0) -> (P : List a -> sort 0) -> P (Nil a) ->
-  ((x : a) -> (l : List a) -> P l -> P (Cons a x l)) ->
-  (l : List a) -> P l;
-List__rec a P f1 f2 l = List#rec a P f1 f2 l;
-
-unfoldList : (a:sort 0) -> List a -> Either #() (a * List a * #());
-unfoldList a l =
-  List__rec a (\ (_:List a) -> Either #() (a * List a * #()))
-  (Left #() (a * List a * #()) ())
-  (\ (x:a) (l:List a) (_:Either #() (a * List a * #())) ->
-     Right #() (a * List a * #()) (x, l, ()))
-  l;
-
-foldList : (a:sort 0) -> Either #() (a * List a * #()) -> List a;
-foldList a =
-  either #() (a * List a * #()) (List a)
-         (\ (_ : #()) -> Nil a)
-         (\ (tup : (a * List a * #())) ->
-            Cons a tup.(1) tup.(2).(1));
-
--- A list of types, i.e. `List (sort 0)` if `List` was universe polymorphic
-data ListSort : sort 1 where {
-  LS_Nil : ListSort;
-  LS_Cons : sort 0 -> ListSort -> ListSort;
-}
-
-ListSort__rec : (P : ListSort -> sort 1) -> P LS_Nil ->
-                ((A:sort 0) -> (l:ListSort) -> P l -> P (LS_Cons A l)) ->
-                (l:ListSort) -> P l;
-ListSort__rec P f1 f2 l = ListSort#rec P f1 f2 l;
-
--- The sort at the given index in a ListSort or `Eq Bool True False` if
---  the index is out of bounds
-listSortGet : ListSort -> Nat -> sort 0;
-listSortGet = ListSort__rec (\ (_:ListSort) -> Nat -> sort 0)
-  (\ (_:Nat) -> Eq Bool True False)
-  (\ (A:sort 0) (_:ListSort) (rec : Nat -> sort 0) ->
-     Nat_cases (sort 0) A (\ (n:Nat) (_:sort 0) -> rec n));
-
--- A ListSort with the first n (or all, if n > length) entries removed
-listSortDrop : ListSort -> Nat -> ListSort;
-listSortDrop = ListSort__rec (\ (_:ListSort) -> Nat -> ListSort)
-  (\ (_:Nat) -> LS_Nil)
-  (\ (_:sort 0) (Ds:ListSort) (rec : Nat -> ListSort) ->
-     Nat_cases ListSort Ds (\ (n:Nat) (_ : ListSort) -> rec n));
-
-
---------------------------------------------------------------------------------
--- Lists of 64-bit words (for testing Heapster)
-
-data W64List : sort 0 where {
-  W64Nil : W64List;
-  W64Cons : Vec 64 Bool -> W64List -> W64List;
-}
-
-unfoldedW64List : sort 0;
-unfoldedW64List =
-  Either #()
-  (Sigma (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #()) * W64List * #());
-
-unfoldW64List : W64List -> unfoldedW64List;
-unfoldW64List l =
-  W64List#rec (\ (_:W64List) -> unfoldedW64List)
-  (Left #() (Sigma (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #()) * W64List * #()) ())
-  (\ (bv:Vec 64 Bool) (l':W64List) (_:unfoldedW64List) ->
-     Right #() (Sigma (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #()) * W64List * #())
-               (exists (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #()) bv (),
-                l', ()))
-  l;
-
-foldW64List : unfoldedW64List -> W64List;
-foldW64List =
-  either #() (Sigma (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #()) * W64List * #())
-         W64List
-         (\ (_:#()) -> W64Nil)
-         (\ (bv_l:(Sigma (Vec 64 Bool) (\ (_:Vec 64 Bool) -> #())
-                   * W64List * #())) ->
-            W64Cons (Sigma_proj1 (Vec 64 Bool)
-                                 (\ (_:Vec 64 Bool) -> #()) bv_l.(1))
-                    bv_l.(2).(1));
 
 
 --------------------------------------------------------------------------------
