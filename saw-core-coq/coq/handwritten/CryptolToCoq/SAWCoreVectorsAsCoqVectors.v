@@ -171,7 +171,7 @@ Definition zipWithFunctional
            (a b c : Type) (f : a -> b -> c) (n : Nat) (xs : Vec n a) (ys : Vec n b) :=
   VectorDef.map (fun p => f (fst p) (snd p)) (zipFunctional _ _ _ _ xs ys).
 
-Definition bitvector (n : Nat) : Type := Vector.t bool n.
+Notation bitvector n := (Vec n Bool).
 
 (* NOTE BITS are stored in reverse order than bitvector *)
 Definition bvToBITS {size : nat} : bitvector size -> BITS size
@@ -181,7 +181,7 @@ Arguments bvToBITS : simpl never.
 
 (* NOTE BITS are stored in reverse order than bitvector *)
 Definition bitsToBv {size : nat} : BITS size -> bitvector size
-  := tuple_foldl_dep bool bitvector size (fun _ bv b => Vector.cons _ b _ bv) (Vector.nil _).
+  := tuple_foldl_dep bool (fun n => bitvector n) size (fun _ bv b => Vector.cons _ b _ bv) (Vector.nil _).
 
 Arguments bitsToBv : simpl never.
 
