@@ -81,6 +81,7 @@ primitive error : (a : sort 1) -> String -> a;
 primitive appendString : String -> String -> String;
 
 
+
 --------------------------------------------------------------------------------
 -- Record types
 
@@ -126,7 +127,7 @@ Eq__rec t x p f1 y pf = Eq#rec t x p f1 y pf;
 
 -- Congruence closure for equality
 eq_cong : (t : sort 1) -> (x : t) -> (y : t) -> Eq t x y ->
-          (u : sort 1) -> (f : t -> u) -> Eq u (f x) (f y);
+           (u : sort 1) -> (f : t -> u) -> Eq u (f x) (f y);
 eq_cong t x y eq u f =
   Eq__rec t x (\ (y':t) -> \ (eq':Eq t x y') -> Eq u (f x) (f y'))
           (Refl u (f x)) y eq;
@@ -169,6 +170,7 @@ coerce__def a b eq x =
 
 axiom coerce__eq :
   Eq ((a b : sort 0) -> Eq (sort 0) a b -> a -> b) coerce coerce__def;
+
 
 -- NOTE: this is equivalent to UIP / Axiom K
 {-
@@ -262,7 +264,6 @@ ite_true (a : sort 1) (x y : a) : Eq a (ite a True x y) x =
 ite_false (a : sort 1) (x y : a) : Eq a (ite a False x y) y =
   trans a (ite a False x y) (iteDep (\ (b:Bool) -> a) False x y) y
         (ite_eq_iteDep a False x y) (iteDep_False (\ (_:Bool) -> a) x y);
-
 
 --
 -- Converting between Bools and Bits (cause why not?)
@@ -1605,23 +1606,24 @@ updSliceBVVec n len a v start' len' v_sub =
 -------------------------------------------------------------------------------
 -- Dependent sums
 
-data Sigma (a : sort 0) (b : a -> sort 0) : sort 0 where {
+data Sigma (a : sort 0) (b : a -> sort 0) : sort 0
+  where {
     exists : (pa : a) -> b pa -> Sigma a b;
-}
+  }
 
-Sigma__rec (a : sort 0) (b : a -> sort 0) (p : Sigma a b -> sort 0)
-           (f1 : (pa : a) -> (pb : b pa) -> p (exists a b pa pb)) (u : Sigma a b) : p u
+Sigma__rec
+  (a : sort 0) (b : a -> sort 0) (p : Sigma a b -> sort 0)
+  (f1 : (pa : a) -> (pb : b pa) -> p (exists a b pa pb)) (u : Sigma a b) : p u
   = Sigma#rec a b p f1 u;
 
-Sigma_proj1 : (a : sort 0) -> (b : a -> sort 0) -> Sigma a b -> a;
-Sigma_proj1 a b =
-  Sigma__rec a b (\ (_:Sigma a b) -> a) (\ (pa:a) (_: b pa) -> pa);
+Sigma_proj1 (a : sort 0) (b : a -> sort 0) : Sigma a b -> a
+  = Sigma__rec a b (\ (_ : Sigma a b) -> a) (\ (pa : a) (_ : b pa) -> pa);
 
-Sigma_proj2 : (a : sort 0) -> (b : a -> sort 0) -> (p : Sigma a b) ->
-              b (Sigma_proj1 a b p);
-Sigma_proj2 a b =
-  Sigma__rec a b (\ (p:Sigma a b) -> b (Sigma_proj1 a b p))
-             (\ (pa:a) (pb: b pa) -> pb);
+Sigma_proj2 (a : sort 0) (b : a -> sort 0)
+  : (p : Sigma a b) -> b (Sigma_proj1 a b p)
+  = Sigma__rec a b
+      (\ (p : Sigma a b) -> b (Sigma_proj1 a b p))
+      (\ (pa : a) (pb : b pa) -> pb);
 
 uncurrySigma : (a : sort 0) -> (b : a -> sort 0) -> (c : sort 0) ->
                ((pa : a) -> b pa -> c) -> Sigma a b -> c;
@@ -1631,18 +1633,20 @@ uncurrySigma a b c = Sigma__rec a b (\ (_:Sigma a b) -> c);
 --------------------------------------------------------------------------------
 -- Lists
 
-data List (a:sort 0) : sort 0 where {
-  Nil : List a;
-  Cons : a -> List a -> List a;
-}
+data List (a : sort 0) : sort 0
+  where {
+    Nil : List a;
+    Cons : a -> List a -> List a;
+  }
 
 -- A definition for the List datatype; currently needed as a workaround in Heapster
 List_def : (a:sort 0) -> sort 0;
 List_def a = List a;
 
-List__rec : (a:sort 0) -> (P : List a -> sort 0) -> P (Nil a) ->
-            ((x:a) -> (l:List a) -> P l -> P (Cons a x l)) ->
-            (l:List a) -> P l;
+List__rec :
+  (a : sort 0) -> (P : List a -> sort 0) -> P (Nil a) ->
+  ((x : a) -> (l : List a) -> P l -> P (Cons a x l)) ->
+  (l : List a) -> P l;
 List__rec a P f1 f2 l = List#rec a P f1 f2 l;
 
 unfoldList : (a:sort 0) -> List a -> Either #() (a * List a * #());
