@@ -37,7 +37,7 @@ Tactic Notation "unfold_projs" "in" "*" :=
 Ltac split_prod_hyps :=
   repeat match goal with
          | H: _ /\ _        |- _ => destruct H as [?H ?H]
-         | p: { _ : _ & _ } |- _ => destruct p as [? H]
+         | p: { _ : _ & _ } |- _ => destruct p as [?p ?p]
          | p: _ * _         |- _ => destruct p as [?p ?p]
          | u: unit          |- _ => destruct u
          | u: True          |- _ => destruct u
@@ -262,8 +262,8 @@ Ltac IntroArg_base_tac n A g :=
   lazymatch A with
   | _ /\ _        => simple apply IntroArg_and
   | _ \/ _        => simple apply IntroArg_or
-  | { _ : _ & _ } => simple apply IntroArg_sigT
-  | prod _      _ => simple apply IntroArg_prod
+  (* | { _ : _ & _ } => simple apply IntroArg_sigT *)
+  (* | prod _      _ => simple apply IntroArg_prod *)
   | sum _ _       => simple apply IntroArg_sum
   | unit          => simple apply IntroArg_unit
   | existT _ _ _ = existT _ _ _ => simple apply IntroArg_eq_sigT_const
@@ -663,22 +663,27 @@ Hint Extern 5 (@refinesFun (LRT_Fun _ _) _ _) =>
  *** Top-level tactics to put it all together
  ***)
 
-Variant ProveRefOpts := Default | NoRewrite.
+Variant ProveRefOpts := Default | NoRewrite | NoDestructProds | NoRewriteNoDestructProds.
 
 Ltac prove_refinement_eauto :=
   unshelve (typeclasses eauto with refinesM refinesFun).
+Ltac prove_refinement_destruct_prod_hyps :=
+  split_prod_hyps; unfold_projs in *.
 Ltac prove_refinement_rewrite :=
   try unshelve (rewrite_strat (bottomup (hints refinesM))).
 Ltac prove_refinement_try_solve :=
-  unfold_projs in *;
-  split_prod_hyps; split_prod_goal;
+  split_prod_goal;
   try reflexivity || contradiction.
 
 Tactic Notation "prove_refinement_core" "with" constr(opts) :=
+  prove_refinement_eauto;
   match opts with
-  | Default => prove_refinement_eauto; prove_refinement_rewrite; prove_refinement_try_solve
-  | NoRewrite => prove_refinement_eauto; prove_refinement_try_solve
-  end.
+  | Default => prove_refinement_destruct_prod_hyps; prove_refinement_rewrite
+  | NoRewrite => prove_refinement_destruct_prod_hyps
+  | NoDestructProds => prove_refinement_rewrite
+  | NoRewriteNoDestructProds => idtac
+  end;
+  prove_refinement_try_solve.
 
 Ltac prove_refinement_core := prove_refinement_core with Default.
 
