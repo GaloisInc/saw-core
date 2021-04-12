@@ -1437,10 +1437,6 @@ data List (a : sort 0) : sort 0
     Cons : a -> List a -> List a;
   }
 
--- A definition for the List datatype; currently needed as a workaround in Heapster
-List_def : (a:sort 0) -> sort 0;
-List_def a = List a;
-
 List__rec :
   (a : sort 0) -> (P : List a -> sort 0) -> P (Nil a) ->
   ((x : a) -> (l : List a) -> P l -> P (Cons a x l)) ->
@@ -1463,10 +1459,11 @@ foldList a =
             Cons a tup.(1) tup.(2).(1));
 
 -- A list of types, i.e. `List (sort 0)` if `List` was universe polymorphic
-data ListSort : sort 1 where {
-  LS_Nil : ListSort;
-  LS_Cons : sort 0 -> ListSort -> ListSort;
-}
+data ListSort : sort 1
+  where {
+    LS_Nil : ListSort;
+    LS_Cons : sort 0 -> ListSort -> ListSort;
+  }
 
 ListSort__rec : (P : ListSort -> sort 1) -> P LS_Nil ->
                 ((A:sort 0) -> (l:ListSort) -> P l -> P (LS_Cons A l)) ->
@@ -1525,7 +1522,7 @@ foldW64List =
 
 
 --------------------------------------------------------------------------------
--- Vector operations that use proof objects
+-- Vector operations with built-in casts of their resulting lengths
 
 -- Decide equality on two bitvectors, returning a proof if they are equal
 primitive bvEqWithProof : (n : Nat) -> (v1 v2 : Vec n Bool) ->
