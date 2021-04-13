@@ -1070,6 +1070,9 @@ primitive bvNat : (n : Nat) -> Nat -> Vec n Bool;
 -- | Satisfies @bvNat n (bvToNat n x) = x@.
 primitive bvToNat : (n : Nat) -> Vec n Bool -> Nat;
 
+axiom bvNat_bvToNat_id : (n : Nat) -> (x : Vec n Bool) ->
+                         Eq (Vec n Bool) (bvNat n (bvToNat n x)) x;
+
 bvAt : (n : Nat) -> (a : sort 0) -> (w : Nat) -> Vec n a -> Vec w Bool
      -> a;
 bvAt n a w xs i = at n a xs (bvToNat w i);
@@ -1554,9 +1557,14 @@ primitive bvultToIsLtNat : (n : Nat) -> (v1 v2 : Vec n Bool) ->
                            Eq Bool (bvult n v1 v2) True ->
                            IsLtNat (bvToNat n v1) (bvToNat n v2);
 
+-- Generate a vector using a proof that the index is in the range of the vector
+-- FIXME: Like the below, gen should maybe use this...?
+primitive genWithProof : (n : Nat) -> (a : sort 0) ->
+                         ((i : Nat) -> IsLtNat i n -> a) -> Vec n a;
+
 -- | Index a vector using a proof that the index is in the range of the vector
 -- FIXME: atWithDefault should maybe use this...?
-primitive atWithProof : (n : Nat) -> (a : sort 0) -> a -> Vec n a ->
+primitive atWithProof : (n : Nat) -> (a : sort 0) -> Vec n a ->
                         (i : Nat) -> IsLtNat i n -> a;
 
 -- Set the value at index i in a vector using a proof that i is in range
@@ -1596,13 +1604,24 @@ axiom bvult_sub_add_bvult : (n:Nat) -> (x y z:Vec n Bool) ->
                             is_bvule n y z -> is_bvult n x (bvSub n z y) ->
                             is_bvult n (bvAdd n y x) z;
 
+-- When comparing a nat and a bitvector, IsLtNat and is_bvult are equivalent
+axiom IsLtNat_to_bvult : (n : Nat) -> (x : Vec n Bool) -> (i : Nat) ->
+                         IsLtNat i (bvToNat n x) -> is_bvult n (bvNat n i) x;
+axiom bvult_to_IsLtNat : (n : Nat) -> (x : Vec n Bool) -> (i : Nat) ->
+                         is_bvult n (bvNat n i) x -> IsLtNat i (bvToNat n x);
+
 -- The type of a bitvector-indexed array of length len : Vec n Bool
-primitive BVVec : (n:Nat) -> Vec n Bool -> sort 0 -> sort 0;
+BVVec : (n:Nat) -> Vec n Bool -> sort 0 -> sort 0;
+BVVec n len = Vec (bvToNat n len);
 
 -- Generate a BVVec of length len whose elements are given by a function
-primitive genBVVec : (n : Nat) -> (len : Vec n Bool) -> (a : sort 0) ->
-                     ((i:Vec n Bool) -> is_bvult n i len -> a) ->
-                     BVVec n len a;
+genBVVec : (n : Nat) -> (len : Vec n Bool) -> (a : sort 0) ->
+           ((i:Vec n Bool) -> is_bvult n i len -> a) ->
+           BVVec n len a;
+genBVVec n len a f =
+  genWithProof (bvToNat n len) a
+    (\(i:Nat) (pf:IsLtNat i (bvToNat n len)) -> 
+      f (bvNat n i) (IsLtNat_to_bvult n len i pf));
 
 -- Ex Falso Quodlibet: if True = False then anything is possible
 efq : (a : sort 0) -> Eq Bool True False -> a;
@@ -1641,9 +1660,16 @@ singletonBVVec : (n : Nat) -> (a : sort 0) -> a -> BVVec n (bvNat n 1) a;
 singletonBVVec n a x = repeatBVVec n (bvNat n 1) a x;
 
 -- Read the ixth element of a BVVec, assuming that ix < len
-primitive atBVVec : (n : Nat) -> (len : Vec n Bool) -> (a : sort 0) ->
-                    BVVec n len a -> (ix : Vec n Bool) ->
-                    is_bvult n ix len -> a;
+atBVVec : (n : Nat) -> (len : Vec n Bool) -> (a : sort 0) ->
+          BVVec n len a -> (ix : Vec n Bool) ->
+          is_bvult n ix len -> a;
+atBVVec n len a x ix pf =
+  atWithProof (bvToNat n len) a x (bvToNat n ix)
+    (bvult_to_IsLtNat n len (bvToNat n ix)
+      (trans Bool (bvult n (bvNat n (bvToNat n ix)) len) (bvult n ix len) True
+        (eq_cong (Vec n Bool) (bvNat n (bvToNat n ix)) ix
+          (bvNat_bvToNat_id n ix) Bool (\(y:Vec n Bool) -> bvult n y len))
+        pf));
 
 -- Indexing a generated BVVec just returns the generating function
 axiom at_gen_BVVec : (n : Nat) -> (len : Vec n Bool) -> (a : sort 0) ->
