@@ -743,7 +743,8 @@ prelPrims =
 
     -- -- Sequences primitives
   , ("#",            flip scGlobalDef "Cryptol.ecCat")         -- {a,b,d} (fin a) => [a] d -> [b] d -> [a + b] d
-  , ("splitAt",      flip scGlobalDef "Cryptol.ecSplitAt")     -- {a,b,c} (fin a) => [a+b] c -> ([a]c,[b]c)
+  , ("take",         flip scGlobalDef "Cryptol.ecTake")        -- {front, back, a} [front + back]a -> [front]a
+  , ("drop",         flip scGlobalDef "Cryptol.ecDrop")        -- {front, back, a} (fin front) => [front + back]a -> [back]a
   , ("join",         flip scGlobalDef "Cryptol.ecJoin")        -- {a,b,c} (fin b) => [a][b]c -> [a * b]c
   , ("split",        flip scGlobalDef "Cryptol.ecSplit")       -- {a,b,c} (fin b) => [a * b] c -> [a][b] c
   , ("reverse",      flip scGlobalDef "Cryptol.ecReverse")     -- {a,b} (fin a) => [a] b -> [a] b
