@@ -467,17 +467,8 @@ bindInteger (ident, n) env =
 
 --------------------------------------------------------------------------------
 
--- FIXME: This definition was copied from a local declaration inside
--- function 'defaultRW' in module 'Cryptol.REPL.Monad'. The cryptol
--- package should probably export it so we don't have to copy it.
 meSolverConfig :: ME.ModuleEnv -> TM.SolverConfig
-meSolverConfig env =
-  TM.SolverConfig
-  { TM.solverPath = "z3"
-  , TM.solverArgs = [ "-smt2", "-in" ]
-  , TM.solverVerbose = 0
-  , TM.solverPreludePath = ME.meSearchPath env
-  }
+meSolverConfig env = TM.defaultSolverConfig (ME.meSearchPath env)
 
 resolveIdentifier ::
   (?fileReader :: FilePath -> IO ByteString) =>
