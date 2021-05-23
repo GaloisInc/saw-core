@@ -41,16 +41,16 @@ jobs:
           ocaml-compiler: 4.09.x
 
       - name: Install coq
-        run: opam install coq=${{ matrix.coq }}
+        run: opam depext --install coq=${{ matrix.coq }}
 
       - name: Add coq-released repository
         run: opam repo add coq-released https://coq.inria.fr/opam/released
 
       - name: Install coq-bits
-        run: opam install coq-bits=${{ matrix.coq-bits-version }}
+        run: opam depext --install coq-bits=${{ matrix.coq-bits-version }}
 
       - name: Build saw-core-coq/coq
         working-directory: saw-core-coq/coq
         run: |
           opam exec -- coq_makefile -f _CoqProject -o Makefile.coq
-          opam exec -- make -j(nproc)
+          opam exec -- make
