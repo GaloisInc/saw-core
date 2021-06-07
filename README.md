@@ -1,3 +1,7 @@
+Note! This repository is obsolete. The directories described below now
+exist in the [saw-script](https://github.com/GaloisInc/saw-script)
+repository.
+
 SAWCore is a purely functional dependently-typed intermediate language
 for representing the semantics of software (and potentially hardware).
 It includes primitive types and operations sufficient to represent
